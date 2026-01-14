@@ -1,0 +1,23 @@
+@echo off
+echo 🚀 Starting Reup frontend build process...
+
+echo 📦 Installing dependencies...
+call npm ci --silent
+
+echo 🔨 Building for production...
+call npm run production
+
+echo 🔒 Obfuscating JavaScript...
+node obfuscate.js
+
+echo 📁 Copying obfuscated files...
+copy public\js\*.obf.js public\js\app.js
+
+echo 🖼️ Optimizing images...
+npx imagemin resources\images\* --out-dir=public\images
+
+echo ⚙️ Generating service worker...
+npx workbox generateSW workbox-config.js
+
+echo ✅ Build completed successfully!
+echo 📁 Output directory: public\

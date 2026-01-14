@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styling for Laravel Breeze components */
+.text-input-error {
+    @apply text-red-600 text-sm mt-1;
+}
+
+/* Ensure buttons have proper styling */
+button[type="submit"] {
+    @apply transition-all duration-200;
+}
+
+/* Style for input focus states */
+input:focus {
+    @apply outline-none;
+}
+
+/* Checkbox styling */
+input[type="checkbox"]:checked {
+    @apply bg-green-600 border-green-600;
+}

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet">
+    <title>New Contact Message</title>
+    <style>
+        *{
+            box-sizing: border-box;
+            font-family: "DM Sans", sans-serif;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f9fafb;
+            color: #374151;
+            margin: 0;
+            padding: 0;
+            width: 50%;
+            margin: 5px auto;
+            background-color: #f5f5f5;
+        }
+        .header {
+            background-color: #e3ffdd;
+            color: rgb(17, 36, 0);
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 30px;
+            border-radius: 10px;
+        }
+        .logo{
+            margin: 20px auto;
+        }
+        .content {
+            padding: 20px 30px;
+            background-color: #fdfff4;
+            border-radius: 10px;
+        }
+        .footer{
+            text-align: center;
+            font-size: 12px;
+            color: #9ca3af;
+            margin-top: 30px;
+        }
+        .message-box{
+            background-color: #ffffff;
+            border: 1px solid #d1d5db;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 10px;
+            white-space: pre-wrap;
+        }
+        @media (max-width: 480px){
+            body {
+            font-family: Arial, sans-serif;
+            background-color: #f9fafb;
+            color: #374151;
+            margin: 0;
+            padding: 0;
+            width: 90%;
+            margin: 5px auto;
+            background-color: #f5f5f5;
+            overflow: wrap;
+        }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <img class="logo" src="https://i.postimg.cc/BbwmF1qW/12.png" alt="{{ config('app.name') }} Logo" style="height: 30px; margin-bottom: 10px;">
+        <h1 style="margin: 0; font-size: 24px;">📨 New Contact Message</h1>
+        <p style="margin: 10px 0 0; opacity: 0.9;">A user has submitted a contact form</p>
+    </div>
+
+    <div class="content">
+        <div class="info-box">
+            <h3 style="text-align:center; color: #111827;">Sender Information</h3>
+            <p style="margin: 5px 0;"><strong>👤 Name:</strong>  {{ $contact->name }}</p>
+            <p style="margin: 20px 0;"><strong>📧 Email:</strong>  {{ $contact->email }}</p>
+            <p style="margin: 5px 0;"><strong>📋 Subject:</strong> {{ $contact->subject }}</p>
+            @if($contact->user)
+                <p style="margin: 5px 0;"><strong>👤 User ID:</strong> #{{ str_pad($contact->user_id, 6, '0', STR_PAD_LEFT) }}</p>
+            @endif
+            <p style="margin: 5px 0;"><strong>🕒 Time:</strong> {{ $contact->created_at->format('F j, Y \a\t g:i A') }}</p>
+        </div>
+
+        <h3 style="color: #152711; margin-top: 25px;">Message Content</h3>
+        <div class="message-box">
+            {{ $message->message }}
+        </div>
+
+        <div style="margin-top: 30px; text-align: center;">
+            <a href="{{ url('/admin/contact/' . $message->id) }}" class="btn">
+                View in Admin Panel →
+            </a>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p style="margin: 5px 0;">Reup is a product of <a href="https://www.bellahoptions.com" style="color: #111827; text-decoration: none;">Bellah Options | BN3668420</a></p>
+        <p style="margin: 5px 0;">This is an automated notification from {{ config('app.name') }}</p>
+        <p style="margin: 5px 0; font-size: 12px;">Message ID: #{{ str_pad($message->id, 6, '0', STR_PAD_LEFT) }}</p>
+    </div>
+</body>
+</html>
