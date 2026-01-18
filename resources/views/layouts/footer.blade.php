@@ -73,8 +73,8 @@
                         <span class="text-lg mt-0.5">📧</span>
                         <div>
                             <p class="text-xs text-green-200 mb-1">Email</p>
-                            <a href="mailto:reup.bellahoptions@gmail.com" class="text-sm md:text-base text-white hover:text-green-200 transition-colors duration-300 font-medium">
-                                reup.bellahoptions@gmail.com
+                            <a href="mailto:support@reup.com.ng" class="text-sm md:text-base text-white hover:text-green-200 transition-colors duration-300 font-medium">
+                                support@reup.com.ng
                             </a>
                         </div>
                     </div>

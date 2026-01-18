@@ -25,6 +25,12 @@
 <meta name="msapplication-TileImage" content="{{ asset('images/ms-icon-144x144.png')}}">
 <meta name="theme-color" content="#2AB70D">
 <!--End Icon Links-->   
+
+<!-- SEO Meta Tags -->
+    <meta name="description" content="{{ $siteSettings['meta_description'] ?? '' }}">
+    <meta name="keywords" content="{{ $siteSettings['meta_keywords'] ?? '' }}">
+    <!--END SEO-->
+    
     <title>Reup | Buy airtime, data, and pay bills instantly with ReUp. Fast, secure, and stress-free — anytime, anywhere.</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -77,6 +83,7 @@
 @endif
 --}}
 </head>
+<body class="font-sans antialiased bg-green-50">
 
 <!-- Announcements Modal -->
 @if(!empty($announcements) && !session('announcements_viewed'))
@@ -143,8 +150,7 @@
         document.getElementById('announcementsModal').style.display = 'none';
     }
     </script>
-@endif
-<body class="font-sans antialiased bg-green-50">
+    @endif
     @if(auth()->check() && auth()->user()->requires_phone_update)
     @if(!request()->is('profile*'))
         <div class="bg-gradient-to-r from-red-50 to-pink-50 border-b border-red-200">

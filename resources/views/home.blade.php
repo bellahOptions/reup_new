@@ -1,7 +1,7 @@
 @extends('layouts.main')
-
+@section('title', 'Welcome')
 @section('main')
-<!--hero-->
+<!--hero--> 
     <div class="relative min-h-screen overflow-hidden bg-gradient-to-br from-green-50 via-white to-emerald-50">
     <!-- Background Decorative Elements -->
     <div class="absolute inset-0 overflow-hidden pointer-events-none">
@@ -52,11 +52,11 @@
 
         <!-- CTA Buttons -->
         <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8 px-4">
-            <a href="#" 
+            <a href="{{route('register')}}" 
                class="inline-flex items-center justify-center bg-green-500 hover:bg-green-600 text-white font-semibold px-8 py-4 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300 text-base md:text-lg w-full sm:w-auto">
                 🚀 Get Started
             </a>
-            <a href="#" 
+            <a href="{{route('login')}}" 
                class="inline-flex items-center justify-center ring-2 ring-green-500 hover:bg-green-50 text-gray-700 hover:text-green-600 font-semibold px-8 py-4 rounded-full shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-300 text-base md:text-lg w-full sm:w-auto">
                 🔐 Login
             </a>
@@ -513,12 +513,12 @@
         </p>
 
         <div class="flex flex-col sm:flex-row items-center justify-center gap-4 md:gap-6">
-            <a href="#" 
+            <a href="{{ route('register') }}" 
                class="group relative inline-flex items-center justify-center bg-white text-green-600 hover:text-green-700 font-bold px-10 py-4 md:px-12 md:py-5 rounded-full shadow-xl hover:shadow-2xl transform hover:scale-105 transition-all duration-300 text-base md:text-lg w-full sm:w-auto overflow-hidden">
                 <span class="relative z-10">✨ Create Account</span>
                 <div class="absolute inset-0 bg-gradient-to-r from-green-50 to-emerald-50 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             </a>
-            <a href="#" 
+            <a href="{{ route('login') }}"
                class="inline-flex items-center justify-center ring-2 ring-white text-white hover:bg-white/10 font-semibold px-10 py-4 md:px-12 md:py-5 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300 text-base md:text-lg w-full sm:w-auto">
                 Login
             </a>

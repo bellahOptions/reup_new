@@ -347,4 +347,15 @@ public function chatMessages()
             'is_online' => true
         ]);
     }
+
+    // Add to your Users model or create a notification tracking table
+public function markTermsNotificationSent($termsId)
+{
+    $this->notifications()->create([
+        'type' => 'terms_updated',
+        'data' => ['terms_id' => $termsId],
+        'read_at' => null,
+    ]);
+}
+
 }

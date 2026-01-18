@@ -325,44 +325,62 @@ if ($this->clubKonnect->isSuccessResponse($response)) {
         }
     }
     
-    /**
-     * Create transaction record
-     */
-    private function createTransaction(array $data): Transactions
-    {
-        return Transactions::create(array_merge([
-            'reference' => Transactions::generateReference('TXN'),
-            'balance_after' => $data['balance_before'],
-            'payment_status' => 'pending',
-        ], $data));
+   /**
+ * Create transaction record
+ */
+private function createTransaction(array $data): Transactions
+{
+    // Get FRESH wallet balance at creation time
+    $user = User::find($data['user_id']);
+    
+    return Transactions::create(array_merge([
+        'reference' => Transactions::generateReference('TXN'),
+        'balance_before' => $user->wallet_balance, // Current balance
+        'balance_after' => $user->wallet_balance,   // Will be updated later
+        'payment_status' => 'pending',
+    ], $data));
+}
+
+/**
+ * Deduct from wallet
+ */
+private function deductFromWallet(Transactions $transaction): void
+{
+    $user = $transaction->user;
+    $wallet = $user->wallet;
+    
+    // CRITICAL: Get fresh balance before deduction
+    $user->refresh();
+    $currentBalance = $user->wallet_balance;
+    
+    // Calculate new balance
+    $newBalance = $currentBalance - $transaction->total_amount;
+    
+    // Prevent negative balance
+    if ($newBalance < 0) {
+        throw new \Exception('Insufficient funds. Current balance: ₦' . number_format($currentBalance, 2));
     }
     
-    /**
-     * Deduct from wallet
-     */
-    private function deductFromWallet(Transactions $transaction): void
-    {
-        $user = $transaction->user;
-        $wallet = $user->wallet;
-        
-        $newBalance = $user->wallet_balance - $transaction->total_amount;
-        
-        $user->update(['wallet_balance' => $newBalance]);
-        
-        if ($wallet) {
-            $wallet->update([
-                'balance' => $newBalance,
-                'total_spent' => $wallet->total_spent + $transaction->total_amount,
-                'transaction_count' => $wallet->transaction_count + 1,
-            ]);
-        }
-        
-        $transaction->update([
-            'balance_after' => $newBalance,
-            'payment_status' => 'success',
-            'paid_at' => now(),
+    // Update user wallet
+    $user->update(['wallet_balance' => $newBalance]);
+    
+    // Update wallet model
+    if ($wallet) {
+        $wallet->update([
+            'balance' => $newBalance,
+            'total_spent' => $wallet->total_spent + $transaction->total_amount,
+            'transaction_count' => $wallet->transaction_count + 1,
         ]);
     }
+    
+    // Update transaction with ACCURATE balances
+    $transaction->update([
+        'balance_before' => $currentBalance,  // Update with fresh balance
+        'balance_after' => $newBalance,
+        'payment_status' => 'success',
+        'paid_at' => now(),
+    ]);
+}
     
     /**
      * Get network name

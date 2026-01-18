@@ -30,6 +30,10 @@
             "Database\\Seeders\\": "database/seeders/"
         }
     },
+    
+    "files": [
+        "app/Helpers/settings_helper.php"
+    ],
     "autoload-dev": {
         "psr-4": {
             "Tests\\": "tests/"
@@ -55,6 +59,7 @@
             "dont-discover": []
         }
     },
+    
     "config": {
         "optimize-autoloader": true,
         "preferred-install": "dist",

@@ -2,20 +2,20 @@
 @section('content')
 <main class="min-h-screen bg-gradient-to-br from-gray-50 to-green-50/30">
     <div class="py-8 md:py-12">
-        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="max-w-full overflow-clip mx-auto px-4 sm:px-6 lg:px-8">
             <!-- Page Header -->
             <div class="mb-8 md:mb-12">
-                <div class="flex items-center justify-between mb-4">
-                    <div class="flex items-center space-x-3">
-                        <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg">
+                <div class="flex flex-col md:flex-row items-center justify-between mb-4">
+                    <div class="flex flex-col md:flex-row space-y-5 items-center space-x-3">
+                        <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center shadow-lg">
                             <span class="text-2xl">💰</span>
                         </div>
-                        <div>
+                        <div class="text-center sm:mb-5 md:text-left">
                             <h1 class="text-2xl md:text-4xl font-bold text-gray-900">Wallet Management</h1>
                             <p class="text-gray-600 text-sm md:text-base mt-1">Manage your balance, fund your wallet, and view transactions</p>
                         </div>
                     </div>
-                    <a href="{{ route('wallet.fund') }}" class="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-3 px-6 rounded-xl shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all duration-200 flex items-center space-x-2">
+                    <a href="{{ route('wallet.fund') }}" class="mt-5 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-3 px-6 rounded-xl shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all duration-200 flex items-center space-x-2">
                         <span>+ Fund Wallet</span>
                         <span>💳</span>
                     </a>
@@ -26,7 +26,7 @@
                 <!-- Main Content -->
                 <div class="lg:col-span-2 space-y-6">
                     <!-- Wallet Balance Card -->
-                    <div class="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl shadow-xl p-6 md:p-8 text-white">
+                    <div class="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl shadow-xl p-6 md:p-8 text-white">
                         <div class="flex items-center justify-between mb-6">
                             <div>
                                 <p class="text-sm opacity-90">Total Balance</p>
@@ -45,19 +45,19 @@
                         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
                             <div class="bg-white/10 rounded-xl p-3 text-center backdrop-blur-sm">
                                 <p class="text-xs opacity-80">Today's Spent</p>
-                                <p class="text-lg font-bold">₦0.00</p>
+                                <p class="text-lg font-bold">₦{{ number_format($monthlyStats['today_volume'] ?? 0, 2) }}</p>
                             </div>
                             <div class="bg-white/10 rounded-xl p-3 text-center backdrop-blur-sm">
                                 <p class="text-xs opacity-80">This Month</p>
-                                <p class="text-lg font-bold">₦{{ number_format($monthly_spent ?? 0, 2) }}</p>
+                                <p class="text-lg font-bold">₦{{ $monthlyStats['spent'] }}</p>
                             </div>
                             <div class="bg-white/10 rounded-xl p-3 text-center backdrop-blur-sm">
                                 <p class="text-xs opacity-80">Transactions</p>
-                                <p class="text-lg font-bold">{{ $transaction_count ?? 0 }}</p>
+                                <p class="text-lg font-bold">{{ $monthlyStats['transactions'] }}</p>
                             </div>
                             <div class="bg-white/10 rounded-xl p-3 text-center backdrop-blur-sm">
                                 <p class="text-xs opacity-80">Avg. Daily</p>
-                                <p class="text-lg font-bold">₦{{ number_format($average_daily ?? 0, 2) }}</p>
+                                <p class="text-lg font-bold">₦{{ $monthlyStats['today_volume'] }}</p>
                             </div>
                         </div>
                     </div>
@@ -68,7 +68,7 @@
                             <span class="text-xl mr-2">⚡</span>
                             Quick Actions
                         </h3>
-                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                             <a href="{{ route('wallet.fund') }}" class="bg-green-50 hover:bg-green-100 border-2 border-green-200 rounded-xl p-4 text-center transition-all duration-200 group">
                                 <div class="w-12 h-12 bg-green-100 rounded-lg mx-auto mb-3 flex items-center justify-center group-hover:scale-110 transition-transform">
                                     <span class="text-2xl">💳</span>

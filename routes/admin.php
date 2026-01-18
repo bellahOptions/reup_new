@@ -10,6 +10,8 @@ use App\Http\Controllers\Admin\ContactController;
 use App\Http\Controllers\Admin\AdminController;
 use App\Http\Controllers\Admin\AdminChatController;
 use App\Http\Controllers\Admin\NotificationController;
+use App\Http\Controllers\Admin\SettingsController;
+
 
 // Admin Auth Routes (no middleware)
 Route::prefix('admin')->name('admin.')->group(function () {
@@ -34,6 +36,7 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'admin'])->group(fun
     Route::get('/stats/transactions-by-type', [DashboardController::class, 'transactionsByType'])->name('stats.transactions-by-type');
     Route::get('/stats/transactions-by-status', [DashboardController::class, 'transactionsByStatus'])->name('stats.transactions-by-status');
     Route::get('/stats/revenue', [DashboardController::class, 'revenueStats'])->name('stats.revenue');
+
     
     // User Management
     Route::prefix('users')->name('users.')->group(function () {
@@ -96,7 +99,6 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
         Route::post('/close', [AdminChatController::class, 'closeSession'])->name('close');
         Route::post('/transfer', [AdminChatController::class, 'transferSession'])->name('transfer');
         // Admin logs
-Route::get('admin-logs', [AdminLogController::class, 'index'])->name('admin.logs.index');
     });
 
     // Notifications
@@ -104,6 +106,14 @@ Route::prefix('notifications')->name('notifications.')->group(function () {
     Route::get('/unread', [NotificationController::class, 'getUnreadNotifications'])->name('unread');
     Route::post('/mark-read', [NotificationController::class, 'markAsRead'])->name('mark-read');
     Route::get('/', [NotificationController::class, 'index'])->name('index');
+
+    
+    
+    Route::get('/dashboard/online-users', [DashboardController::class, 'onlineUsers'])
+         ->name('dashboard.online-users');
+    
+    Route::get('/dashboard/recent-chats', [DashboardController::class, 'recentChats'])
+         ->name('dashboard.recent-chats');
 });
 
 
@@ -120,19 +130,29 @@ Route::prefix('notifications')->name('notifications.')->group(function () {
     
 });
 
-Route::middleware(['auth', 'admin'])->prefix('paystack')->name('paystack.')->group(function () {
-        Route::get('/balance', [PaystackController::class, 'getBalance'])->name('balance');
-    Route::post('/balance/refresh', [PaystackController::class, 'refreshBalance'])->name('balance.refresh');
-    Route::get('/stats/{period?}', [PaystackController::class, 'getTransactionStats'])->name('stats');
 
-
-
-    
-    Route::get('/dashboard/online-users', [DashboardController::class, 'onlineUsers'])
-         ->name('dashboard.online-users');
-    
-    Route::get('/dashboard/recent-chats', [DashboardController::class, 'recentChats'])
-         ->name('dashboard.recent-chats');
- 
+// Legal Documents
+Route::middleware(['auth', 'admin'])->prefix('admin')->name('terms.')->group(function () {
+    Route::get('/terms', [AdminController::class, 'editTerms'])->name('index');
+    Route::post('/terms/update', [AdminController::class, 'updateTerms'])->name('update');
+    Route::get('/terms/get/{type}', [AdminController::class, 'getDocument'])->name('get');
+    Route::get('/terms/preview/{type}', [AdminController::class, 'previewTerms'])->name('preview');
+    Route::get('/terms/history/{type}', [AdminController::class, 'termsHistory'])->name('history');
+    Route::post('/terms/restore/{id}', [AdminController::class, 'restoreVersion'])->name('restore');
+    Route::post('/terms/toggle-status/{id}', [AdminController::class, 'toggleTermsStatus'])->name('toggle-status'); 
+    Route::get('/admin/terms-of-service/get-privacy', [AdminController::class, 'getPrivacyForTerms'])->name('get-privacy');
 });
+
+Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function() {
+    // Settings routes
+    Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
+    Route::get('/settings/data', [SettingsController::class, 'data'])->name('settings.data');
+    Route::post('/settings/update', [SettingsController::class, 'update'])->name('settings.update');
+    Route::post('/settings/seed-defaults', [SettingsController::class, 'seedDefaults'])->name('settings.seed');
+    Route::get('/settings/maintenance-status', [SettingsController::class, 'getMaintenanceStatus'])->name('settings.maintenance');
+    Route::get('/settings/check', [SettingsController::class, 'check'])->name('settings.check');
+    Route::get('/settings/check-exists', [SettingsController::class, 'checkExists'])->name('settings.check.exists');
+});
+
+
 

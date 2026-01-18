@@ -1,4 +1,5 @@
 @extends('layouts.app')
+@section('title', '$user = auth()->user() Dashboard')
 @section('content')
 <main class="min-h-screen bg-gradient-to-br from-gray-50 to-green-50/30">
     <div class="py-6 md:py-8">
@@ -119,6 +120,62 @@
                 </div>
             </div>
             @endif
+
+                <!-- Marquee Announcement Bar -->
+    <div class="mb-8 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 shadow-sm overflow-hidden">
+@php
+    // Prepare announcement items
+    $announcementItems = [];
+    
+    if(!empty($announcements) && $announcements->count() > 0) {
+        // Transform database announcements to marquee format
+        foreach($announcements as $announcement) {
+            $item = [];
+            
+            // Map database fields to marquee item fields
+            if(!empty($announcement->badge)) {
+                $item['badge'] = $announcement->badge;
+                $item['badge_color'] = $announcement->badge_color ?? $announcement->color ?? 'bg-blue-100 text-blue-800';
+            }
+            
+            if(!empty($announcement->icon)) {
+                $item['icon'] = $announcement->icon;
+            }
+            
+            // Use title or content field
+            $item['title'] = $announcement->title ?? $announcement->content ?? '';
+            
+            if(!empty($announcement->text_color)) {
+                $item['textColor'] = $announcement->text_color;
+            }
+            
+            // Only add if we have content
+            if(!empty($item['title']) || !empty($item['badge']) || !empty($item['icon'])) {
+                $announcementItems[] = $item;
+            }
+        }
+    } else {
+        // Fallback to default announcements
+        $announcementItems = [
+            ['badge' => 'NEW', 'title' => 'Welcome back! Check out the new dashboard features', 'badgeColor' => 'bg-blue-100 text-blue-800'],
+            ['icon' => '🔥', 'title' => 'Hot deal: 30% off premium subscription until Friday'],
+            ['badge' => 'UPDATE', 'title' => 'Security patch installed', 'badgeColor' => 'bg-green-100 text-green-800'],
+            ['icon' => '📊', 'title' => 'Monthly reports now available in analytics'],
+            ['badge' => 'TIP', 'title' => 'Use dark mode for better battery life on OLED screens', 'badgeColor' => 'bg-purple-100 text-purple-800'],
+        ];
+    }
+@endphp
+
+@if(!empty($announcementItems))
+    <x-marquee 
+        :items="$announcementItems"
+        speed="40"
+        pauseOnHover="true"
+        containerClass="py-2"
+    />
+@endif
+
+    </div>
 
             <!-- Quick Actions -->
             <div class="mb-8">
@@ -389,88 +446,6 @@ document.addEventListener('DOMContentLoaded', function() {
     </tbody>
 </table>
 
-<!-- If you want pagination, add this after the table -->
-@if($recentTransactions->hasPages())
-<div class="bg-white px-4 py-3 border-t border-gray-200 sm:px-6">
-    <div class="flex items-center justify-between">
-        <div class="flex-1 flex justify-between sm:hidden">
-            @if($transactions->onFirstPage())
-            <span class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-300 bg-white cursor-not-allowed">
-                Previous
-            </span>
-            @else
-            <a href="{{ $transactions->previousPageUrl() }}" class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
-                Previous
-            </a>
-            @endif
-            
-            @if($transactions->hasMorePages())
-            <a href="{{ $transactions->nextPageUrl() }}" class="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
-                Next
-            </a>
-            @else
-            <span class="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-300 bg-white cursor-not-allowed">
-                Next
-            </span>
-            @endif
-        </div>
-        
-        <div class="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-            <div>
-                <p class="text-sm text-gray-700">
-                    Showing 
-                    <span class="font-medium">{{ $transactions->firstItem() }}</span>
-                    to 
-                    <span class="font-medium">{{ $transactions->lastItem() }}</span>
-                    of 
-                    <span class="font-medium">{{ $transactions->total() }}</span>
-                    results
-                </p>
-            </div>
-            
-            <div>
-                <nav class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
-                    @if($transactions->onFirstPage())
-                    <span class="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-300 cursor-not-allowed">
-                        <span class="sr-only">Previous</span>
-                        ←
-                    </span>
-                    @else
-                    <a href="{{ $transactions->previousPageUrl() }}" class="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
-                        <span class="sr-only">Previous</span>
-                        ←
-                    </a>
-                    @endif
-                    
-                    @foreach(range(1, min(5, $transactions->lastPage())) as $page)
-                        @if($page == $transactions->currentPage())
-                        <span class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-green-50 text-sm font-medium text-green-600">
-                            {{ $page }}
-                        </span>
-                        @else
-                        <a href="{{ $transactions->url($page) }}" class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
-                            {{ $page }}
-                        </a>
-                        @endif
-                    @endforeach
-                    
-                    @if($transactions->hasMorePages())
-                    <a href="{{ $transactions->nextPageUrl() }}" class="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
-                        <span class="sr-only">Next</span>
-                        →
-                    </a>
-                    @else
-                    <span class="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-300 cursor-not-allowed">
-                        <span class="sr-only">Next</span>
-                        →
-                    </span>
-                    @endif
-                </nav>
-            </div>
-        </div>
-    </div>
-</div>
-@endif
                 </div>
             </div>
 

@@ -14,10 +14,18 @@ use App\Http\Controllers\WalletController;
 use App\Http\Controllers\PaystackController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\ContactController;
+use App\Http\Controllers\TermsController;
+
 
 Route::get('/', function () {
     return view('home');
 });
+Route::get('/llm.txt', [SettingsController::class, 'generateLlmTxt']);
+Route::middleware(['auth', 'admin'])->prefix('paystack')->name('paystack.')->group(function () {
+        Route::get('/balance', [PaystackController::class, 'getBalance'])->name('balance');
+    Route::post('/balance/refresh', [PaystackController::class, 'refreshBalance'])->name('balance.refresh');
+    Route::get('/stats/{period?}', [PaystackController::class, 'getTransactionStats'])->name('stats');
+    });
 
 
 Route::middleware('auth', 'verified')->group(function () {
@@ -100,13 +108,9 @@ Route::get('/chat/admins', [ChatController::class, 'getAvailableAdmins'])->name(
     }); 
 
     // Legal Pages
-Route::get('/privacy-policy', function () {
-    return view('privacy-policy');
-})->name('privacy-policy');
+Route::get('/terms-of-service', [TermsController::class, 'showTerms'])->name('terms-of-service');
+Route::get('/privacy-policy', [TermsController::class, 'showPrivacy'])->name('privacy-policy');
 
-Route::get('/terms-of-service', function () {
-    return view('terms-of-service');
-})->name('terms-of-service');
 Route::get('/faq', function () {
     return view('faq');
 })->name('faq');
@@ -131,8 +135,6 @@ Route::middleware(['auth' , 'verified'])->prefix('wallet')->name('wallet.')->gro
     Route::get('/fund', [WalletController::class, 'fund'])->name('fund');
     Route::post('/fund', [WalletController::class, 'processFunding'])->name('process-funding');
     
-    // Paystack Routes
-    Route::get('/paystack/callback', [WalletController::class, 'handlePaystackCallback'])->name('paystack.callback');
     
     // Bank Transfer Routes
     Route::get('/bank-transfer/details', [WalletController::class, 'showBankTransferDetails'])->name('bank-transfer.details');
@@ -148,18 +150,7 @@ Route::post('/payment/check-status', [WalletController::class, 'checkPaymentStat
 
 });
 
-// Admin Routes for Wallet Management (separate these into admin routes file)
-Route::middleware(['auth', 'admin'])->prefix('admin/wallet')->name('admin.wallet.')->group(function () {
-    
-    // View pending bank transfers
-    //Route::get('/pending-transfers', [AdminWalletController::class, 'pendingTransfers'])->name('pending-transfers');
-    
-    // Approve/Reject bank transfer
-   // Route::post('/approve/{transaction}', [AdminWalletController::class, 'approveBankTransfer'])->name('approve');
-   // Route::post('/reject/{transaction}', [AdminWalletController::class, 'rejectBankTransfer'])->name('reject');
-    
-});
-        
+
     Route::get('/paystack/callback', [PaystackController::class, 'callback'])
     ->name('paystack.callback');
 

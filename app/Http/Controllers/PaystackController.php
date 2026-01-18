@@ -310,10 +310,4 @@ class PaystackController extends Controller
         ];
     }
     
-    // REMOVED AJAX METHODS:
-    // - getBalanceHtml() - No longer needed, use page refresh
-    // - refreshBalance() - No longer needed, use page refresh
-    
-    // Note: To get fresh Paystack data, users should refresh the page (F5)
-    // The cache will automatically expire after 5 minutes
 }

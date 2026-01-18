@@ -8,7 +8,7 @@
             <div class="mb-8">
                 <div class="flex items-center justify-between flex-wrap gap-4">
                     <div class="flex items-center space-x-3">
-                        <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg">
+                        <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center shadow-lg">
                             <span class="text-2xl">💳</span>
                         </div>
                         <div>
@@ -27,7 +27,7 @@
                 <!-- Sidebar -->
                 <div class="lg:col-span-1 space-y-6">
                     <!-- Wallet Balance Card -->
-                    <div class="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl shadow-lg p-6 text-white">
+                    <div class="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl shadow-lg p-6 text-white">
                         <div class="flex items-center justify-between mb-2">
                             <span class="text-sm opacity-90 font-medium">Available Balance</span>
                             <span class="text-2xl">💰</span>

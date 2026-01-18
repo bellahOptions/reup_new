@@ -93,13 +93,13 @@ document.addEventListener('DOMContentLoaded', function() {
     @endif
 });
 </script>
-<main class="min-h-screen bg-gradient-to-br from-gray-50 to-green-50/30">
+<main class="min-h-screen w-full overflow-hidden bg-gradient-to-br from-gray-50 to-green-50/30">
     <div class="py-8 md:py-12">
         <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
             <!-- Page Header -->
             <div class="mb-8 md:mb-12">
-                <div class="flex items-center space-x-3 mb-4">
-                    <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg">
+                <div class="flex flex-col md:flex-row space-y-5 text-center md:text-left items-center space-x-3 mb-4">
+                    <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center shadow-lg">
                         <span class="text-2xl">💰</span>
                     </div>
                     <div>
@@ -134,8 +134,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                 
                                 <!-- Current Balance -->
                                 <div class="bg-green-50 border border-green-200 rounded-xl p-4">
-                                    <div class="flex items-center justify-between">
-                                        <div class="flex items-center space-x-3">
+                                    <div class="flex flex-col md:flex-row items-center justify-between">
+                                        <div class="flex flex-col md:flex-row space-y-4 items-center space-x-3">
                                             <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
                                                 <span class="text-xl">💰</span>
                                             </div>
@@ -240,7 +240,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 </div>
 
                                 <!-- Submit Button -->
-                                <button type="submit" id="proceedBtn" class="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-4 px-6 rounded-xl shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all duration-200 flex items-center justify-center space-x-2">
+                                <button type="submit" id="proceedBtn" class="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-4 px-6 rounded-xl shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all duration-200 flex items-center justify-center space-x-2">
                                     <span id="btnText">Proceed to Payment</span>
                                     <span>🚀</span>
                                 </button>

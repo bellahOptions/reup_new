@@ -15,11 +15,11 @@
                        class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-green-600 hover:bg-green-700 transition-colors duration-200">
                         Home
                     </a>
-                    <a href="#" 
+                    <a href="{{ route('airtime-data.index') }}" 
                        class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-gray-700 hover:text-green-600 hover:bg-green-50 transition-colors duration-200">
                         Buy Airtime
                     </a>
-                    <a href="#" 
+                    <a href="{{ route('airtime-data.index') }}"  
                        class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-gray-700 hover:text-green-600 hover:bg-green-50 transition-colors duration-200">
                         Buy Data
                     </a>
@@ -32,16 +32,16 @@
                 <!-- CTA Buttons -->
                 <div class="hidden md:flex md:items-center md:space-x-3">
                     @auth
+                    @if(Auth::user() && !Auth::user()->isAdmin())
     {{-- The user is logged in... display content for authenticated users --}}
     <a href="{{ url('/dashboard') }}" class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-gray-700 hover:text-green-600 hover:bg-green-50 transition-colors duration-200">You're logged in as {{ Auth::user()->name }}</a>
-@endauth
-    @auth
-    @if(Auth::user()->isAdmin())
-        <a href="{{ route('admin.dashboard') }}" class="text-gray-700 hover:text-green-600 px-3 py-2 text-sm font-medium">
+
+    @elseif(Auth::user()->isAdmin())
+        <a href="{{ route('admin.dashboard') }}" class="text-gray-700 hover:bg-green-100 hover:text-green-600 px-3 py-2 text-sm font-medium">
             Admin Dashboard
         </a>
     @endif
-@endauth
+    @endauth
 @guest
                     <a href="{{ route('login') }}" 
                        class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-gray-700 hover:text-green-600 hover:bg-gray-50 transition-colors duration-200">

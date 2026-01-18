@@ -25,19 +25,33 @@
 <meta name="msapplication-TileImage" content="{{ asset('images/ms-icon-144x144.png')}}">
 <meta name="theme-color" content="#2AB70D">
 <!--End Icon Links-->   
-    <title>Reup | Buy airtime, data, and pay bills instantly with ReUp. Fast, secure, and stress-free — anytime, anywhere.</title>
+<!-- SEO Meta Tags -->
+    <meta name="description" content="{{ $siteSettings['meta_description'] ?? '' }}">
+    <meta name="keywords" content="{{ $siteSettings['meta_keywords'] ?? '' }}">
+    <!--END SEO-->
+    
+    <title>@yield('title') - Reup | Buy airtime, data, and pay bills instantly with ReUp. Fast, secure, and stress-free — anytime, anywhere.</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet">
     <style type="text/tailwindcss">
       @theme {
-        --color-clifford: #da373d;
+        --color-clifford: #da373d; 
       }
       *{        
         font-family: "DM Sans", sans-serif;
       }
     </style>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css" integrity="sha512-2SwdPD6INVrV/lHTZbO2nodKhrnDdJK9/kg2XD1r9uGqPo1cUbujc+IYdlYdEErWNu69gVcYgdxlmVmzTWnetw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-F119BZ9T43"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-F119BZ9T43');
+</script>
   </head>
  <!-- Elfsight WhatsApp Chat | ReuP -->
 <script src="https://elfsightcdn.com/platform.js" async></script>

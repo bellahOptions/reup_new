@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Models\Transactions;
 use App\Models\ChatSession;
 use App\Models\ContactMessage;
+use App\Models\PromotionNotification;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
@@ -16,6 +17,11 @@ class DashboardController extends Controller
         // Get the authenticated user
         $user = Auth::user();
         
+       $announcements = PromotionNotification::where('is_active', true)
+    ->orderBy('created_at', 'desc')
+    ->limit(6) 
+    ->get();
+
         // User-specific statistics
         $userStats = [
             'balance' => $user->balance ?? 0,
@@ -31,8 +37,8 @@ class DashboardController extends Controller
         // User's recent transactions
         $recentTransactions = Transactions::where('user_id', $user->id)
             ->latest()
-            ->limit(10)
-            ->paginate(10);
+            ->limit(5)
+            ->get();
 
         // User's chat sessions
         $userChats = ChatSession::where('user_id', $user->id)
@@ -83,7 +89,8 @@ class DashboardController extends Controller
             'userChats',
             'recentActivity',
             'transactionStats',
-            'quickActions'
+            'quickActions',
+            'announcements'
         ));
     }
 

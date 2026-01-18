@@ -24,6 +24,15 @@
 <meta name="msapplication-TileColor" content="#2AB70D">
 <meta name="msapplication-TileImage" content="{{ asset('images/ms-icon-144x144.png')}}">
 <meta name="theme-color" content="#2AB70D">
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-F119BZ9T43"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-F119BZ9T43');
+</script>
 <!--End Icon Links-->   
     <title>Reup | Buy airtime, data, and pay bills instantly with ReUp. Fast, secure, and stress-free — anytime, anywhere.</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">

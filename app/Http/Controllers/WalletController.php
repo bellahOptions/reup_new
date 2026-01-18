@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Carbon\Carbon;
 
 class WalletController extends Controller
 {
@@ -613,16 +614,22 @@ public function handlePaystackCallback(Request $request)
     }
 }
     
-    private function completePaystackPayment($transaction, $paystackData)
+   private function completePaystackPayment($transaction, $paystackData)
 {
     DB::beginTransaction();
     
     try {
         $user = $transaction->user;
+        $user->refresh(); // Get fresh data
+        
         $wallet = $this->getOrCreateWallet($user);
+        $wallet->refresh(); // Get fresh wallet data
+        
+        // Get current balance
+        $currentBalance = $wallet->balance;
         
         // Credit wallet
-        $newBalance = $wallet->balance + $transaction->amount;
+        $newBalance = $currentBalance + $transaction->amount;
         
         $wallet->update([
             'balance' => $newBalance,
@@ -630,11 +637,15 @@ public function handlePaystackCallback(Request $request)
             'transaction_count' => $wallet->transaction_count + 1
         ]);
         
-        // Update transaction
+        // Update user
+        $user->update(['wallet_balance' => $newBalance]);
+        
+        // Update transaction with ACCURATE balances
         $transaction->update([
             'status' => 'success',
             'payment_status' => 'success',
-            'balance_after' => $newBalance, // Set AFTER wallet is credited
+            'balance_before' => $currentBalance,  // Accurate before
+            'balance_after' => $newBalance,       // Accurate after
             'paid_at' => now(),
             'completed_at' => now(),
             'api_response' => json_encode($paystackData),
@@ -656,13 +667,12 @@ public function handlePaystackCallback(Request $request)
             'transaction_id' => $transaction->id,
             'user_id' => $user->id,
             'amount' => $transaction->amount,
-            'new_balance' => $newBalance
+            'balance_before' => $currentBalance,
+            'balance_after' => $newBalance
         ]);
         
-        // Notify user
         $this->notifyUserOfSuccess($user, $transaction);
         
-        // Redirect back to funding page with success modal
         return redirect()->route('wallet.fund')
             ->with('modal_success', 'Payment successful! ₦' . number_format($transaction->amount, 2) . ' has been added to your wallet.');
             
@@ -722,7 +732,8 @@ public function handlePaystackCallback(Request $request)
             ->orderBy('created_at', 'desc')
             ->limit(10)
             ->get();
-        
+            
+        $today = Carbon::today();
         $monthlyStats = [
             'spent' => Transactions::where('user_id', $user->id)
                 ->where('type', 'debit')
@@ -742,7 +753,12 @@ public function handlePaystackCallback(Request $request)
                 ->where('status', 'success')
                 ->whereMonth('created_at', now()->month)
                 ->whereYear('created_at', now()->year)
-                ->count()
+                ->count(),
+
+            'today_volume' => Transactions::where('user_id', $user->id)
+            ->where('status', 'success')
+            ->whereDate('created_at', $today)
+            ->sum('amount') ?? 0,
         ];
         
         return view('wallet.index', compact('wallet', 'recent_transactions', 'monthlyStats'));
