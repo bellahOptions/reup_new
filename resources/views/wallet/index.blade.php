@@ -2,7 +2,7 @@
 @section('content')
 <main class="min-h-screen bg-gradient-to-br from-gray-50 to-green-50/30">
     <div class="py-8 md:py-12">
-        <div class="max-w-full overflow-clip mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="max-w-full md:max-w-[900px] overflow-clip mx-auto px-4 sm:px-6 lg:px-8">
             <!-- Page Header -->
             <div class="mb-8 md:mb-12">
                 <div class="flex flex-col md:flex-row items-center justify-between mb-4">
@@ -255,8 +255,8 @@
                             <p>For wallet issues or questions:</p>
                             <div class="bg-green-50 rounded-lg p-3">
                                 <p class="font-medium text-green-900 mb-1">Support Team</p>
-                                <p class="text-xs">📞 09076017916 | 09031412354</p>
-                                <p class="text-xs">✉️ reup@bellahoptions.com</p>
+                                <p class="text-xs">📞 {{ $siteSettings['contact_phone'] ?? '' }}</p>
+                                <p class="text-xs">✉️ {{ $siteSettings['support_email'] ?? '' }}</p>
                                 <p class="text-xs">🕐 24/7 Support</p>
                             </div>
                             <p class="text-xs text-gray-500">Average response time: 5 minutes</p>

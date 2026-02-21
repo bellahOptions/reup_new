@@ -356,8 +356,8 @@ document.addEventListener('DOMContentLoaded', function() {
                             <p>For payment issues or questions:</p>
                             <div class="bg-green-50 rounded-lg p-3">
                                 <p class="font-medium text-green-900 mb-1">Support Team</p>
-                                <p class="text-xs">📞 09076017916 | 09031412354</p>
-                                <p class="text-xs">✉️ reup@bellahoptions.com</p>
+                                <p class="text-xs">📞 {{ $siteSettings['contact_phone'] ?? '' }}</p>
+                                <p class="text-xs">✉️ {{ $siteSettings['support_email'] ?? '' }}</p>
                                 <p class="text-xs">🕐 24/7 Support</p>
                             </div>
                         </div>

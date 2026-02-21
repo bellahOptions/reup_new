@@ -15,11 +15,11 @@ use App\Http\Controllers\PaystackController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\TermsController;
+use App\Http\Controllers\PricelistController;
+use App\Http\Controllers\HomeController;
 
 
-Route::get('/', function () {
-    return view('home');
-});
+Route::get('/', [HomeController::class, 'index'])->name('home');
 Route::get('/llm.txt', [SettingsController::class, 'generateLlmTxt']);
 Route::middleware(['auth', 'admin'])->prefix('paystack')->name('paystack.')->group(function () {
         Route::get('/balance', [PaystackController::class, 'getBalance'])->name('balance');
@@ -44,19 +44,33 @@ Route::post('/chat/close', [ChatController::class, 'closeChat'])->name('chat.clo
 Route::get('/chat/admins', [ChatController::class, 'getAvailableAdmins'])->name('chat.admins');
 
  // Airtime & Data
-    Route::prefix('airtime-data')->group(function () {
+    Route::prefix('airtime')->group(function () {
         Route::get('/', [AirtimeDataController::class, 'index'])->name('airtime-data.index');
         Route::any('/airtime/purchase', [AirtimeDataController::class, 'purchaseAirtime'])->name('airtime.purchase');
         Route::post('/data/purchase', [AirtimeDataController::class, 'purchaseData'])->name('data.purchase');
         Route::get('/history', [AirtimeDataController::class, 'history'])->name('airtime-data.history');
         Route::get('/networks', [AirtimeDataController::class, 'networks'])->name('airtime-data.networks');
             
-    // Transaction result pages
-    Route::get('/transaction/success/{reference}', [AirtimeDataController::class, 'success'])->name('transaction.success');
-    Route::get('/transaction/failed/{reference}', [AirtimeDataController::class, 'failed'])->name('transaction.failed');
     });
 
-
+Route::prefix('airtime')->group(function () {
+    Route::get('/transaction/failed/{reference}', [AirtimeDataController::class, 'failed'])
+        ->name('airtime.transaction.failed');
+    
+    Route::get('/transaction/success/{reference}', [AirtimeDataController::class, 'success'])
+        ->name('airtime.transaction.success');
+        
+});
+// For any missing transaction routes
+Route::get('/airtime/transaction/{status}/{reference}', function ($status, $reference) {
+    if ($status === 'failed') {
+        return app(AirtimeDataController::class)->failed($reference);
+    }
+    if ($status === 'success') {
+        return app(AirtimeDataController::class)->success($reference);
+    }
+    abort(404);
+});
     // Cable TV Subscription
     Route::prefix('cable-tv')->group(function () {
         Route::get('/', [CableTvController::class, 'index'])->name('cable-tv.index');
@@ -125,7 +139,7 @@ Route::post('/announcements/viewed', function() {
 })->name('announcements.viewed');
 
 // Wallet Routes - All require authentication
-Route::middleware(['auth' , 'verified'])->prefix('wallet')->name('wallet.')->group(function () {
+Route::middleware(['auth', 'verified'])->prefix('wallet')->name('wallet.')->group(function () {
     
     // Dashboard & History
     Route::get('/', [WalletController::class, 'index'])->name('index');
@@ -135,19 +149,32 @@ Route::middleware(['auth' , 'verified'])->prefix('wallet')->name('wallet.')->gro
     Route::get('/fund', [WalletController::class, 'fund'])->name('fund');
     Route::post('/fund', [WalletController::class, 'processFunding'])->name('process-funding');
     
+    // Paystack Routes
+    Route::get('/paystack/callback', [WalletController::class, 'handlePaystackCallback'])->name('paystack.callback');
+    Route::post('/paystack/webhook', [WalletController::class, 'handlePaystackWebhook'])->name('paystack.webhook');
     
     // Bank Transfer Routes
     Route::get('/bank-transfer/details', [WalletController::class, 'showBankTransferDetails'])->name('bank-transfer.details');
     Route::post('/bank-transfer/submit-proof', [WalletController::class, 'submitBankTransferProof'])->name('bank-transfer.submit-proof');
     
-    // API/AJAX Endpoints (optional - for real-time balance checks, etc)
-    Route::get('/balance', [WalletController::class, 'getBalance'])->name('balance');
-
-    // Add this to your wallet routes group:
-Route::get('/payment/status', [WalletController::class, 'paymentStatus'])->name('payment.status');
-Route::post('/payment/check-status', [WalletController::class, 'checkPaymentStatus'])->name('payment.check-status');
-
-
+    // Payment Status Routes
+    Route::get('/payment/status', [WalletController::class, 'paymentStatus'])->name('payment.status');
+    Route::post('/payment/check-status', [WalletController::class, 'checkPaymentStatus'])->name('payment.check-status');
+    
+    // Success/Failure Pages
+    Route::get('/success/{reference}', [WalletController::class, 'success'])->name('success');
+    Route::get('/failed/{reference}', [WalletController::class, 'failed'])->name('failed');
+    
+    // Balance API/AJAX Endpoints
+    Route::get('/balance', function() {
+        $user = Auth::user();
+        $wallet = $user->wallet ?? null;
+        return response()->json([
+            'balance' => $wallet ? $wallet->balance : 0,
+            'currency' => '₦',
+            'formatted' => '₦' . number_format($wallet ? $wallet->balance : 0, 2)
+        ]);
+    })->name('balance');
 });
 
 
@@ -161,7 +188,40 @@ Route::post('/paystack/webhook', [PaystackController::class, 'webhook'])
 Route::get('/contact', [ContactController::class, 'index'])->name('contact');
 Route::post('/contact/submit', [ContactController::class, 'submit'])->name('contact.submit');
 
+// Include pricelist routes
 
+Route::get('/pricelist', [PricelistController::class, 'index'])->name('pricelist');
+Route::get('/pricelist/api', [PricelistController::class, 'api'])->name('pricelist.api');
+Route::get('/pricelist/refresh', [PricelistController::class, 'refresh'])->name('pricelist.refresh');
+Route::post('/pricelist/purchase/data', [PricelistController::class, 'purchaseData'])->name('pricelist.purchase.data');
+Route::post('/pricelist/callback', [PricelistController::class, 'callback'])->name('pricelist.callback');
+Route::get('/pricelist/query/{orderId}', [PricelistController::class, 'queryTransaction'])->name('pricelist.query');
+
+// routes/web.php
+Route::get('/robots.txt', function () {
+    $content = "";
+    
+    if (app()->environment('production')) {
+        $content = file_get_contents(public_path('robots.production.txt'));
+    } else {
+        $content = "User-agent: *\nDisallow: /";
+    }
+    
+    return response($content, 200)
+        ->header('Content-Type', 'text/plain');
+});
+
+Route::get('/llm.txt', function () {
+    $content = file_get_contents(public_path('llm.txt'));
+    
+    return response($content, 200)
+        ->header('Content-Type', 'text/plain');
+});
+Route::post('/announcements/mark-session-viewed', function() {
+    // Set session variable to mark announcements as seen for this session
+    session(['has_seen_announcements' => true]);
+    return response()->json(['success' => true]);
+})->name('announcements.mark-session-viewed');
 require __DIR__.'/auth.php';
 // Include admin routes
 require __DIR__.'/admin.php';

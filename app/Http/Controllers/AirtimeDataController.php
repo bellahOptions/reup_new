@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Transactions;
+use App\Models\User;
 use App\Services\ClubKonnectService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -139,7 +140,7 @@ if ($this->clubKonnect->isSuccessResponse($response)) {
         Mail::to($user->email)->send(new TransactionReceiptMail($transaction));
         
         // Send notification to admin
-        Mail::to(['reup.bellahoptions@gmail.com', 'reup@bellahoptions.com'])
+        Mail::to(['reup.bellahoptions@gmail.com', 'support@reup.com.ng'])
             ->send(new AdminTransactionNotification($transaction));
     } catch (\Exception $e) {
         Log::error('Email sending failed', ['error' => $e->getMessage()]);
@@ -167,7 +168,7 @@ if ($this->clubKonnect->isSuccessResponse($response)) {
                     'completed_at' => now(),
                 ]);
                 
-                return redirect()->route('transaction.failed', $transaction->reference)
+                return redirect()->route('airtime.transaction.failed', $transaction->reference)
                     ->with('error', $errorMessage);
             }
             
@@ -299,7 +300,7 @@ if ($this->clubKonnect->isSuccessResponse($response)) {
                     'completed_at' => now(),
                 ]);
                 
-                return redirect()->route('transaction.failed', $transaction->reference)
+                return redirect()->route('airtime.transaction.failed', $transaction->reference)
                     ->with('error', $errorMessage);
             }
             

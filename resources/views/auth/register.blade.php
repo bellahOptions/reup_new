@@ -1,8 +1,9 @@
 <x-guest-layout>
+    @section('title', 'Become a part of the Reup Family😃 - Secure Sign In')
     <div class="min-h-screen flex">
         <!-- Left Side - Image/Brand (Hidden on mobile) -->
-        <div class="hidden lg:flex lg:flex-1 bg-gradient-to-br from-emerald-500 to-green-600 relative overflow-hidden">
-            <div class="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMC4xIj48cGF0aCBkPSJNMzYgMzRjMC0yLjIxIDEuNzktNCA0LTRzNCAxLjc5IDQgNC0xLjc5IDQtNCA0LTQtMS43OS00LTR6bTAgMTBjMC0yLjIxIDEuNzktNCA0LTRzNCAxLjc5IDQgNC0xLjc5IDQtNCA0LTQtMS43OS00LTR6TTE2IDM0YzAtMi4yMSAxLjc5LTQgNC00czQgMS43OSA0IDQtMS43OSA0LTQgNC00LTEuNzktNC00em0wIDEwYzAtMi4yMSAxLjc5LTQgNC00czQgMS43OSA0IDQtMS43OSA0LTQgNC00LTEuNzktNC00eiIvPjwvZz48L2c+PC9zdmc+')] opacity-50"></div>
+        <div class="hidden lg:flex lg:flex-1 bg-gradient-to-br from-green-500 to-green-600 relative overflow-hidden">
+            <div class="absolute inset-0 opacity-50"></div>
             <div class="relative z-10 flex flex-col items-center justify-center text-center text-white p-12">
                 <div class="mb-8">
                     <div class="text-7xl mb-4">🚀</div>
@@ -39,7 +40,7 @@
             <div class="w-full max-w-md space-y-8 py-12">
                 <!-- Logo & Header -->
                 <div class="text-center">
-                    <a href="/">
+                    <a href="{{route('home')}}">
                         <img src="{{ asset('images/reup-03.svg') }}" alt="ReUp Logo" class="h-12 mx-auto mb-8">
                     </a>
                     <h2 class="text-3xl md:text-4xl font-bold text-gray-900 mb-2">

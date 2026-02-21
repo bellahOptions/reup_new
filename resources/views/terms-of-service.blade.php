@@ -427,11 +427,11 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div class="bg-green-50/50 p-4 rounded-xl">
                                 <h4 class="font-semibold text-green-700 mb-2">Legal Inquiries</h4>
-                                <p class="text-sm text-gray-600">reup.bellahoptions@gmail.com</p>
+                                <p class="text-sm text-gray-600">{{ $siteSettings['contact_email'] ?? '' }}</p>
                             </div>
                             <div class="bg-green-50/50 p-4 rounded-xl">
                                 <h4 class="font-semibold text-green-700 mb-2">General Support</h4>
-                                <p class="text-sm text-gray-600">reup.bellahoptions@gmail.com</p>
+                                <p class="text-sm text-gray-600">{{ $siteSettings['support_email'] ?? '' }}</p>
                             </div>
                         </div>
                     </div>

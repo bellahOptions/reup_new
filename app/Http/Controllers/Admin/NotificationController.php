@@ -6,8 +6,11 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\ChatSession;
 use App\Models\ChatMessage;
+use App\Models\PromotionNotification;
 use App\Models\ContactMessage;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
+
 
 class NotificationController extends Controller
 {
@@ -108,5 +111,143 @@ public function getUnreadNotifications()
                 'today' => ContactMessage::whereDate('created_at', today())->count()
             ]
         ]);
+    }
+
+   /**
+     * Display all announcements
+     */
+    public function index()
+    {
+        $announcements = PromotionNotification::orderBy('created_at', 'desc')->paginate(10);
+        return view('admin.announcements.index', compact('announcements'));
+    }
+
+    /**
+     * Show the create form
+     */
+    public function create()
+    {
+        return view('admin.announcements.form');
+    }
+
+    /**
+     * Store a new announcement
+     */
+    public function store(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'type' => 'required|in:promotion,notification,news',
+            'title' => 'required|string|max:255',
+            'content' => 'required|string',
+            'badge' => 'nullable|string|max:50',
+            'badge_color' => 'nullable|string|max:20',
+            'text_color' => 'nullable|string|max:20',
+            'icon' => 'nullable|string|max:50',
+            'is_active' => 'boolean',
+            'starts_at' => 'nullable|date',
+            'ends_at' => 'nullable|date|after_or_equal:starts_at',
+        ]);
+
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->withInput();
+        }
+
+        PromotionNotification::create($request->all());
+
+        return redirect()->route('admin.announcement.index')
+            ->with('success', 'Announcement created successfully!');
+    }
+
+    /**
+     * Show the edit form
+     */
+    public function edit($id)
+    {
+        $announcement = PromotionNotification::findOrFail($id);
+        return view('admin.announcements.form', compact('announcement'));
+    }
+
+    /**
+     * Update an announcement
+     */
+    public function update(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'type' => 'required|in:promotion,notification,news',
+            'title' => 'required|string|max:255',
+            'content' => 'required|string',
+            'badge' => 'nullable|string|max:50',
+            'badge_color' => 'nullable|string|max:20',
+            'text_color' => 'nullable|string|max:20',
+            'icon' => 'nullable|string|max:50',
+            'is_active' => 'boolean',
+            'starts_at' => 'nullable|date',
+            'ends_at' => 'nullable|date|after_or_equal:starts_at',
+        ]);
+
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->withInput();
+        }
+
+        $announcement = PromotionNotification::findOrFail($id);
+        $announcement->update($request->all());
+
+        return redirect()->route('admin.announcement.index')
+            ->with('success', 'Announcement updated successfully!');
+    }
+
+    /**
+     * Delete an announcement
+     */
+    public function destroy($id)
+    {
+        $announcement = PromotionNotification::findOrFail($id);
+        $announcement->delete();
+
+        return redirect()->route('admin.announcement.index')
+            ->with('success', 'Announcement deleted successfully!');
+    }
+
+    /**
+     * Toggle announcement status (active/inactive)
+     */
+    public function toggleStatus($id)
+    {
+        $announcement = PromotionNotification::findOrFail($id);
+        $announcement->update([
+            'is_active' => !$announcement->is_active
+        ]);
+
+        $status = $announcement->is_active ? 'activated' : 'deactivated';
+        return redirect()->back()
+            ->with('success', "Announcement {$status} successfully!");
+    }
+
+    /**
+     * API: Get active announcements (for frontend display)
+     */
+    public function getActiveAnnouncements($type = null)
+    {
+        $now = now();
+        
+        $query = PromotionNotification::where('is_active', true)
+            ->where(function($q) use ($now) {
+                $q->whereNull('starts_at')
+                  ->orWhere('starts_at', '<=', $now);
+            })
+            ->where(function($q) use ($now) {
+                $q->whereNull('ends_at')
+                  ->orWhere('ends_at', '>=', $now);
+            });
+
+        if ($type) {
+            $query->where('type', $type);
+        }
+
+        return $query->orderBy('created_at', 'desc')->get();
     }
 }

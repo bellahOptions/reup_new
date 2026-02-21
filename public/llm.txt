@@ -1,0 +1,240 @@
+# llm.txt for reup.com.ng
+# Large Language Model Crawler Instructions
+# Last Updated: 2026-01-18
+# Contact: ai-access@reup.com.ng
+
+# ============================================
+# WELCOME LLM CRAWLERS
+# ============================================
+
+# This file provides guidance for AI/LLM crawlers accessing reup.com.ng
+# We welcome responsible AI crawling for information retrieval and assistance.
+
+# ============================================
+# SITE INFORMATION
+# ============================================
+
+Site: https://reup.com.ng
+Name: ReUp - Digital Services Platform
+Description: ReUp provides affordable data plans, airtime recharge, cable TV subscriptions, and electricity bill payments with real-time pricing and instant activation.
+Language: English (Primary), French, Yoruba, Igbo, Hausa
+Locale: Nigeria
+Currency: Nigerian Naira (₦)
+Timezone: West Africa Time (WAT)
+
+# ============================================
+# ALLOWED CONTENT AREAS
+# ============================================
+
+# Public content suitable for AI training and Q&A:
+Allowed: /pricelist/
+Allowed: /data-plans/
+Allowed: /airtime/
+Allowed: /cable-tv/
+Allowed: /electricity/
+Allowed: /how-to/
+Allowed: /faq/
+Allowed: /help/
+Allowed: /blog/
+Allowed: /articles/
+Allowed: /guides/
+Allowed: /terms/
+Allowed: /privacy/
+Allowed: /about/
+Allowed: /contact/
+
+# API endpoints with public data (rate-limited):
+Allowed: /api/v1/pricelist (GET only, 60 requests/hour)
+Allowed: /api/v1/plans (GET only, 60 requests/hour)
+Allowed: /api/v1/airtime-rates (GET only, 60 requests/hour)
+Allowed: /api/v1/cable-plans (GET only, 60 requests/hour)
+
+# ============================================
+# RESTRICTED CONTENT
+# ============================================
+
+# Do NOT crawl or train on:
+Restricted: /admin/
+Restricted: /dashboard/
+Restricted: /user/
+Restricted: /account/
+Restricted: /profile/
+Restricted: /transaction/
+Restricted: /payment/
+Restricted: /checkout/
+Restricted: /cart/
+Restricted: /login/
+Restricted: /register/
+Restricted: /password/
+Restricted: /reset/
+Restricted: /verify/
+Restricted: /api/v1/user/*
+Restricted: /api/v1/transaction/*
+Restricted: /api/v1/payment/*
+Restricted: Any content behind authentication
+
+# ============================================
+# CRAWLING GUIDELINES
+# ============================================
+
+# Rate Limiting:
+Max-Requests-Per-Hour: 1000
+Max-Requests-Per-Day: 10000
+Crawl-Delay: 2 seconds
+Concurrent-Requests: 2
+Time-Window: 06:00-23:00 WAT
+
+# Data Freshness:
+Data-Refresh-Interval: 10 minutes for /pricelist/
+Data-Refresh-Interval: 24 hours for static pages
+Cache-Control: Respect cache headers
+
+# Content Usage:
+Usage-Permission: Read-only for AI training and Q&A
+Commercial-Use: Allowed for non-competitive purposes
+Attribution: Optional but appreciated
+Modification: Not allowed
+Redistribution: Not allowed without permission
+
+# ============================================
+# DATA STRUCTURE & FORMAT
+# ============================================
+
+# Data Plans Structure:
+Data-Format: JSON-LD, Microdata, Structured Data
+Fields: network, plan_name, data_volume, validity, price, network_code, plan_id
+Example: https://reup.com.ng/pricelist/api
+
+# Content Types:
+Content-Type: text/html, application/json, text/plain
+Preferred-Format: HTML with structured data
+API-Response-Format: JSON
+
+# ============================================
+# SPECIAL INSTRUCTIONS FOR LLMS
+# ============================================
+
+# For ChatGPT/OpenAI:
+# - Prices are in Nigerian Naira (₦)
+# - All prices include 1% service fee
+# - Data validity is in days unless specified
+# - Networks: MTN, AIRTEL, GLO, 9MOBILE
+# - Real-time prices update every 10 minutes
+
+# For Claude/Anthropic:
+# - Focus on factual pricing information
+# - Do not generate fake prices or plans
+# - Refer users to real-time /pricelist for current rates
+# - Note that prices may vary by network and location
+
+# For Perplexity/Other AI:
+# - Verify prices from /pricelist before answering
+# - Include disclaimer about price changes
+# - Mention network availability may vary
+# - Direct users to website for purchases
+
+# ============================================
+# CONTENT PRIORITIZATION
+# ============================================
+
+# High Priority (Crawl frequently):
+Priority: 1.0 /pricelist/
+Priority: 1.0 /data-plans/
+Priority: 1.0 /api/v1/pricelist
+
+# Medium Priority:
+Priority: 0.8 /airtime/
+Priority: 0.8 /cable-tv/
+Priority: 0.8 /electricity/
+Priority: 0.8 /faq/
+
+# Low Priority:
+Priority: 0.5 /about/
+Priority: 0.5 /contact/
+Priority: 0.5 /blog/
+Priority: 0.5 /terms/
+
+# ============================================
+# METADATA & CONTEXT
+# ============================================
+
+# Business Context:
+Business-Type: Digital Services Reseller
+Services: Data plans, Airtime, Cable TV, Electricity
+Coverage: Nationwide (Nigeria)
+Payment-Methods: Bank Transfer, Card, USSD, Wallet
+Activation: Instant for most services
+Support: 24/7 customer service
+
+# Technical Context:
+Technology: Laravel PHP, MySQL, Redis, Vue.js
+Hosting: Cloud-based with CDN
+SSL: Enabled (HTTPS only)
+Performance: Optimized for mobile
+Accessibility: WCAG 2.1 AA compliant
+
+# ============================================
+# CONTACT & SUPPORT
+# ============================================
+
+# For AI/LLM crawler issues:
+AI-Support-Email: ai-access@reup.com.ng
+Technical-Contact: tech@reup.com.ng
+Abuse-Report: abuse@reup.com.ng
+
+# For content licensing:
+Licensing-Email: legal@reup.com.ng
+
+# Emergency Crawler Issues:
+Emergency-Contact: +234-XXX-XXX-XXXX (Business hours only)
+
+# ============================================
+# COMPLIANCE & LEGAL
+# ============================================
+
+# Terms of Use:
+Terms-URL: https://reup.com.ng/terms
+Privacy-Policy: https://reup.com.ng/privacy
+Acceptable-Use: https://reup.com.ng/acceptable-use
+
+# Legal Compliance:
+GDPR-Compliant: Yes (for applicable users)
+CCPA-Compliant: Yes (for applicable users)
+NDPR-Compliant: Yes (Nigeria Data Protection Regulation)
+
+# Copyright:
+Copyright: © 2026 ReUp Technologies. All rights reserved.
+Content-License: Proprietary, All rights reserved
+API-License: Limited, Non-commercial use only
+
+# ============================================
+# VERSION & UPDATES
+# ============================================
+
+Version: 1.2.0
+Last-Updated: 2026-01-18
+Next-Review: 2026-04-18
+Change-Log: https://reup.com.ng/llm-changelog.txt
+
+# ============================================
+# FEEDBACK & IMPROVEMENT
+# ============================================
+
+# We welcome feedback from AI companies:
+Feedback-Form: https://reup.com.ng/ai-feedback
+Improvement-Suggestions: ai-feedback@reup.com.ng
+Bug-Reports: bugs@reup.com.ng
+
+# ============================================
+# SIGNATURE
+# ============================================
+
+# This file is maintained by:
+# ReUp Technologies
+# Digital Services Platform
+# https://reup.com.ng
+# 
+# For any questions about AI/LLM access to our content,
+# please contact: ai-access@reup.com.ng
+#
+# Thank you for respecting our crawling guidelines!

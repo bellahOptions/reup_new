@@ -389,11 +389,11 @@
                         <div class="space-y-2">
                             <div class="flex items-center text-gray-700">
                                 <span class="text-green-500 mr-2">📧</span>
-                                <span>Email: reup.bellahoptions@gmail.com</span>
+                                <span>Email:{{ $siteSettings['support_email'] ?? '' }}</span>
                             </div>
                             <div class="flex items-center text-gray-700">
                                 <span class="text-green-500 mr-2">📱</span>
-                                <span>Phone: +234 907 601 7916</span>
+                                <span>Phone: {{ $siteSettings['contact_phone'] ?? '' }}</span>
                             </div>
                         </div>
                     </div>

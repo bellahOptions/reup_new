@@ -154,5 +154,20 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('/settings/check-exists', [SettingsController::class, 'checkExists'])->name('settings.check.exists');
 });
 
+Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function() {
+    // Announcements CRUD routes
+    Route::get('/announcements', [NotificationController::class, 'index'])->name('announcement.index');
+    Route::get('/announcements/create', [NotificationController::class, 'create'])->name('announcement.create');
+    Route::post('/announcements', [NotificationController::class, 'store'])->name('announcement.store');
+    Route::get('/announcements/{id}/edit', [NotificationController::class, 'edit'])->name('announcement.edit');
+    Route::put('/announcements/{id}', [NotificationController::class, 'update'])->name('announcement.update');
+    Route::delete('/announcements/{id}', [NotificationController::class, 'destroy'])->name('announcement.destroy');
+    Route::post('/announcements/{id}/toggle-status', [NotificationController::class, 'toggleStatus'])->name('announcement.toggle-status');
+    
+    // API route for frontend
+    Route::get('/announcements/api/active', [NotificationController::class, 'getActiveAnnouncements'])->name('announcement.api.active');
+});
+
+
 
 

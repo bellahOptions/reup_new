@@ -1,4 +1,5 @@
 <x-guest-layout>
+    @section('title', 'Reset your password - Secure Sign In')
 <main class="min-h-screen bg-gradient-to-br from-gray-50 to-green-50/30">
     <div class="py-8 md:py-12">
         <div class="max-w-md mx-auto px-4 sm:px-6 lg:px-8">

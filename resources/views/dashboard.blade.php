@@ -1,5 +1,5 @@
 @extends('layouts.app')
-@section('title', '$user = auth()->user() Dashboard')
+@section('title', 'Dashboard | Reup')
 @section('content')
 <main class="min-h-screen bg-gradient-to-br from-gray-50 to-green-50/30">
     <div class="py-6 md:py-8">
@@ -47,7 +47,7 @@
         $successRate = $totalCount > 0 ? round(($successfulCount / $totalCount) * 100) : 0;
     @endphp
                 <!-- Total Balance -->
-                <div class="group bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 p-6 text-white transform hover:-translate-y-1">
+                <div class="group bg-gradient-to-br from-green-500 to-green-600 rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 p-6 text-white transform hover:-translate-y-1">
                     <div class="flex items-start justify-between mb-4">
                         <div>
                             <p class="text-green-100 text-sm font-medium mb-1">Total Balance</p>
@@ -101,7 +101,7 @@
 
                <!-- Announcements Bar with Marquee -->
             @if(!empty($promotionsNotifications))
-            <div class="bg-gradient-to-r from-green-100 to-emerald-100 border border-green-200 rounded-2xl py-3 px-4 mb-8 overflow-hidden">
+            <div class="bg-gradient-to-r from-green-100 to-green-100 border border-green-200 rounded-2xl py-3 px-4 mb-8 overflow-hidden">
                 <div class="flex items-center">
                     <span class="text-green-600 font-bold mr-3 flex-shrink-0 text-sm md:text-base">📢 Announcements:</span>
                     <div class="marquee-container overflow-hidden flex-1">

@@ -24,45 +24,10 @@
                                 Buy Airtime/Data
                             </a>
                             
-                            <!-- More Options Dropdown -->
-                            <div class="relative">
-                                <button type="button" 
-                                        id="more-options-button"
-                                        class="flex items-center px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 focus:outline-none"
-                                        aria-expanded="false" 
-                                        aria-haspopup="true"
-                                        onclick="toggleMoreOptions()">
-                                    More Options
-                                    <svg class="ml-1 h-4 w-4 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                    </svg>
-                                </button>
-                                
-                                <!-- More Options Dropdown Menu -->
-                                <div id="more-options-menu" 
-                                     class="hidden origin-top-left absolute left-0 mt-2 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none z-20">
-                                    <div class="py-1" role="menu" aria-orientation="vertical">
-                                        <a href="#" class="block px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 border-b border-gray-100">
-                                            <div class="font-medium">CableTV Subscription</div>
-                                        </a>
-                                        <a href="#" class="block px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 border-b border-gray-100">
-                                            <div class="font-medium">Electricity Payment</div>
-                                        </a>
-                                        <a href="#" class="block px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 border-b border-gray-100">
-                                            <div class="font-medium">Print Recharge Card</div>
-                                        </a>
-                                        <a href="#" class="block px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 border-b border-gray-100">
-                                            <div class="font-medium">Fund Betting Wallet</div>
-                                        </a>
-                                        <a href="#" class="muted block px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 border-b border-gray-100">
-                                            <div class="font-medium">Purchase WAEC e-PIN</div>
-                                        </a>
-                                        <a href="#" class="muted block px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900">
-                                            <div class="font-medium">Purchase JAMB e-PIN</div>
-                                        </a>
-                                    </div>
-                                </div>
-                            </div>
+                            <a href="{{ route('pricelist') }}" 
+                       class="px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">
+                        Airtime/Data Pricelist
+                    </a>
                             
                             <a href="#" 
                                class="px-3 py-2 rounded-md text-sm bg-green-100 font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">

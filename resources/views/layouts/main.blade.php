@@ -28,6 +28,44 @@
 <!-- SEO Meta Tags -->
     <meta name="description" content="{{ $siteSettings['meta_description'] ?? '' }}">
     <meta name="keywords" content="{{ $siteSettings['meta_keywords'] ?? '' }}">
+    <!-- SEO Meta Tags -->
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+    <meta name="googlebot" content="index, follow">
+    <meta name="bingbot" content="index, follow">
+    <meta name="slurp" content="index, follow">
+    <meta name="msnbot" content="index, follow">
+    
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="ReUp - Digital Services">
+    <meta property="og:locale" content="en_NG">
+    
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:site" content="@reupng">
+    
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "ReUp",
+        "url": "https://reup.com.ng",
+        "logo": "https://reup.com.ng/images/icon_new.png",
+        "contactPoint": {
+            "@type": "ContactPoint",
+            "telephone": "+234-907-601-7916",
+            "contactType": "Customer Service",
+            "areaServed": "NG",
+            "availableLanguage": ["English", "French", "Yoruba", "Igbo", "Hausa"]
+        },
+        "sameAs": [
+            "https://web.facebook.com/reupByBellah",
+            "https://www.instagram.com/reup.ng/"
+        ]
+    }
+    </script>
+
     <!--END SEO-->
     
     <title>@yield('title') - Reup | Buy airtime, data, and pay bills instantly with ReUp. Fast, secure, and stress-free — anytime, anywhere.</title>

@@ -4,14 +4,14 @@
             <div class="flex h-16 items-center justify-between">
                 <!-- Logo -->
                 <div class="flex items-center">
-                    <a href="/" class="flex items-center space-x-2">
+                    <a href="{{route('home')}}" class="flex items-center space-x-2">
                         <img src="{{ asset('images/reup-03.svg') }}" alt="Reup Logo" class="h-6 w-auto sm:h-7" />
                     </a>
                 </div>
 
                 <!-- Desktop Navigation -->
                 <div class="hidden md:flex md:items-center md:space-x-1">
-                    <a href="/" 
+                    <a href="{{ route('home') }}" 
                        class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-green-600 hover:bg-green-700 transition-colors duration-200">
                         Home
                     </a>
@@ -23,9 +23,9 @@
                        class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-gray-700 hover:text-green-600 hover:bg-green-50 transition-colors duration-200">
                         Buy Data
                     </a>
-                    <a href="{{ route('contact') }}" 
+                    <a href="{{ route('pricelist') }}" 
                        class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-gray-700 hover:text-green-600 hover:bg-green-50 transition-colors duration-200">
-                        Contact
+                        Airtime/Data Pricelist
                     </a>
                 </div>
 
@@ -33,8 +33,8 @@
                 <div class="hidden md:flex md:items-center md:space-x-3">
                     @auth
                     @if(Auth::user() && !Auth::user()->isAdmin())
-    {{-- The user is logged in... display content for authenticated users --}}
-    <a href="{{ url('/dashboard') }}" class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-gray-700 hover:text-green-600 hover:bg-green-50 transition-colors duration-200">You're logged in as {{ Auth::user()->name }}</a>
+                {{-- The user is logged in... display content for authenticated users --}}
+                <a href="{{ url('/dashboard') }}" class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-gray-700 hover:text-green-600 hover:bg-green-50 transition-colors duration-200">You're logged in as {{ Auth::user()->name }}</a>
 
     @elseif(Auth::user()->isAdmin())
         <a href="{{ route('admin.dashboard') }}" class="text-gray-700 hover:bg-green-100 hover:text-green-600 px-3 py-2 text-sm font-medium">
@@ -78,7 +78,7 @@
         <!-- Mobile menu -->
         <div class="hidden md:hidden" id="mobile-menu">
             <div class="border-t border-gray-200/60 px-4 pt-4 pb-4 space-y-1">
-                <a href="/" 
+                <a href="{{route('home')}}" 
                    class="block px-4 py-3 rounded-lg text-base font-medium text-white bg-green-600 hover:bg-green-700 transition-colors duration-200">
                     Home
                 </a>
@@ -90,9 +90,9 @@
                    class="block px-4 py-3 rounded-lg text-base font-medium text-gray-700 hover:text-green-600 hover:bg-green-50 transition-colors duration-200">
                     Buy Data
                 </a>
-                <a href="{{ route('contact') }}" 
+                <a href="{{ route('pricelist') }}" 
                    class="block px-4 py-3 rounded-lg text-base font-medium text-gray-700 hover:text-green-600 hover:bg-green-50 transition-colors duration-200">
-                    Contact
+                    Airtime/Data Pricelist
                 </a>
                 
                 <!-- Mobile CTA Buttons -->

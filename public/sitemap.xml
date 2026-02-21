@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.sitemaps.org/schemas/sitemap/0.9
+        http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd">
+    
+    <!-- Home Page - Highest Priority -->
+    <url>
+        <loc>https://reup.com.ng/</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>daily</changefreq>
+        <priority>1.0</priority>
+    </url>
+    
+    <!-- ==================== PUBLIC PAGES ==================== -->
+    
+    <!-- Pricelist (Real-time Data Plans) -->
+    <url>
+        <loc>https://reup.com.ng/pricelist</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>hourly</changefreq>
+        <priority>0.9</priority>
+    </url>
+    
+    <!-- API Endpoint for Data Plans -->
+    <url>
+        <loc>https://reup.com.ng/pricelist/api</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>hourly</changefreq>
+        <priority>0.7</priority>
+    </url>
+    
+    <!-- ==================== SERVICE PAGES ==================== -->
+    <!-- These are behind auth but important for SEO -->
+    
+    <!-- Airtime & Data Services -->
+    <url>
+        <loc>https://reup.com.ng/airtime-data</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>daily</changefreq>
+        <priority>0.8</priority>
+    </url>
+    
+    <!-- Cable TV Services -->
+    <url>
+        <loc>https://reup.com.ng/cable-tv</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>daily</changefreq>
+        <priority>0.8</priority>
+    </url>
+    
+    <!-- Electricity Bill Payment -->
+    <url>
+        <loc>https://reup.com.ng/electricity</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>daily</changefreq>
+        <priority>0.8</priority>
+    </url>
+    
+    <!-- WAEC e-PIN Purchase -->
+    <url>
+        <loc>https://reup.com.ng/waec-pin</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.7</priority>
+    </url>
+    
+    <!-- JAMB e-PIN Purchase -->
+    <url>
+        <loc>https://reup.com.ng/jamb-pin</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.7</priority>
+    </url>
+    
+    <!-- ==================== INFORMATION PAGES ==================== -->
+    
+    <!-- Frequently Asked Questions -->
+    <url>
+        <loc>https://reup.com.ng/faq</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.7</priority>
+    </url>
+    
+    <!-- Contact Us -->
+    <url>
+        <loc>https://reup.com.ng/contact</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.7</priority>
+    </url>
+    
+    <!-- ==================== LEGAL PAGES ==================== -->
+    
+    <!-- Terms of Service -->
+    <url>
+        <loc>https://reup.com.ng/terms-of-service</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.5</priority>
+    </url>
+    
+    <!-- Privacy Policy -->
+    <url>
+        <loc>https://reup.com.ng/privacy-policy</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.5</priority>
+    </url>
+    
+    <!-- ==================== AUTHENTICATION PAGES ==================== -->
+    
+    <!-- Login Page -->
+    <url>
+        <loc>https://reup.com.ng/login</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.6</priority>
+    </url>
+    
+    <!-- Registration Page -->
+    <url>
+        <loc>https://reup.com.ng/register</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.6</priority>
+    </url>
+    
+    <!-- Password Reset -->
+    <url>
+        <loc>https://reup.com.ng/forgot-password</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.3</priority>
+    </url>
+    
+    <!-- ==================== API DOCUMENTATION ==================== -->
+    
+    <!-- Pricelist Query API -->
+    <url>
+        <loc>https://reup.com.ng/pricelist/query/{orderId}</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.4</priority>
+    </url>
+    
+    <!-- ==================== SPECIAL PAGES ==================== -->
+    
+    <!-- Refresh Pricelist -->
+    <url>
+        <loc>https://reup.com.ng/pricelist/refresh</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>daily</changefreq>
+        <priority>0.6</priority>
+    </url>
+    
+    <!-- Contact Form Submission -->
+    <url>
+        <loc>https://reup.com.ng/contact/submit</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.4</priority>
+    </url>
+    
+    <!-- ==================== PAYMENT & WALLET ==================== -->
+    <!-- These have lower priority as they're user-specific -->
+    
+    <!-- Wallet Main Page -->
+    <url>
+        <loc>https://reup.com.ng/wallet</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.5</priority>
+    </url>
+    
+    <!-- Wallet Funding -->
+    <url>
+        <loc>https://reup.com.ng/wallet/fund</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.4</priority>
+    </url>
+    
+    <!-- ==================== PAYSTACK INTEGRATION ==================== -->
+    
+    <!-- Paystack Callback -->
+    <url>
+        <loc>https://reup.com.ng/paystack/callback</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.3</priority>
+    </url>
+    
+    <!-- Paystack Webhook -->
+    <url>
+        <loc>https://reup.com.ng/paystack/webhook</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.3</priority>
+    </url>
+    
+    <!-- ==================== UTILITY FILES ==================== -->
+    
+    <!-- Robots.txt -->
+    <url>
+        <loc>https://reup.com.ng/robots.txt</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.1</priority>
+    </url>
+    
+    <!-- LLM.txt -->
+    <url>
+        <loc>https://reup.com.ng/llm.txt</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.1</priority>
+    </url>
+    
+    <!-- ==================== ADMINISTRATIVE ==================== -->
+    <!-- These have very low priority as they're admin-only -->
+    
+    <!-- Paystack Balance (Admin) -->
+    <url>
+        <loc>https://reup.com.ng/paystack/balance</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.1</priority>
+    </url>
+    
+    <!-- Paystack Stats (Admin) -->
+    <url>
+        <loc>https://reup.com.ng/paystack/stats</loc>
+        <lastmod>2026-01-18</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.1</priority>
+    </url>
+    
+</urlset>

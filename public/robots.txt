@@ -1,2 +1,340 @@
+# robots.txt for reup.com.ng
+# Last Updated: 2026-01-18
+# Contact: admin@reup.com.ng
+
 User-agent: *
-Disallow:
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+Disallow: /cgi-bin/
+Disallow: /private/
+Disallow: /tmp/
+Disallow: /vendor/
+Disallow: /storage/
+Disallow: /bootstrap/
+Disallow: /config/
+Disallow: /database/
+Disallow: /node_modules/
+Disallow: /public/uploads/private/
+Disallow: /*.pdf$
+Disallow: /*.doc$
+Disallow: /*.docx$
+Disallow: /*.xls$
+Disallow: /*.xlsx$
+Disallow: /*.ppt$
+Disallow: /*.pptx$
+Disallow: /*.zip$
+Disallow: /*.rar$
+Disallow: /*.tar$
+Disallow: /*.gz$
+Disallow: /*.sql$
+Disallow: /*.env$
+Disallow: /*.log$
+Disallow: /*.ini$
+Disallow: /*.php$
+Disallow: /*.bak$
+Disallow: /*?sort=
+Disallow: /*?filter=
+Disallow: /*?search=
+Disallow: /*?page=
+Disallow: /*?utm_
+Disallow: /*?ref=
+Disallow: /*?session=
+Disallow: /*?token=
+Disallow: /*?api_key=
+
+# Special directives for search engines
+Crawl-delay: 1
+Clean-param: ref /pricelist/
+Clean-param: session /pricelist/
+Clean-param: token /pricelist/
+Clean-param: filter /pricelist/
+Clean-param: sort /pricelist/
+
+# Sitemap location
+Sitemap: https://reup.com.ng/sitemap.xml
+Sitemap: https://reup.com.ng/sitemap-index.xml
+
+# Allow specific important pages for all bots
+Allow: /pricelist
+Allow: /pricelist/
+Allow: /data-plans
+Allow: /data-plans/
+Allow: /airtime
+Allow: /airtime/
+Allow: /cable-tv
+Allow: /cable-tv/
+Allow: /electricity
+Allow: /electricity/
+
+# Google-specific directives
+User-agent: Googlebot
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+Disallow: /private/
+Disallow: /storage/private/
+Crawl-delay: 0.5
+Allow: /pricelist/refresh
+Allow: /pricelist/api
+
+# Google Image Bot
+User-agent: Googlebot-Image
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+Allow: /storage/uploads/images/
+
+# Google News Bot
+User-agent: Googlebot-News
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+
+# Bing-specific directives
+User-agent: Bingbot
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+Crawl-delay: 1
+Allow: /pricelist/
+
+# Yandex-specific directives
+User-agent: Yandex
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+Crawl-delay: 2
+Clean-param: ref
+Clean-param: session
+Clean-param: token
+
+# Baidu-specific directives
+User-agent: Baiduspider
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+Crawl-delay: 3
+
+# DuckDuckGo Bot
+User-agent: DuckDuckBot
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+Crawl-delay: 0.5
+
+# Apple Bot
+User-agent: Applebot
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+
+# Facebook Bot
+User-agent: facebookexternalhit
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+Crawl-delay: 1
+
+# Twitter Bot
+User-agent: Twitterbot
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+Crawl-delay: 1
+
+# LinkedIn Bot
+User-agent: LinkedInBot
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+Crawl-delay: 1
+
+# Instagram Bot
+User-agent: Instagram
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+Crawl-delay: 2
+
+# WhatsApp Bot
+User-agent: WhatsApp
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+Crawl-delay: 2
+
+# Telegram Bot
+User-agent: TelegramBot
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+Crawl-delay: 1
+
+# Slack Bot
+User-agent: Slackbot
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+Crawl-delay: 1
+
+# GPTBot (OpenAI)
+User-agent: GPTBot
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+Disallow: /private/
+Disallow: /storage/private/
+Allow: /pricelist/
+Allow: /data-plans/
+Allow: /airtime/
+Allow: /cable-tv/
+Allow: /electricity/
+Crawl-delay: 1
+
+# CCBot (Common Crawl)
+User-agent: CCBot
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+Disallow: /private/
+Crawl-delay: 2
+
+# DiffBot
+User-agent: DiffBot
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+Crawl-delay: 1
+
+# Claude-Web
+User-agent: Claude-Web
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+Crawl-delay: 1
+
+# PerplexityBot
+User-agent: PerplexityBot
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+Crawl-delay: 1
+
+# YouBot
+User-agent: YouBot
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+Crawl-delay: 1
+
+# Block malicious/scraping bots
+User-agent: AhrefsBot
+Disallow: /
+
+User-agent: SemrushBot
+Disallow: /
+
+User-agent: MJ12bot
+Disallow: /
+
+User-agent: dotbot
+Disallow: /
+
+User-agent: megaindex.ru
+Disallow: /
+
+User-agent: BLEXBot
+Disallow: /
+
+User-agent: SentiBot
+Disallow: /
+
+User-agent: DataForSeoBot
+Disallow: /
+
+User-agent: ZoominfoBot
+Disallow: /
+
+User-agent: SeekportBot
+Disallow: /
+
+User-agent: Bytespider
+Disallow: /
+
+User-agent: PetalBot
+Disallow: /
+
+User-agent: CensysInspect
+Disallow: /
+
+# Block vulnerability scanners
+User-agent: masscan
+Disallow: /
+
+User-agent: Nessus
+Disallow: /
+
+User-agent: Nikto
+Disallow: /
+
+User-agent: sqlmap
+Disallow: /
+
+User-agent: wpscan
+Disallow: /
+
+User-agent: nmap
+Disallow: /
+
+# Block content scrapers
+User-agent: CopyRightCheck
+Disallow: /
+
+User-agent: WebStripper
+Disallow: /
+
+User-agent: WebCopier
+Disallow: /
+
+User-agent: HTTrack
+Disallow: /
+
+User-agent: Teleport
+Disallow: /
+
+User-agent: EmailCollector
+Disallow: /
+
+User-agent: EmailSiphon
+Disallow: /
+
+User-agent: WebBandit
+Disallow: /
+
+User-agent: CherryPicker
+Disallow: /
+
+# Host directive
+Host: reup.com.ng
+
+# Preferred www/non-www
+Host: https://reup.com.ng
+
+# Language/locale directives for multilingual support
+Allow: /en/
+Allow: /fr/
+Allow: /yo/
+Allow: /ig/
+Allow: /ha/
+
+# Allow access to API endpoints for legitimate bots
+Allow: /api/v1/pricelist
+Allow: /api/v1/plans
+Allow: /api/v1/airtime-rates
+Allow: /api/v1/cable-plans
+
+# Rate limiting for aggressive bots
+User-agent: *
+Request-rate: 1/10 # 1 request every 10 seconds
+Visit-time: 0600-2300 # Only crawl between 6 AM and 11 PM WAT

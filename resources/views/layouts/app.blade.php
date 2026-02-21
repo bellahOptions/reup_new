@@ -31,7 +31,8 @@
     <meta name="keywords" content="{{ $siteSettings['meta_keywords'] ?? '' }}">
     <!--END SEO-->
     
-    <title>Reup | Buy airtime, data, and pay bills instantly with ReUp. Fast, secure, and stress-free — anytime, anywhere.</title>
+    <title>
+        @yield('title')</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet">
@@ -85,72 +86,204 @@
 </head>
 <body class="font-sans antialiased bg-green-50">
 
-<!-- Announcements Modal -->
-@if(!empty($announcements) && !session('announcements_viewed'))
-    <div id="announcementsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[80vh] overflow-y-auto">
-            <div class="p-6">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-xl font-bold text-gray-900">📢 Latest Announcements</h3>
-                    <button onclick="closeAnnouncements()" class="text-gray-400 hover:text-gray-600">
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                        </svg>
-                    </button>
+<!-- Announcements Modal - Shows only once per login session -->
+@php
+    use App\Models\PromotionNotification;
+    
+    // Get active announcements (notifications type)
+    $activeAnnouncements = PromotionNotification::announcements()
+        ->where(function($query) {
+            $query->whereNull('starts_at')
+                  ->orWhere('starts_at', '<=', now());
+        })
+        ->where(function($query) {
+            $query->whereNull('ends_at')
+                  ->orWhere('ends_at', '>=', now());
+        })
+        ->orderBy('created_at', 'desc')
+        ->get();
+    
+    // Check if modal should be shown (only on specific pages, not all)
+    $showAnnouncementModal = false;
+    
+    // Define which pages should show the modal
+    $pagesToShowModal = ['dashboard', 'home', 'index'];
+    $currentRoute = request()->route()->getName();
+    
+    // Check if current route is in the allowed list
+    foreach($pagesToShowModal as $page) {
+        if (strpos($currentRoute, $page) !== false) {
+            $showAnnouncementModal = true;
+            break;
+        }
+    }
+    
+    // Check if user has already seen announcements in this session
+    $hasSeenAnnouncements = session('has_seen_announcements', false);
+@endphp
+
+@if($activeAnnouncements->count() > 0 && $showAnnouncementModal && !$hasSeenAnnouncements)
+    <div id="announcementsModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
+        <div class="bg-gradient-to-br from-white to-gray-50 rounded-2xl shadow-2xl max-w-md w-full max-h-[80vh] overflow-hidden border border-gray-200 animate-slideUp">
+            <!-- Modal Header -->
+            <div class="relative">
+                <div class="bg-gradient-to-r from-green-500 to-emerald-600 p-6">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
+                                <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"/>
+                                </svg>
+                            </div>
+                            <h3 class="text-xl font-bold text-white">Latest Announcements</h3>
+                        </div>
+                        <button onclick="closeAnnouncements()" 
+                                class="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center hover:bg-white/30 transition-colors">
+                            <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
                 
+                <!-- Decorative Element -->
+                <div class="absolute -bottom-3 left-1/2 transform -translate-x-1/2">
+                    <div class="w-6 h-6 bg-gradient-to-r from-green-500 to-emerald-600 rotate-45"></div>
+                </div>
+            </div>
+
+            <!-- Modal Content -->
+            <div class="p-6">
                 <div class="space-y-4">
-                    @foreach($announcements as $announcement)
-                    <div class="bg-green-50 p-4 rounded-lg">
-                        <div class="flex items-start space-x-3">
-                            @if($announcement['icon'])
-                                <span class="text-2xl">{{ $announcement['icon'] }}</span>
+                    @foreach($activeAnnouncements as $announcement)
+                    <div class="group bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-4 border border-green-100 hover:border-green-200 transition-all duration-300">
+                        <!-- Badge if exists -->
+                        @if($announcement->badge)
+                            <span class="inline-block px-3 py-1 mb-3 text-xs font-bold rounded-full" 
+                                  style="background-color: {{ $announcement->badge_color ?? '#10B981' }}; color: {{ $announcement->text_color ?? '#ffffff' }}">
+                                {{ $announcement->badge }}
+                            </span>
+                        @endif
+                        
+                        <!-- Title and Icon -->
+                        <div class="flex items-start gap-3">
+                            @if($announcement->icon)
+                                <div class="w-10 h-10 bg-gradient-to-br from-green-100 to-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0 mt-1">
+                                    <span class="text-lg">{{ $announcement->icon }}</span>
+                                </div>
                             @endif
-                            <div>
-                                <h4 class="font-semibold text-green-800 mb-1">{{ $announcement['title'] }}</h4>
-                                <p class="text-gray-700 text-sm">{{ $announcement['content'] }}</p>
+                            <div class="flex-1">
+                                <h4 class="font-bold text-gray-900 mb-1">{{ $announcement->title }}</h4>
+                                <p class="text-gray-600 text-sm leading-relaxed">{{ $announcement->content }}</p>
+                                
+                                <!-- Date if exists -->
+                                @if($announcement->starts_at || $announcement->ends_at)
+                                    <div class="mt-2 flex items-center gap-2 text-xs text-gray-500">
+                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                                        </svg>
+                                        @if($announcement->starts_at && $announcement->ends_at)
+                                            {{ $announcement->starts_at->format('M d') }} - {{ $announcement->ends_at->format('M d') }}
+                                        @elseif($announcement->starts_at)
+                                            Starts {{ $announcement->starts_at->format('M d') }}
+                                        @endif
+                                    </div>
+                                @endif
                             </div>
                         </div>
                     </div>
                     @endforeach
                 </div>
                 
-                <div class="mt-6 flex justify-between items-center">
-                    <label class="flex items-center space-x-2 text-sm text-gray-600">
-                        <input type="checkbox" id="dontShowAgain" class="rounded border-gray-300 text-green-500 focus:ring-green-500">
-                        <span>Don't show again for 7 days</span>
-                    </label>
+                <!-- Footer -->
+                <div class="mt-8 pt-6 border-t border-gray-200">
                     <button onclick="closeAnnouncements()" 
-                            class="bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold py-2 px-6 rounded-lg hover:from-green-600 hover:to-emerald-700 transition-all duration-200">
-                        Got it!
+                            class="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold py-3 px-4 rounded-xl hover:from-green-600 hover:to-emerald-700 transition-all duration-300 transform hover:-translate-y-0.5 shadow-lg hover:shadow-xl flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                        Got it, thanks!
                     </button>
+                    <p class="text-center text-xs text-gray-500 mt-4">
+                        You can view these announcements anytime from your dashboard
+                    </p>
                 </div>
             </div>
         </div>
     </div>
 
+    <style>
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    
+    @keyframes slideUp {
+        from { 
+            opacity: 0;
+            transform: translateY(20px) scale(0.95);
+        }
+        to { 
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+    }
+    
+    .animate-fadeIn {
+        animation: fadeIn 0.3s ease-out;
+    }
+    
+    .animate-slideUp {
+        animation: slideUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    </style>
+
     <script>
     function closeAnnouncements() {
-        const dontShow = document.getElementById('dontShowAgain').checked;
+        const modal = document.getElementById('announcementsModal');
         
-        if (dontShow) {
-            // Set cookie for 7 days
-            document.cookie = "announcements_viewed=true; max-age=" + (7 * 24 * 60 * 60) + "; path=/";
-        } else {
-            // Set session only
-            fetch('{{ route("announcements.viewed") }}', {
+        // Add fade out animation
+        modal.style.animation = 'fadeOut 0.3s ease-in forwards';
+        
+        // Remove modal after animation
+        setTimeout(() => {
+            modal.style.display = 'none';
+            
+            // Send AJAX request to mark as viewed for this session
+            fetch('/announcements/mark-session-viewed', {
                 method: 'POST',
                 headers: {
                     'X-CSRF-TOKEN': '{{ csrf_token() }}',
-                    'Content-Type': 'application/json'
-                }
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({})
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Announcements marked as viewed for this session');
+            })
+            .catch(error => {
+                console.error('Error:', error);
             });
-        }
-        
-        document.getElementById('announcementsModal').style.display = 'none';
+        }, 300);
     }
+
+    // Close modal on ESC key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            closeAnnouncements();
+        }
+    });
+
+    // Close modal on backdrop click
+    document.getElementById('announcementsModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeAnnouncements();
+        }
+    });
     </script>
-    @endif
+@endif
     @if(auth()->check() && auth()->user()->requires_phone_update)
     @if(!request()->is('profile*'))
         <div class="bg-gradient-to-r from-red-50 to-pink-50 border-b border-red-200">

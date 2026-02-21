@@ -1,4 +1,5 @@
 @extends('layouts.app')
+@section('title', 'Buy Cheap Airtime & Data on ReUp - Instant Recharge for All Networks')
 @section('content')
 <main class="min-h-screen bg-gradient-to-br from-gray-50 to-green-50/30">
     <div class="py-8 md:py-12">
@@ -23,7 +24,86 @@
                     </div>
                 </div>
             </div>
+
+             <!-- Announcements Bar with Marquee -->
+            @if(!empty($promotionsNotifications))
+            <div class="bg-gradient-to-r from-green-100 to-green-100 border border-green-200 rounded-2xl py-3 px-4 mb-8 overflow-hidden">
+                <div class="flex items-center">
+                    <span class="text-green-600 font-bold mr-3 flex-shrink-0 text-sm md:text-base">📢 Announcements:</span>
+                    <div class="marquee-container overflow-hidden flex-1">
+                        <x-marquee 
+                            :items="$promotionsNotifications"
+                            speed="35"
+                            direction="left"
+                            pauseOnHover="true"
+                            containerClass="w-full"
+                            innerClass="w-full"
+                            textColor="text-gray-700"
+                            badgeColor="bg-green-100 text-green-800 border border-green-200"
+                            compact="true"
+                        />
+                    </div>
+                </div>
             </div>
+            @endif
+
+                <!-- Marquee Announcement Bar -->
+    <div class="mb-8 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 shadow-sm overflow-hidden">
+@php
+    // Prepare announcement items
+    $announcementItems = [];
+    
+    if(!empty($announcements) && $announcements->count() > 0) {
+        // Transform database announcements to marquee format
+        foreach($announcements as $announcement) {
+            $item = [];
+            
+            // Map database fields to marquee item fields
+            if(!empty($announcement->badge)) {
+                $item['badge'] = $announcement->badge;
+                $item['badge_color'] = $announcement->badge_color ?? $announcement->color ?? 'bg-blue-100 text-blue-800';
+            }
+            
+            if(!empty($announcement->icon)) {
+                $item['icon'] = $announcement->icon;
+            }
+            
+            // Use title or content field
+            $item['title'] = $announcement->title ?? $announcement->content ?? '';
+            
+            if(!empty($announcement->text_color)) {
+                $item['textColor'] = $announcement->text_color;
+            }
+            
+            // Only add if we have content
+            if(!empty($item['title']) || !empty($item['badge']) || !empty($item['icon'])) {
+                $announcementItems[] = $item;
+            }
+        }
+    } else {
+        // Fallback to default announcements
+        $announcementItems = [
+            ['badge' => 'NEW', 'title' => 'Welcome back! Check out the new dashboard features', 'badgeColor' => 'bg-blue-100 text-blue-800'],
+            ['icon' => '🔥', 'title' => 'Hot deal: 30% off premium subscription until Friday'],
+            ['badge' => 'UPDATE', 'title' => 'Security patch installed', 'badgeColor' => 'bg-green-100 text-green-800'],
+            ['icon' => '📊', 'title' => 'Monthly reports now available in analytics'],
+            ['badge' => 'TIP', 'title' => 'Use dark mode for better battery life on OLED screens', 'badgeColor' => 'bg-purple-100 text-purple-800'],
+        ];
+    }
+@endphp
+
+@if(!empty($announcementItems))
+    <x-marquee 
+        :items="$announcementItems"
+        speed="40"
+        pauseOnHover="true"
+        containerClass="py-2"
+    />
+@endif
+
+            </div>
+
+            
 
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
                 <!-- Main Form Section -->
@@ -31,11 +111,11 @@
                     <!-- Service Type Toggle -->
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-200/60 p-2 mb-6">
                         <div class="grid grid-cols-2 gap-2">
-                            <button id="airtimeBtn" class="focus:bg-green-600 focus:text-white focus:font-bold service-btn active py-3 px-6 rounded-xl font-semibold text-sm md:text-base transition-all duration-300 flex items-center justify-center space-x-2">
+                            <button id="airtimeBtn" class="focus:bg-green-600 active:bg-green-600 focus:text-white focus:font-bold service-btn active py-3 px-6 rounded-xl font-semibold text-sm md:text-base transition-all duration-300 flex items-center justify-center space-x-2">
                                 <span>📞</span>
                                 <span>Airtime</span>
                             </button>
-                            <button id="dataBtn" class="focus:bg-green-600 focus:text-white focus:font-bold service-btn py-3 px-6 rounded-xl font-semibold text-sm md:text-base transition-all duration-300 flex items-center justify-center space-x-2">
+                            <button id="dataBtn" class="focus:bg-green-600 active:bg-green-600 focus:text-white focus:font-bold service-btn py-3 px-6 rounded-xl font-semibold text-sm md:text-base transition-all duration-300 flex items-center justify-center space-x-2">
                                 <span>📶</span>
                                 <span>Data</span>
                             </button>
@@ -231,6 +311,7 @@
     <input type="hidden" id="plan_name" name="plan_name">
     <input type="hidden" id="plan_price" name="plan_price">
     <input type="hidden" id="plan_type" name="plan_type">
+    <input type="hidden" id="plan_base_price" name="plan_base_price">
 </div>
 
                                 <!-- Phone Number -->
@@ -385,7 +466,6 @@
     @apply border-blue-500 bg-blue-50 shadow-md;
 }
 </style>
-
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const airtimeBtn = document.getElementById('airtimeBtn');
@@ -405,11 +485,17 @@ document.addEventListener('DOMContentLoaded', function() {
     // Get user's wallet balance
     const walletBalance = {{ auth()->user()->wallet_balance ?? 0 }};
     const serviceFeeRate = 0.02; // 2% service fee
+    const profitMargin = 0.015; // 1.5% profit margin on data plans
     
     // Store fetched data plans
     let fetchedDataPlans = [];
     let currentFilter = 'all';
     let currentNetworkId = '';
+
+    // Function to calculate price with profit
+    function calculateWithProfit(basePrice) {
+        return parseFloat((basePrice * (1 + profitMargin)).toFixed(2));
+    }
 
     // Toggle between Airtime and Data
     airtimeBtn.addEventListener('click', () => {
@@ -624,11 +710,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 products.forEach(product => {
                     const planType = getPlanType(product.PRODUCT_NAME);
+                    const basePrice = parseFloat(product.PRODUCT_AMOUNT);
+                    const sellingPrice = calculateWithProfit(basePrice);
                     
                     fetchedDataPlans.push({
                         product_id: product.PRODUCT_ID,
                         name: product.PRODUCT_NAME,
-                        price: parseFloat(product.PRODUCT_AMOUNT).toFixed(2),
+                        price: sellingPrice.toFixed(2), // Price with 1.5% markup
+                        base_price: basePrice.toFixed(2), // Original price from API
                         product_code: product.PRODUCT_CODE,
                         product_sno: product.PRODUCT_SNO,
                         network_id: currentNetworkId,
@@ -637,7 +726,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     });
                 });
 
-                console.log(`Loaded ${fetchedDataPlans.length} plans for ${networkKey}`);
+                console.log(`Loaded ${fetchedDataPlans.length} plans for ${networkKey} with 1.5% markup`);
                 
                 displayFilteredPlans();
 
@@ -653,17 +742,27 @@ document.addEventListener('DOMContentLoaded', function() {
     // When user selects a data plan, update hidden inputs and check balance
     dataPlanSelect.addEventListener('change', function() {
         const selectedOption = this.options[this.selectedIndex];
+    
+    if (selectedOption.value) {
+        const planName = selectedOption.dataset.planName || '';
+        const planPrice = parseFloat(selectedOption.dataset.planPrice || 0); // Selling price
+        const planType = selectedOption.dataset.planType || '';
         
-        if (selectedOption.value) {
-            const planName = selectedOption.dataset.planName || '';
-            const planPrice = parseFloat(selectedOption.dataset.planPrice || 0);
-            const planType = selectedOption.dataset.planType || '';
-            
-            planNameInput.value = planName;
-            planPriceInput.value = planPrice;
-            planTypeInput.value = planType;
+        // Find the base price from fetchedDataPlans
+        const selectedPlan = fetchedDataPlans.find(p => p.product_id === selectedOption.value);
+        const basePrice = selectedPlan ? parseFloat(selectedPlan.base_price) : planPrice / 1.015;
+        
+        planNameInput.value = planName;
+        planPriceInput.value = planPrice; // Selling price (with markup)
+        document.getElementById('plan_base_price').value = basePrice; // API price
+        planTypeInput.value = planType;
             
             // Show plan summary
+            const planSummary = document.getElementById('planSummary');
+            const selectedPlanName = document.getElementById('selectedPlanName');
+            const selectedPlanType = document.getElementById('selectedPlanType');
+            const selectedPlanPrice = document.getElementById('selectedPlanPrice');
+            
             if (selectedPlanName && selectedPlanType && selectedPlanPrice && planSummary) {
                 selectedPlanName.textContent = planName;
                 selectedPlanType.textContent = `Type: ${planType}`;
@@ -674,12 +773,13 @@ document.addEventListener('DOMContentLoaded', function() {
             // Check balance for data
             checkDataBalance(planPrice);
             
-            console.log(`Selected: ${planName} (${planType}) - ₦${planPrice}`);
+            console.log(`Selected: ${planName} (${planType}) - ₦${planPrice} (includes 1.5% markup)`);
         } else {
             planNameInput.value = '';
             planPriceInput.value = '';
             planTypeInput.value = '';
             
+            const planSummary = document.getElementById('planSummary');
             if (planSummary) {
                 planSummary.classList.add('hidden');
             }

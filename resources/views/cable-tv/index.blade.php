@@ -1,4 +1,5 @@
 @extends('layouts.app')
+@section('title', 'Recharge your DSTV, GOTV, Startimes & Showmax - Fast Cable TV Subscription on ReUp')
 @section('content')
 <main class="min-h-screen bg-gradient-to-br from-gray-50 to-green-50/30">
     <div class="py-8 md:py-12">

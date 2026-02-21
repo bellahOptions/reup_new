@@ -1,11 +1,12 @@
 <x-guest-layout>
+    @section('title', 'Login to Your ReUp Account - Secure Sign In')
     <div class="min-h-screen flex">
         <!-- Left Side - Form -->
         <div class="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8 bg-white">
             <div class="w-full max-w-md space-y-8">
                 <!-- Logo & Header -->
                 <div class="text-center">
-                    <a href="/">
+                    <a href="{{route('home')}}">
                         <img src="{{ asset('images/reup-03.svg') }}" alt="ReUp Logo" class="h-12 mx-auto mb-8">
                     </a>
                     <h2 class="text-3xl md:text-4xl font-bold text-gray-900 mb-2">
