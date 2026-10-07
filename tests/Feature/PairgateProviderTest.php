@@ -45,6 +45,61 @@ class PairgateProviderTest extends TestCase
         return $this->app->make(ProviderManager::class);
     }
 
+    public function test_the_health_probe_accepts_a_successful_wallet_enquiry(): void
+    {
+        Http::fake([
+            '*pairgate.com/api/v1/wallet/balance' => Http::response([
+                'code' => 200,
+                'status' => 'success',
+                'data' => ['balance' => 1500.00],
+            ]),
+        ]);
+
+        $this->assertTrue($this->provider()->ping());
+    }
+
+    public function test_the_health_probe_treats_a_rejected_key_as_unavailable(): void
+    {
+        Http::fake([
+            '*pairgate.com/api/v1/wallet/balance' => Http::response([
+                'code' => 401,
+                'status' => 'error',
+                'message' => 'Invalid API key',
+            ], 401),
+        ]);
+
+        $this->assertFalse($this->provider()->ping());
+    }
+
+    public function test_the_health_probe_treats_a_dead_endpoint_as_unavailable(): void
+    {
+        Http::fake([
+            '*pairgate.com/api/v1/wallet/balance' => fn () => throw new \Illuminate\Http\Client\ConnectionException('timed out'),
+        ]);
+
+        $this->assertFalse($this->provider()->ping());
+    }
+
+    public function test_a_recorded_plan_price_is_used_without_calling_the_catalogue(): void
+    {
+        Http::fake();
+
+        config(['bills.pairgate.data_plans' => ['CK-1' => ['plan_id' => '45', 'price' => 480.00]]]);
+
+        $this->assertSame(480.00, $this->provider()->cost('data', ['network' => '01', 'plan' => 'CK-1']));
+
+        // Pricing a purchase must never add an upstream round trip to checkout.
+        Http::assertNothingSent();
+    }
+
+    public function test_an_unmapped_plan_has_no_price_at_all(): void
+    {
+        Http::fake();
+
+        $this->assertNull($this->provider()->cost('data', ['network' => '01', 'plan' => 'CK-1']));
+        Http::assertNothingSent();
+    }
+
     public function test_the_manager_holds_both_upstreams_in_the_configured_order(): void
     {
         $names = array_map(fn ($provider) => $provider->name(), $this->manager()->all());

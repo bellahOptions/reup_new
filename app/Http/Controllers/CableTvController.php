@@ -127,6 +127,16 @@ class CableTvController extends Controller
         $amount = round((float) $validated['amount'], 2);
         $providerName = config('bills.cable_providers.' . $validated['provider'], $validated['provider']);
 
+        // Shared with provider selection so each upstream can be asked what this
+        // bouquet costs it before one of them is chosen to vend it.
+        $providerParams = [
+            'provider' => $validated['provider'],
+            'package' => $validated['package'],
+            'smartcard_number' => $validated['smartcard_number'],
+            'amount' => $amount,
+            'phone' => $validated['phone'] ?? (string) $user->phone,
+        ];
+
         try {
             $result = $this->bills->purchase(
                 user: $user,
@@ -142,15 +152,10 @@ class CableTvController extends Controller
                     'package' => $validated['package'],
                     'phone' => $validated['phone'] ?? $user->phone,
                 ],
+                providerParams: $providerParams,
                 dispatch: fn ($provider, Transactions $transaction) => $provider->purchase(
                     'cable_tv',
-                    [
-                        'provider' => $validated['provider'],
-                        'package' => $validated['package'],
-                        'smartcard_number' => $validated['smartcard_number'],
-                        'amount' => $amount,
-                        'phone' => $validated['phone'] ?? (string) $user->phone,
-                    ],
+                    $providerParams,
                     $transaction->reference,
                 ),
                 successMessage: $providerName . ' ' . $validated['package'] . ' activated on '

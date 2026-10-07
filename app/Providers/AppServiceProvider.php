@@ -5,7 +5,9 @@ namespace App\Providers;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Models\TermsPrivacy;
 use App\Services\BillPaymentService;
+use App\Services\ClubKonnectCatalogue;
 use App\Services\ClubKonnectService;
+use App\Services\ProviderHealthService;
 use App\Services\ProviderManager;
 use App\Services\Providers\ClubKonnectProvider;
 use App\Services\Providers\PairgateProvider;
@@ -34,8 +36,10 @@ class AppServiceProvider extends ServiceProvider
         | resolution.
         */
         $this->app->singleton(ClubKonnectService::class);
+        $this->app->singleton(ClubKonnectCatalogue::class);
         $this->app->singleton(ClubKonnectProvider::class);
         $this->app->singleton(PairgateProvider::class);
+        $this->app->singleton(ProviderHealthService::class);
         $this->app->singleton(ProviderManager::class);
         $this->app->singleton(BillPaymentService::class);
     }

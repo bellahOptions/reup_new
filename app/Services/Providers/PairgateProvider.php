@@ -36,8 +36,8 @@ use RuntimeException;
  *   3. **Electricity tokens and exam PINs are asynchronous**: the purchase call
  *      only acknowledges the order, and the token/PIN arrives on Pairgate's
  *      webhook. `issuedToken()` therefore returns whatever the acknowledgement
- *      carries and is usually null. Wiring that webhook is outstanding — see
- *      docs/RUNNING.md.
+ *      carries and is usually null; PairgateWebhookController is what stores the
+ *      real one (and what reverses an order Pairgate fails after accepting it).
  */
 class PairgateProvider implements BillProvider
 {
@@ -46,6 +46,9 @@ class PairgateProvider implements BillProvider
 
     /** The status the pipeline reads as "accepted and processing". */
     private const SUCCESS = 'ORDER_RECEIVED';
+
+    /** Seconds a liveness probe may take before it counts as "not available". */
+    private const PROBE_TIMEOUT = 10;
 
     public function name(): string
     {
@@ -67,7 +70,64 @@ class PairgateProvider implements BillProvider
         return in_array($product, (array) config('bills.providers.pairgate.products', []), true);
     }
 
-    private function client()
+    /**
+     * A wallet enquiry proves reachability and that the bearer token is still
+     * accepted. Deliberately not cached here — ProviderHealthService owns the
+     * freshness policy — and bounded to a short timeout, because a probe that
+     * hangs is worse than a probe that fails.
+     */
+    public function ping(): bool
+    {
+        if (! $this->isConfigured()) {
+            return false;
+        }
+
+        try {
+            $response = $this->client(self::PROBE_TIMEOUT)->get($this->url('/wallet/balance'));
+
+            if (! $response->successful()) {
+                return false;
+            }
+
+            $body = $response->json() ?? [];
+
+            $balance = data_get($body, 'data.balance') ?? ($body['balance'] ?? null);
+
+            return strtolower((string) ($body['status'] ?? '')) === 'success' && is_numeric($balance);
+        } catch (\Throwable $e) {
+            Log::warning('Pairgate health probe failed', ['error' => $e->getMessage()]);
+
+            return false;
+        }
+    }
+
+    /**
+     * What Pairgate takes from our float for this purchase.
+     *
+     *   * electricity and betting are billed at face value, so both providers
+     *     cost the same and the configured order decides;
+     *   * data and cable prices come from Pairgate's own catalogue, but only for
+     *     plans the operator has mapped in config/bills.php — an unmapped plan
+     *     cannot be bought here at all, so there is no price to compare;
+     *   * airtime carries a discount Pairgate does not publish per network, and
+     *     exam pins have no price endpoint, so both are unknown.
+     *
+     * Unknown (null) is safe by construction: ProviderManager only reorders when
+     * every candidate has a price.
+     *
+     * @param  array<string,mixed>  $params
+     */
+    public function cost(string $product, array $params): ?float
+    {
+        return match ($product) {
+            'electricity', 'betting' => isset($params['amount']) ? (float) $params['amount'] : null,
+            'data' => $this->dataPlanCost($params),
+            'cable_tv' => $this->cablePlanCost($params),
+            default => null,
+        };
+    }
+
+    private function client(int $timeout = 45)
     {
         $key = config('services.pairgate.api_key');
 
@@ -201,6 +261,181 @@ class PairgateProvider implements BillProvider
             '2', 'postpaid' => 2,
             default => null,
         };
+    }
+
+    /**
+     * One entry of a plan-translation map, in either supported shape.
+     *
+     * The maps started as `clubkonnect-plan-id => pairgate-plan-id`. Cost
+     * comparison needs more than an id, so an entry may also be an array:
+     *
+     *   'CK-123' => '45',
+     *   'CK-124' => ['plan_id' => '46', 'plan_type' => 'SME'],
+     *   'CK-125' => ['plan_id' => '47', 'price' => 500.0],
+     *
+     * `plan_type` lets the live catalogue be consulted for the current price;
+     * `price` short-circuits that with a figure the operator has recorded.
+     *
+     * @return array{plan_id:string,price:?float,plan_type:?string}|null
+     */
+    private function planEntry(string $map, string $key): ?array
+    {
+        $values = (array) config('bills.pairgate.' . $map, []);
+        $value = $values[$key] ?? null;
+
+        if (is_string($value) && $value !== '') {
+            return ['plan_id' => $value, 'price' => null, 'plan_type' => null];
+        }
+
+        if (! is_array($value) || empty($value['plan_id'])) {
+            return null;
+        }
+
+        return [
+            'plan_id' => (string) $value['plan_id'],
+            'price' => isset($value['price']) && is_numeric($value['price']) ? (float) $value['price'] : null,
+            'plan_type' => isset($value['plan_type']) ? (string) $value['plan_type'] : null,
+        ];
+    }
+
+    private function planId(string $map, string $key): ?string
+    {
+        return $this->planEntry($map, $key)['plan_id'] ?? null;
+    }
+
+    /* =====================================================================
+     | Pricing — what this upstream would charge us
+     |=================================================================== */
+
+    /**
+     * The price Pairgate publishes for a data bundle we have mapped.
+     *
+     * @param  array<string,mixed>  $params
+     */
+    private function dataPlanCost(array $params): ?float
+    {
+        $entry = $this->planEntry('data_plans', (string) ($params['plan'] ?? ''));
+
+        if ($entry === null) {
+            return null;
+        }
+
+        if ($entry['price'] !== null) {
+            return $entry['price'];
+        }
+
+        $network = $this->map('networks', (string) ($params['network'] ?? ''));
+
+        if ($network === null || $entry['plan_type'] === null) {
+            return null;
+        }
+
+        return $this->cataloguePrice(
+            sprintf('pairgate.data_prices.%s.%s', $network, $entry['plan_type']),
+            '/data-plans',
+            ['provider_id' => $network, 'plan_type' => $entry['plan_type']],
+            $entry['plan_id'],
+        );
+    }
+
+    /**
+     * The price Pairgate publishes for a cable bouquet we have mapped.
+     *
+     * @param  array<string,mixed>  $params
+     */
+    private function cablePlanCost(array $params): ?float
+    {
+        $entry = $this->planEntry('cable_packages', (string) ($params['package'] ?? ''));
+
+        if ($entry === null) {
+            return null;
+        }
+
+        if ($entry['price'] !== null) {
+            return $entry['price'];
+        }
+
+        $slug = $this->map('cable_providers', (string) ($params['provider'] ?? ''));
+
+        if ($slug === null) {
+            return null;
+        }
+
+        return $this->cataloguePrice(
+            sprintf('pairgate.cable_prices.%s', $slug),
+            '/cable-plans',
+            ['provider_id' => $slug],
+            $entry['plan_id'],
+        );
+    }
+
+    /**
+     * Look a plan's price up in Pairgate's catalogue, cached for hours.
+     *
+     * A failed or empty fetch is *not* cached: caching it would freeze routing
+     * for the whole TTL because of one blip. Callers get null, which means
+     * "unknown" and leaves provider selection on the configured order.
+     *
+     * @param  array<string,string>  $query
+     */
+    private function cataloguePrice(string $cacheKey, string $path, array $query, string $planId): ?float
+    {
+        $prices = Cache::get($cacheKey);
+
+        if (! is_array($prices)) {
+            try {
+                $response = $this->client(self::PROBE_TIMEOUT)->get($this->url($path), $query);
+
+                if (! $response->successful()) {
+                    return null;
+                }
+
+                $prices = $this->flattenPrices($response->json() ?? []);
+
+                if ($prices === []) {
+                    return null;
+                }
+
+                Cache::put($cacheKey, $prices, now()->addHours(6));
+            } catch (\Throwable $e) {
+                Log::warning('Pairgate price lookup failed', ['path' => $path, 'error' => $e->getMessage()]);
+
+                return null;
+            }
+        }
+
+        $price = $prices[$planId] ?? null;
+
+        return is_numeric($price) ? (float) $price : null;
+    }
+
+    /**
+     * The catalogue is grouped by network or brand:
+     * `{"MTN": [{"plan_id": "45", "name": "...", "price": 500}]}`.
+     *
+     * @param  array<string,mixed>  $body
+     * @return array<string,float>
+     */
+    private function flattenPrices(array $body): array
+    {
+        $prices = [];
+
+        foreach ((array) ($body['data'] ?? []) as $group) {
+            foreach (is_array($group) ? $group : [] as $plan) {
+                if (! is_array($plan)) {
+                    continue;
+                }
+
+                $id = $plan['plan_id'] ?? ($plan['id'] ?? null);
+                $price = $plan['price'] ?? null;
+
+                if ($id !== null && is_numeric($price)) {
+                    $prices[(string) $id] = (float) $price;
+                }
+            }
+        }
+
+        return $prices;
     }
 
     /* =====================================================================
@@ -420,7 +655,7 @@ class PairgateProvider implements BillProvider
                  * posted has to be mapped explicitly. Unmapped means "this
                  * upstream cannot sell that bundle", not "the sale failed".
                  */
-                $plan = $this->map('data_plans', (string) ($params['plan'] ?? ''));
+                $plan = $this->planId('data_plans', (string) ($params['plan'] ?? ''));
 
                 if ($plan === null) {
                     return $this->unsupported(
@@ -446,7 +681,7 @@ class PairgateProvider implements BillProvider
 
                 // Same reasoning as data plans: the bouquet the catalogue
                 // posted is ClubKonnect's, and Pairgate bills its own plan ids.
-                $plan = $this->map('cable_packages', (string) ($params['package'] ?? ''));
+                $plan = $this->planId('cable_packages', (string) ($params['package'] ?? ''));
 
                 if ($plan === null) {
                     return $this->unsupported(

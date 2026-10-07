@@ -42,7 +42,7 @@ class ClubKonnectService
     /**
      * Generic GET request method
      */
-    public function get(string $endpoint, array $params = []): ?array
+    public function get(string $endpoint, array $params = [], int $timeout = 60): ?array
     {
         if (! $this->isConfigured()) {
             Log::error('ClubKonnect called without credentials configured.', ['endpoint' => $endpoint]);
@@ -70,7 +70,7 @@ class ClubKonnectService
             ]);
 
             // Make GET request
-            $response = Http::timeout(60)
+            $response = Http::timeout($timeout)
                 ->get($endpoint, $params);
 
             // Body is logged at debug level only: it contains customer phone
@@ -161,12 +161,16 @@ class ClubKonnectService
     }
 
     /**
-     * Check wallet balance
+     * Check wallet balance.
+     *
+     * The timeout is a parameter because this doubles as the liveness probe:
+     * sixty seconds is right for a vend or a float enquiry a customer is waiting
+     * on, and far too long to hang a purchase decision on.
      */
-    public function checkBalance(): ?array
+    public function checkBalance(int $timeout = 60): ?array
     {
         $endpoint = 'https://www.nellobytesystems.com/APIWalletBalanceV1.asp';
-        return $this->get($endpoint);
+        return $this->get($endpoint, [], $timeout);
     }
 
     /* =====================================================================

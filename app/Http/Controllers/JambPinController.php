@@ -117,6 +117,14 @@ class JambPinController extends Controller
         // means a client cannot replay or collide provider request ids.
         $requestId = 'JMB-' . $validated['profile_id'] . '-' . now()->format('ymdHis');
 
+        // Shared with provider selection so each upstream can be asked what this
+        // e-PIN costs it before one of them is chosen to vend it.
+        $providerParams = [
+            'exam_type' => $validated['exam_type'],
+            'quantity' => 1,
+            'phone' => $validated['phone'],
+        ];
+
         $result = $this->bills->purchase(
             user: $user,
             product: 'jamb',
@@ -131,13 +139,10 @@ class JambPinController extends Controller
                 'phone' => $validated['phone'],
                 'provider_request_id' => $requestId,
             ],
+            providerParams: $providerParams,
             dispatch: fn ($provider, Transactions $transaction) => $provider->purchase(
                 'jamb',
-                [
-                    'exam_type' => $validated['exam_type'],
-                    'quantity' => 1,
-                    'phone' => $validated['phone'],
-                ],
+                $providerParams,
                 $requestId,
             ),
             successMessage: $label . ' PIN generated for profile ' . $validated['profile_id'] . '.',

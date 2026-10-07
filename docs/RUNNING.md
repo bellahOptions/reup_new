@@ -85,18 +85,61 @@ would return "not found" and could wrongly close a delivered order.
 ## Bill-payment providers
 
 Airtime, data, cable, electricity, exam pins and betting funding are vended by
-one of two upstreams, chosen per purchase by `ProviderManager` in the order in
-`BILL_PROVIDER_ORDER` (default `clubkonnect,pairgate`):
+one of two upstreams. `ProviderManager` picks per purchase, in this order:
+
+1. configured providers that serve the product, in `BILL_PROVIDER_ORDER`
+   (default `clubkonnect,pairgate`);
+2. **only ones that answer a liveness probe** (`BILL_CHECK_PROVIDER_HEALTH`) —
+   a wallet enquiry on each candidate. If none answer, the sale is refused and
+   **no money leaves the customer's wallet**;
+3. only ones whose float covers the charge (`BILL_CHECK_PROVIDER_BALANCE`);
+4. of those, **the cheapest for this exact purchase** (`BILL_OPTIMISE_COST`) —
+   see "Cheapest-provider routing" below;
+5. the first provider that accepts the request wins.
 
 | Provider | Env | Role |
 | --- | --- | --- |
 | ClubKonnect (NelloBytes) | `CLUBKONNECT_CLIENT_ID`, `CLUBKONNECT_API_KEY` | primary |
-| Pairgate | `PAIRGATE_API_KEY` | failover |
+| Pairgate | `PAIRGATE_API_KEY`, `PAIRGATE_WEBHOOK_SECRET` | failover |
 
 `php artisan env:doctor` prints which of them are configured and the failover
 order. A provider with no credentials is skipped, so leaving `PAIRGATE_API_KEY`
 blank means ClubKonnect serves everything — that is a valid configuration, just
 without a second route when ClubKonnect is down or short of float.
+
+### Availability, and why a purchase can be refused
+
+Each candidate is probed on its cheapest authenticated endpoint (a wallet
+balance) before anything is debited. The answer is cached for a minute and
+discarded the moment a real request fails, so a provider that has just gone down
+is not trusted for long.
+
+Probes are believed on purpose. If neither upstream can answer a balance
+enquiry, the customer sees *"This service is temporarily unavailable. No refund
+has been made and no money has left your wallet."* — which is strictly better
+than debiting them for a vend that cannot happen and cleaning it up with a
+refund. Set `BILL_CHECK_PROVIDER_HEALTH=false` only if the probes themselves
+misbehave; that reverts to attempting every purchase on the configured order.
+
+### Cheapest-provider routing
+
+Before the wallet is debited, each candidate is asked what this exact purchase
+costs *us* — not what the customer pays:
+
+| Product | ClubKonnect price from | Pairgate price from |
+| --- | --- | --- |
+| data | the pricelist catalogue (`clubkonnect_price`) | `pairgate.data_plans` mapping, or the live catalogue when a `plan_type` is mapped |
+| cable | *unknown* — both a package amount and a discount amount are published and nothing establishes which is wholesale | `pairgate.cable_packages` mapping, or `GET /cable-plans` |
+| electricity, betting | the amount itself (face value) | the amount itself (face value) |
+| airtime, exam pins | *unknown* — discounts are not published per network | *unknown* |
+
+The rule that matters: **the cheapest wins only when every candidate has a
+price.** One unknown price and `BILL_PROVIDER_ORDER` stands, so a gap in the
+pricing data can never quietly redirect traffic (and margin). Electricity and
+betting always tie, so nothing changes for them; data is where this earns money,
+and only once `pairgate.data_plans` is filled in.
+
+Set `BILL_OPTIMISE_COST=false` to disable it entirely.
 
 ### Pairgate
 
@@ -117,14 +160,39 @@ Two things need attention before Pairgate can serve everything:
    `GET /cable-plans` before Pairgate can sell data or cable. Until then those
    two products are refused locally and failed over, rather than sent upstream
    with a guessed plan id.
+
+   Each entry may also carry the price, which is what switches cheapest-provider
+   routing on for that bundle:
+
+   ```php
+   'data_plans' => [
+       '1234' => '45',                                        // sellable, price unknown
+       '1235' => ['plan_id' => '46', 'plan_type' => 'SME'],   // price read from the live catalogue
+       '1236' => ['plan_id' => '47', 'price' => 500.0],       // price recorded here
+   ],
+   ```
+
 2. **Electricity tokens and exam PINs arrive asynchronously.** The purchase call
    only acknowledges the order; the token/PIN is delivered on Pairgate's
-   webhook (`pin` field, one webhook per exam pin), and the transaction can be
-   polled with `GET /transaction/status?reference_code=…`. **No webhook receiver
-   is implemented in this application yet**, so a purchase vended by Pairgate is
-   recorded as successful without its token; wire `POST /pairgate/webhook` (HMAC
-   headers `X-Pairgate-Timestamp` and `X-Pairgate-Signature`) before relying on
-   Pairgate for those two products.
+   webhook (`pin` field, one webhook per exam pin). The receiver is
+   `POST /pairgate/webhook`, so the URL to paste into the Pairgate dashboard is
+   this application's public domain plus that path:
+
+   ```
+   https://<your-domain>/pairgate/webhook
+   ```
+
+   It is authenticated by HMAC, so **PAIRGATE_WEBHOOK_SECRET must be set** — the
+   value shown once when signing is enabled for the API key in the Pairgate
+   dashboard — and the endpoint answers 503 until it is. Without the webhook a
+   purchase vended by Pairgate is recorded as successful but never carries its
+   token, and an order Pairgate accepts and later fails is never refunded.
+   Individual transactions can also be polled at
+   `GET /transaction/status?reference_code=…`.
+
+   The same URL answers the Pairgate dashboard's test delivery, but that test
+   carries no valid signature, so expect a 401 in the server log — 401 there
+   means the endpoint is wired and the secret is protecting it.
 
 Pairgate also has floors that differ from ours — electricity ₦1,000 (we allow
 from ₦500), and ₦50 on airtime, data and betting. An amount below a floor is

@@ -56,6 +56,15 @@ return [
         'api_key' => env('PAIRGATE_API_KEY'),
         'base_url' => env('PAIRGATE_BASE_URL', 'https://pairgate.com/api/v1'),
         'test_mode' => (bool) env('PAIRGATE_TEST_MODE', false),
+
+        /*
+         * Shown once when HMAC signing is switched on for the API key in the
+         * Pairgate dashboard. POST /pairgate/webhook verifies
+         * `X-Pairgate-Signature` against it and refuses to act when it is
+         * empty, so this has to be set for tokens, PINs and post-acceptance
+         * failures to reach the application.
+         */
+        'webhook_secret' => env('PAIRGATE_WEBHOOK_SECRET'),
     ],
 
     'paystack' => [

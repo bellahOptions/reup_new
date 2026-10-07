@@ -2,6 +2,7 @@
 
 namespace App\Services\Providers;
 
+use App\Services\ClubKonnectCatalogue;
 use App\Services\ClubKonnectService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -14,8 +15,13 @@ use Illuminate\Support\Facades\Log;
  */
 class ClubKonnectProvider implements BillProvider
 {
-    public function __construct(private readonly ClubKonnectService $client)
-    {
+    /** Seconds a liveness probe may take before it counts as "not available". */
+    private const PROBE_TIMEOUT = 10;
+
+    public function __construct(
+        private readonly ClubKonnectService $client,
+        private readonly ClubKonnectCatalogue $catalogue,
+    ) {
     }
 
     public function name(): string
@@ -36,6 +42,62 @@ class ClubKonnectProvider implements BillProvider
     public function supports(string $product): bool
     {
         return in_array($product, (array) config('bills.providers.clubkonnect.products', []), true);
+    }
+
+    /**
+     * A wallet enquiry is the cheapest call that proves reachability *and*
+     * credentials, and it is the same endpoint the float check uses. It is
+     * deliberately not cached here: the caller decides how fresh an answer it
+     * needs (see ProviderHealthService).
+     */
+    public function ping(): bool
+    {
+        if (! $this->isConfigured()) {
+            return false;
+        }
+
+        try {
+            $response = $this->client->checkBalance(self::PROBE_TIMEOUT);
+
+            return is_array($response) && is_numeric($response['balance'] ?? null);
+        } catch (\Throwable $e) {
+            Log::warning('ClubKonnect health probe failed', ['error' => $e->getMessage()]);
+
+            return false;
+        }
+    }
+
+    /**
+     * What NelloBytes charges our float for this purchase.
+     *
+     * Data is the only product where that number is on file: the pricelist
+     * catalogue carries `clubkonnect_price` (the wholesale amount it bills for a
+     * plan) next to the marked-up price the customer pays. Everything else
+     * returns null on purpose:
+     *
+     *   * airtime is billed at a network-specific discount that is not
+     *     published anywhere we can read before the sale;
+     *   * cable bouquets expose both a package amount and a discount amount and
+     *     nothing in this codebase establishes which one is wholesale — guessing
+     *     would silently misroute traffic, which is worse than not routing;
+     *   * exam pins are priced per unit with no catalogue endpoint.
+     *
+     * null means "unknown", and ProviderManager only reorders when *every*
+     * candidate has a price, so a gap here can never redirect a sale.
+     *
+     * @param  array<string,mixed>  $params
+     */
+    public function cost(string $product, array $params): ?float
+    {
+        return match ($product) {
+            // Passed straight through, so both providers cost the same and the
+            // configured order decides.
+            'electricity', 'betting' => isset($params['amount']) ? (float) $params['amount'] : null,
+
+            'data' => $this->catalogue->planPrice((string) ($params['plan'] ?? '')),
+
+            default => null,
+        };
     }
 
     public function balance(): array

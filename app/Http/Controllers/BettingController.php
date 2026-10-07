@@ -120,6 +120,15 @@ class BettingController extends Controller
         $user = Auth::user();
         $amount = round((float) $validated['amount'], 2);
 
+        // Shared with provider selection so each upstream can be asked what this
+        // top-up costs it before one of them is chosen to vend it.
+        $providerParams = [
+            'betting_code' => $validated['provider'],
+            'customer_id' => $validated['customer_id'],
+            'amount' => $amount,
+            'phone' => $validated['phone'] ?? (string) $user->phone,
+        ];
+
         $bookmakers = (array) config('bills.betting_providers', []);
         $config = $bookmakers[$validated['provider']] ?? null;
         $label = $config['label'] ?? $validated['provider'];
@@ -147,14 +156,10 @@ class BettingController extends Controller
                     'customer_id' => $validated['customer_id'],
                     'phone' => $validated['phone'] ?? $user->phone,
                 ],
+                providerParams: $providerParams,
                 dispatch: fn ($provider, Transactions $transaction) => $provider->purchase(
                     'betting',
-                    [
-                        'betting_code' => $validated['provider'],
-                        'customer_id' => $validated['customer_id'],
-                        'amount' => $amount,
-                        'phone' => $validated['phone'] ?? (string) $user->phone,
-                    ],
+                    $providerParams,
                     $transaction->reference,
                 ),
                 successMessage: '₦' . number_format($amount, 2) . ' added to '

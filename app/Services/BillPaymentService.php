@@ -36,6 +36,42 @@ use Throwable;
  */
 class BillPaymentService
 {
+    /**
+     * Product key => the value stored in `transactions.service_type`.
+     *
+     * The product keys in config/bills.php are the vocabulary the forms, the
+     * spend limits and the provider adapters speak, and three of them are *not*
+     * the vocabulary the rest of the application reads:
+     *
+     *   * cable TV is stored as `cable-tv` — the spelling every history page and
+     *     the admin counters filter on;
+     *   * WAEC and JAMB are both `exam`, which is what the two PIN pages and the
+     *     admin counters query. Which exam it was is kept in the transaction
+     *     meta, where the receipt already reads it from.
+     *
+     * Storing the raw product key instead meant the column held a value the ENUM
+     * did not accept — error 1265 on a server running the default strict SQL
+     * mode, an empty string on a lax one — and left cable, WAEC and JAMB history
+     * pages permanently empty on either.
+     */
+    private const SERVICE_TYPES = [
+        'cable_tv' => 'cable-tv',
+        'waec' => 'exam',
+        'jamb' => 'exam',
+    ];
+
+    /**
+     * The `transactions.service_type` value for a product key.
+     *
+     * Public so a test can check the mapping against the column's ENUM: a value
+     * the schema does not carry does not merely look wrong, it aborts the insert
+     * on a server running the default strict SQL mode.
+     */
+    public static function serviceType(string $product): string
+    {
+        return self::SERVICE_TYPES[$product] ?? $product;
+    }
+
     public function __construct(
         private readonly WalletService $wallets,
         private readonly ProviderManager $providers,
@@ -78,6 +114,10 @@ class BillPaymentService
     /**
      * @param  callable(BillProvider, Transactions):?array  $dispatch
      *        Sends the charge to a given provider. Called once per attempt.
+     * @param  array<string,mixed>  $providerParams
+     *        Exactly what `$dispatch` passes to `BillProvider::purchase()`. Given
+     *        to provider selection as well, because pricing the purchase — and so
+     *        choosing the cheaper upstream — needs the same parameters.
      * @return array{ok:bool,transaction:?Transactions,message:string,provider:?string}
      */
     public function purchase(
@@ -93,6 +133,7 @@ class BillPaymentService
         string $successMessage,
         ?string $pin = null,
         ?string $idempotencyKey = null,
+        array $providerParams = [],
     ): array {
         $fee = round((float) ($fee ?? 0), 2);
         $total = round($amount + $fee, 2);
@@ -128,8 +169,8 @@ class BillPaymentService
             );
         }
 
-        // ---- Provider float ----------------------------------------------
-        $candidates = $this->providers->affordable($product, $total);
+        // ---- Provider float and availability ------------------------------
+        $candidates = $this->providers->affordable($product, $total, $providerParams);
 
         if (! $candidates) {
             throw new RuntimeException(
@@ -145,7 +186,7 @@ class BillPaymentService
                 'user_id' => $user->id,
                 'reference' => $this->wallets->generateReference('TXN'),
                 'type' => 'debit',
-                'service_type' => $product,
+                'service_type' => self::serviceType($product),
                 'description' => $description,
                 'amount' => $amount,
                 'service_fee' => $fee,
@@ -210,6 +251,10 @@ class BillPaymentService
                     // Float has moved (or is unknown); re-read before the next.
                     $this->balances->invalidate($provider);
 
+                    // A request just failed, so the cached "available" is the
+                    // last thing to trust for the next purchase.
+                    $this->providers->invalidateHealth($provider);
+
                     continue;
                 }
 
@@ -239,6 +284,8 @@ class BillPaymentService
                     'provider' => $provider->name(),
                     'error' => $e->getMessage(),
                 ]);
+
+                $this->providers->invalidateHealth($provider);
 
                 // An exception may mean the request was received and processed.
                 // Failing over risks a double vend, so stop and refund.

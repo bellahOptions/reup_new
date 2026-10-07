@@ -114,6 +114,16 @@ class ElectricityController extends Controller
         $amount = round((float) $validated['amount'], 2);
         $discoName = config('bills.discos.' . $validated['disco'], $validated['disco']);
 
+        // Shared with provider selection so each upstream can be asked what this
+        // meter payment costs it before one of them is chosen to vend it.
+        $providerParams = [
+            'disco' => $validated['disco'],
+            'meter_number' => $validated['meter_number'],
+            'meter_type' => $validated['meter_type'],
+            'amount' => $amount,
+            'phone' => $validated['phone'] ?? (string) $user->phone,
+        ];
+
         $result = $this->bills->purchase(
             user: $user,
             product: 'electricity',
@@ -128,15 +138,10 @@ class ElectricityController extends Controller
                 'meter_type' => $validated['meter_type'],
                 'phone' => $validated['phone'] ?? $user->phone,
             ],
+            providerParams: $providerParams,
             dispatch: fn ($provider, Transactions $transaction) => $provider->purchase(
                 'electricity',
-                [
-                    'disco' => $validated['disco'],
-                    'meter_number' => $validated['meter_number'],
-                    'meter_type' => $validated['meter_type'],
-                    'amount' => $amount,
-                    'phone' => $validated['phone'] ?? (string) $user->phone,
-                ],
+                $providerParams,
                 $transaction->reference,
             ),
             successMessage: '₦' . number_format($amount, 2) . ' electricity paid for meter '

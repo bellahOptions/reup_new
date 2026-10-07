@@ -11,6 +11,7 @@ use App\Http\Controllers\ElectricityController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\JambPinController;
 use App\Http\Controllers\PaystackController;
+use App\Http\Controllers\PairgateWebhookController;
 use App\Http\Controllers\PricelistController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\TermsController;
@@ -65,6 +66,23 @@ Route::get('/robots.txt', function () {
 Route::post('/paystack/webhook', [PaystackController::class, 'webhook'])
     ->middleware('throttle:120,1')
     ->name('paystack.webhook');
+
+/*
+|--------------------------------------------------------------------------
+| Pairgate vending webhook
+|--------------------------------------------------------------------------
+| Also server-to-server, and also outside `auth` + CSRF, authenticated by HMAC
+| signature (see PairgateWebhookController::handle). This is where a vended
+| electricity token or exam PIN arrives, and where an order Pairgate accepted
+| and later failed is reported — neither is visible on the purchase call itself.
+|
+| It refuses to run unsigned: PAIRGATE_WEBHOOK_SECRET must be set, and the same
+| secret entered in the Pairgate dashboard. The URL to paste there is this path
+| on the public domain, e.g. https://your-domain/pairgate/webhook.
+*/
+Route::post('/pairgate/webhook', [PairgateWebhookController::class, 'handle'])
+    ->middleware('throttle:120,1')
+    ->name('pairgate.webhook');
 
 /*
 |--------------------------------------------------------------------------

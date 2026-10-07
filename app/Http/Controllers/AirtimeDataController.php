@@ -199,6 +199,7 @@ class AirtimeDataController extends Controller
                 providerLabel: $providerLabel,
                 description: $description,
                 meta: $meta,
+                providerParams: $providerParams,
                 dispatch: fn ($provider, Transactions $transaction) => $provider->purchase(
                     $product,
                     $providerParams,

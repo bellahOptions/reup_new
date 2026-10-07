@@ -132,15 +132,64 @@ return [
             'nabteb' => 'nabt',
         ],
 
-        /** ClubKonnect data plan id => Pairgate plan_id. Fill from GET /data-plans. */
+        /**
+         * ClubKonnect data plan id => Pairgate plan_id, or an array when the
+         * price has to be comparable too:
+         *
+         *   'CK-1' => '45',                                        // sellable, price unknown
+         *   'CK-2' => ['plan_id' => '46', 'plan_type' => 'SME'],   // price read from the live catalogue
+         *   'CK-3' => ['plan_id' => '47', 'price' => 500.0],       // price recorded here
+         *
+         * `plan_type` is one of CG, CG_LITE, SME, GIFTING, AWOOF. An entry
+         * without a price or a plan type can still be sold through Pairgate, but
+         * its cost is unknown, and `optimise_cost` only reorders when every
+         * candidate can be priced — so those bundles keep the failover order.
+         *
+         * Fill from GET /data-plans.
+         */
         'data_plans' => [],
 
-        /** ClubKonnect bouquet => Pairgate plan_id. Fill from GET /cable-plans. */
+        /**
+         * ClubKonnect bouquet => Pairgate plan_id, in the same three shapes as
+         * `data_plans` (`plan_type` is not used here). Fill from GET /cable-plans.
+         */
         'cable_packages' => [],
     ],
 
     /** Consult provider float before charging a customer. */
     'check_provider_balance' => (bool) env('BILL_CHECK_PROVIDER_BALANCE', true),
+
+    /* ---------------------------------------------------------------------
+     | Pre-flight availability check
+     |--------------------------------------------------------------------
+     | Before a purchase is started, every candidate provider is probed on its
+     | cheapest authenticated endpoint (a wallet enquiry) and any that does not
+     | answer is dropped. If none answer, the sale is refused and no money moves
+     | — which is the point: a provider that cannot serve a balance enquiry is
+     | not going to vend, and debiting a customer to find that out costs a
+     | refund, a support message and sometimes a lost customer.
+     |
+     | Results are cached for a minute and thrown away the moment a real request
+     | fails, so a dead provider is not retried for long.
+     |
+     | Turn this off only if the probes themselves misbehave; off means every
+     | purchase is attempted on the configured order regardless.
+     */
+    'check_provider_health' => (bool) env('BILL_CHECK_PROVIDER_HEALTH', true),
+
+    /* ---------------------------------------------------------------------
+     | Cheapest-provider routing
+     |--------------------------------------------------------------------
+     | Ask each candidate what this exact purchase costs *us* (not what the
+     | customer pays) and vend through the cheapest. Only applied when every
+     | candidate can be priced — one unknown price and `provider_order` stands —
+     | so a gap in the pricing data (an unmapped Pairgate plan, an unpublished
+     | airtime discount, a cold catalogue) can never quietly move traffic.
+     |
+     | `provider_order` remains the tie-breaker, and the whole thing is a no-op
+     | for products where both providers charge the same face value.
+     */
+    'optimise_cost' => (bool) env('BILL_OPTIMISE_COST', true),
 
     /** Naira held back so a provider is never spent to exactly zero. */
     'provider_headroom' => (float) env('BILL_PROVIDER_HEADROOM', 500),

@@ -74,6 +74,14 @@ class WaecPinController extends Controller
 
         $amount = round($unitPrice * $quantity, 2);
 
+        // Shared with provider selection so each upstream can be asked what this
+        // e-PIN order costs it before one of them is chosen to vend it.
+        $providerParams = [
+            'exam_type' => 'WAEC',
+            'quantity' => $quantity,
+            'phone' => $validated['phone'],
+        ];
+
         $result = $this->bills->purchase(
             user: $user,
             product: 'waec',
@@ -88,13 +96,10 @@ class WaecPinController extends Controller
                 'unit_price' => $unitPrice,
                 'phone' => $validated['phone'],
             ],
+            providerParams: $providerParams,
             dispatch: fn ($provider, Transactions $transaction) => $provider->purchase(
                 'waec',
-                [
-                    'exam_type' => 'WAEC',
-                    'quantity' => $quantity,
-                    'phone' => $validated['phone'],
-                ],
+                $providerParams,
                 $transaction->reference,
             ),
             successMessage: $quantity . ' WAEC e-PIN' . ($quantity > 1 ? 's' : '') . ' generated. View the code on your receipt.',
