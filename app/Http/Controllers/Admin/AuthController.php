@@ -3,174 +3,174 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AdminLog;
+use App\Models\User;
+use App\Support\Permissions;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Log;
-use App\Models\User;
-use App\Models\AdminLog;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
-    // Show admin login form
     public function showLoginForm()
     {
+        if (Auth::check() && Auth::user()->isAdmin()) {
+            return redirect()->route('admin.dashboard');
+        }
+
         return view('admin.auth.login');
     }
 
-    // Admin login
+    /**
+     * Admin sign-in.
+     *
+     * Additions over the previous implementation:
+     *   - credentials are checked with Auth::attempt() first, so a wrong
+     *     password is indistinguishable from an unknown account (the old code
+     *     leaked account existence with "You do not have admin privileges");
+     *   - attempts are rate limited per email+IP;
+     *   - a session is only established for a verified admin.
+     */
     public function login(Request $request)
     {
-        $request->validate([
+        $credentials = $request->validate([
             'email' => 'required|email',
-            'password' => 'required|min:8',
+            'password' => 'required|string',
         ]);
 
-        $credentials = $request->only('email', 'password');
-        
-        // First check if user exists and is admin
-        $user = User::where('email', $credentials['email'])->first();
-        
-        if (!$user) {
-            return back()->withErrors([
-                'email' => 'The provided credentials do not match our records.',
-            ])->onlyInput('email');
-        }
+        $throttleKey = mb_strtolower($credentials['email']) . '|' . $request->ip();
 
-        // Check if user is admin
-        if (!$user->isAdmin()) {
-            return back()->withErrors([
-                'email' => 'You do not have admin privileges.',
-            ])->onlyInput('email');
-        }
-
-        // Attempt to authenticate
-        if (Auth::attempt($credentials, $request->boolean('remember'))) {
-            $request->session()->regenerate();
-
-            // Update last login
-            $user->update([
-                'last_login_at' => now(),
-                'last_login_ip' => $request->ip()
+        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
+            throw ValidationException::withMessages([
+                'email' => 'Too many sign-in attempts. Try again in '
+                    . RateLimiter::availableIn($throttleKey) . ' seconds.',
             ]);
-
-            // Log admin login
-            AdminLog::log($user->id, 'login', [
-                'type' => 'admin',
-                'remember' => $request->boolean('remember')
-            ]);
-
-            return redirect()->intended(route('admin.dashboard'));
         }
 
-        return back()->withErrors([
-            'email' => 'The provided credentials do not match our records.',
-        ])->onlyInput('email');
+        if (! Auth::attempt($credentials, $request->boolean('remember'))) {
+            RateLimiter::hit($throttleKey, 300);
+
+            throw ValidationException::withMessages([
+                'email' => 'These credentials do not match our records.',
+            ]);
+        }
+
+        RateLimiter::clear($throttleKey);
+
+        $user = Auth::user();
+
+        // An authenticated non-admin must not hold a session that can reach
+        // the console; log them straight back out.
+        if (! $user->isAdmin()) {
+            Auth::logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            throw ValidationException::withMessages([
+                'email' => 'These credentials do not match our records.',
+            ]);
+        }
+
+        $request->session()->regenerate();
+
+        $user->forceFill([
+            'last_login_at' => now(),
+            'last_login_ip' => $request->ip(),
+            'is_online' => true,
+        ])->save();
+
+        AdminLog::log($user->id, 'login', [
+            'remember' => $request->boolean('remember'),
+            'ip' => $request->ip(),
+        ]);
+
+        return redirect()->intended(route('admin.dashboard'));
     }
 
-    // Show admin registration form (only for super admins)
+    /**
+     * Bootstrap registration form.
+     *
+     * Reachable only while the platform has no administrator. The previous
+     * guard was
+     *     Auth::check() && !Auth::user()->isSuperAdmin() && User::admins()->exists()
+     * which evaluates to false for an anonymous visitor, so the check was
+     * skipped entirely and anyone could POST /admin/register.
+     */
     public function showRegisterForm()
     {
-        // Only allow registration if no admins exist or current user is super admin
-        if (Auth::check() && !Auth::user()->isSuperAdmin() && User::admins()->exists()) {
-            return redirect()->route('admin.dashboard')->withErrors([
-                'error' => 'Only super admins can register new admin users.'
-            ]);
+        if (! $this->bootstrapAllowed()) {
+            abort(404);
         }
 
         return view('admin.auth.register');
     }
 
-    // Admin registration
     public function register(Request $request)
     {
-        $request->validate([
+        if (! $this->bootstrapAllowed()) {
+            abort(404);
+        }
+
+        $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:8|confirmed',
-            'admin_role' => 'required|in:admin,moderator,support',
+            'email' => 'required|email|max:255|unique:users,email',
+            'password' => 'required|string|min:12|confirmed',
             'phone' => 'nullable|string|max:20',
         ]);
 
-        // Check if current user can register admins
-        if (Auth::check() && !Auth::user()->isSuperAdmin() && User::admins()->exists()) {
-            return redirect()->route('admin.dashboard')->withErrors([
-                'error' => 'Only super admins can register new admin users.'
+        // Closed inside a transaction with a lock so two concurrent bootstrap
+        // requests cannot both succeed.
+        $admin = DB::transaction(function () use ($validated) {
+            if (User::admins()->lockForUpdate()->exists()) {
+                abort(404);
+            }
+
+            return User::create([
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+                'password' => Hash::make($validated['password']),
+                'phone' => $validated['phone'] ?? null,
+                'is_admin' => true,
+                'is_super_admin' => true,
+                'admin_role' => 'admin',
+                'admin_permissions' => Permissions::ALL,
+                'email_verified_at' => now(),
             ]);
-        }
+        });
 
-        // Create admin user
-        $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-            'phone' => $request->phone,
-            'is_admin' => true,
-            'is_super_admin' => false,
-            'admin_role' => $request->admin_role,
-            'admin_permissions' => $this->getDefaultPermissions($request->admin_role),
-            'email_verified_at' => now(), // Auto-verify admin emails
-        ]);
+        AdminLog::log($admin->id, 'bootstrap_super_admin', ['email' => $admin->email]);
 
-        // Log admin registration
-        AdminLog::log(Auth::id() ?? $user->id, 'register_admin', [
-            'admin_id' => $user->id,
-            'role' => $request->admin_role
-        ]);
+        Auth::login($admin);
+        $request->session()->regenerate();
 
-        // If not logged in, login the new admin
-        if (!Auth::check()) {
-            Auth::login($user);
-            return redirect()->route('admin.dashboard')->with('success', 'Admin account created successfully!');
-        }
-
-        return redirect()->route('admin.users.index')->with('success', 'Admin user created successfully!');
+        return redirect()->route('admin.dashboard')
+            ->with('success', 'Founding administrator account created. Add further administrators from Admins → New.');
     }
 
-    // Admin logout
     public function logout(Request $request)
     {
         $user = Auth::user();
-        
-        // Log admin logout
+
         if ($user && $user->isAdmin()) {
             AdminLog::log($user->id, 'logout');
+            $user->forceFill(['is_online' => false])->saveQuietly();
         }
 
         Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect()->route('admin.login')->with('success', 'You have been logged out successfully.');
+        return redirect()->route('admin.login')->with('success', 'You have been signed out.');
     }
 
-    // Get default permissions based on role
-    private function getDefaultPermissions($role)
+    /**
+     * Registration is open only when there is no administrator at all.
+     */
+    private function bootstrapAllowed(): bool
     {
-        $permissions = [
-            'admin' => [
-                'view_dashboard',
-                'manage_users',
-                'view_transactions',
-                'manage_transactions',
-                'view_reports',
-                'manage_settings'
-            ],
-            'moderator' => [
-                'view_dashboard',
-                'view_users',
-                'view_transactions',
-                'manage_transactions',
-                'view_reports'
-            ],
-            'support' => [
-                'view_dashboard',
-                'view_users',
-                'view_transactions',
-                'view_reports'
-            ]
-        ];
-
-        return $permissions[$role] ?? [];
+        return ! User::admins()->exists();
     }
 }

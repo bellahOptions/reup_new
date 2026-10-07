@@ -210,7 +210,9 @@
                 <div>
                     <h4 class="text-sm font-medium text-gray-900 mb-2">Metadata</h4>
                     <div class="bg-gray-50 rounded-lg p-4">
-                        <pre class="text-xs text-gray-700 whitespace-pre-wrap">{{ json_encode(json_decode($transaction->meta, true), JSON_PRETTY_PRINT) }}</pre>
+                        {{-- Already an array: Transactions casts meta to 'array', so
+                             json_decode() here threw a TypeError. --}}
+                        <pre class="text-xs text-gray-700 whitespace-pre-wrap">{{ json_encode($transaction->meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) }}</pre>
                     </div>
                 </div>
                 @endif
@@ -219,7 +221,11 @@
                 <div>
                     <h4 class="text-sm font-medium text-gray-900 mb-2">API Response</h4>
                     <div class="bg-gray-50 rounded-lg p-4 max-h-40 overflow-y-auto">
-                        <pre class="text-xs text-gray-700 whitespace-pre-wrap">{{ $transaction->api_response }}</pre>
+                        {{-- `api_response` is cast to 'array'. Echoing it directly made
+                             Blade call htmlspecialchars() on an array, which threw a
+                             TypeError — and only for transactions that actually had a
+                             gateway response, so it looked intermittent. --}}
+                        <pre class="text-xs text-gray-700 whitespace-pre-wrap">{{ json_encode($transaction->api_response, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) }}</pre>
                     </div>
                 </div>
                 @endif

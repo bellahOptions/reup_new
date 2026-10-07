@@ -33,10 +33,34 @@ class ChatSession extends Model
         return $this->hasMany(ChatMessage::class);
     }
 
+    /**
+     * Messages awaiting the current viewer's attention.
+     *
+     * Guarded because `auth()->user()` is null whenever this is touched from a
+     * queued job, an artisan command or an unauthenticated context — the
+     * previous form dereferenced null and threw.
+     */
     public function unreadMessages()
     {
-        return $this->messages()->where('is_read', false)
-            ->where('sender_type', '!=', auth()->user()->isAdmin() ? 'admin' : 'user');
+        $viewer = auth()->user();
+
+        if (! $viewer) {
+            return $this->messages()->whereRaw('1 = 0');
+        }
+
+        return $this->messages()
+            ->where('is_read', false)
+            ->where('sender_type', $viewer->isAdmin()
+                ? ChatMessage::SENDER_USER
+                : ChatMessage::SENDER_ADMIN);
+    }
+
+    /** Messages from the customer that no agent has read yet. */
+    public function unreadCustomerMessages()
+    {
+        return $this->messages()
+            ->where('is_read', false)
+            ->where('sender_type', ChatMessage::SENDER_USER);
     }
 
     public function scopeActive($query)

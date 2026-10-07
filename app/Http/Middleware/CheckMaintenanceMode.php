@@ -59,7 +59,7 @@ class CheckMaintenanceMode
         
         // Show maintenance page if enabled and user is not admin
         if ($isInMaintenance && !$isAdmin) {
-            \Log::info('🔧 REDIRECTING TO MAINTENANCE PAGE');
+            \Log::info('Maintenance mode: redirecting request to the holding page.');
             
             // Get maintenance message and site name
             $messageSetting = DB::table('site_settings')

@@ -3,364 +3,334 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use App\Models\Transactions;
-use App\Models\User;
-use App\Models\Wallet;
 use App\Models\AdminLog;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\DB;
+use App\Models\Transactions;
+use App\Services\WalletService;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class BankTransferController extends Controller
 {
-    // Display pending bank transfers
-     public function index(Request $request)
-    {
-        $query = Transactions::where('service_type', 'funding')
-            ->where('payment_method', 'bank_transfer')
-            ->with('user');
+    /** Columns the transfer list may be sorted by. */
+    private const SORTABLE = ['id', 'created_at', 'amount', 'status', 'reference'];
 
-        // Filter by status
-        if ($request->filled('status')) {
-            $status = $request->status;
-            
-            // Handle special cases for 'fraudulent'
-            if ($status === 'fraudulent') {
-                $query->where('status', 'failed')
-                    ->where(function($q) {
-                        $q->where('status_message', 'like', '%fraud%')
-                          ->orWhere('status_message', 'like', '%fraudulent%')
-                          ->orWhere('status_message', 'like', '%scam%');
-                    });
-            } else {
-                $query->where('status', $status);
-            }
-        } else {
-            // Default: show all except fraudulent (if you want to show all by default)
-            $query->whereNotIn('status', []);
+    /** Statuses that mean "a human has not looked at this yet". */
+    private const REVIEWABLE = ['pending', 'verifying'];
+
+    public function __construct(private readonly WalletService $wallets)
+    {
+    }
+
+    /**
+     * Whitelist the requested sort column and direction.
+     *
+     * Replaces `$query->orderBy($request->input('sort'), $request->input('order'))`,
+     * which interpolated an unvalidated identifier into the SQL.
+     */
+    private function resolveSort(Request $request): array
+    {
+        $column = (string) $request->query('sort', 'created_at');
+
+        if (! in_array($column, self::SORTABLE, true)) {
+            $column = 'created_at';
         }
 
-        // Search
+        $direction = strtolower((string) $request->query('order', 'desc'));
+
+        return [$column, $direction === 'asc' ? 'asc' : 'desc'];
+    }
+
+    /** Base query for funding transactions paid by bank transfer. */
+    private function baseQuery()
+    {
+        return Transactions::where('service_type', 'funding')
+            ->where('payment_method', 'bank_transfer');
+    }
+
+    public function index(Request $request)
+    {
+        $request->validate([
+            'status' => 'nullable|in:pending,verifying,success,failed,rejected,fraudulent',
+            'search' => 'nullable|string|max:120',
+            'date_from' => 'nullable|date',
+            'date_to' => 'nullable|date|after_or_equal:date_from',
+            'sort' => 'nullable|string|max:40',
+            'order' => 'nullable|in:asc,desc',
+            'min_amount' => 'nullable|numeric|min:0',
+            'max_amount' => 'nullable|numeric|min:0',
+        ]);
+
+        $query = $this->baseQuery()->with('user');
+
+        // The old implementation inferred "fraudulent" by LIKE-matching the
+        // free-text status_message, which broke the moment an admin typed a
+        // message containing "fraud" for an unrelated reason. There is now a
+        // real column.
+        match ((string) $request->input('status', '')) {
+            'fraudulent' => $query->where('is_fraudulent', true),
+            'rejected' => $query->where('status', 'failed')->where('is_fraudulent', false),
+            'pending' => $query->whereIn('status', self::REVIEWABLE),
+            default => $request->filled('status')
+                ? $query->where('status', (string) $request->input('status', ''))
+                : null,
+        };
+
         if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function($q) use ($search) {
-                $q->where('reference', 'like', "%{$search}%")
-                  ->orWhere('description', 'like', "%{$search}%")
-                  ->orWhereHas('user', function($q) use ($search) {
-                      $q->where('name', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%")
-                        ->orWhere('phone', 'like', "%{$search}%");
-                  });
+            $search = (string) $request->input('search', '');
+            $query->where(function ($q) use ($search) {
+                $q->where('reference', 'like', '%' . $search . '%')
+                    ->orWhere('description', 'like', '%' . $search . '%')
+                    ->orWhereHas('user', function ($u) use ($search) {
+                        $u->where('name', 'like', '%' . $search . '%')
+                            ->orWhere('email', 'like', '%' . $search . '%')
+                            ->orWhere('phone', 'like', '%' . $search . '%');
+                    });
             });
         }
 
-        // Filter by date
         if ($request->filled('date_from')) {
-            $query->whereDate('created_at', '>=', $request->date_from);
+            $query->whereDate('created_at', '>=', $request->date('date_from'));
         }
         if ($request->filled('date_to')) {
-            $query->whereDate('created_at', '<=', $request->date_to);
+            $query->whereDate('created_at', '<=', $request->date('date_to'));
+        }
+        if ($request->filled('min_amount')) {
+            $query->where('amount', '>=', (float) $request->input('min_amount', 0));
+        }
+        if ($request->filled('max_amount')) {
+            $query->where('amount', '<=', (float) $request->input('max_amount', 0));
         }
 
-        // Sort by created_at desc by default
-        $sort = $request->input('sort', 'created_at');
-        $order = $request->input('order', 'desc');
-        $query->orderBy($sort, $order);
-
-        $transfers = $query->paginate(20)->withQueryString();
+        [$sort, $direction] = $this->resolveSort($request);
+        $transfers = $query->orderBy($sort, $direction)->paginate(20)->withQueryString();
 
         $stats = [
-            'pending' => Transactions::where('service_type', 'funding')
-                ->where('payment_method', 'bank_transfer')
-                ->where('status', 'pending')
-                ->count(),
-            'approved' => Transactions::where('service_type', 'funding')
-                ->where('payment_method', 'bank_transfer')
-                ->where('status', 'success')
-                ->count(),
-            'rejected' => Transactions::where('service_type', 'funding')
-                ->where('payment_method', 'bank_transfer')
-                ->where('status', 'failed')
-                ->where(function($q) {
-                    $q->where('status_message', 'not like', '%fraud%')
-                      ->where('status_message', 'not like', '%fraudulent%')
-                      ->where('status_message', 'not like', '%scam%');
-                })
-                ->count(),
-            'fraudulent' => Transactions::where('service_type', 'funding')
-                ->where('payment_method', 'bank_transfer')
-                ->where('status', 'failed')
-                ->where(function($q) {
-                    $q->where('status_message', 'like', '%fraud%')
-                      ->orWhere('status_message', 'like', '%fraudulent%')
-                      ->orWhere('status_message', 'like', '%scam%');
-                })
-                ->count(),
+            'pending' => $this->baseQuery()->whereIn('status', self::REVIEWABLE)->count(),
+            'pending_value' => (float) $this->baseQuery()->whereIn('status', self::REVIEWABLE)->sum('amount'),
+            'approved' => $this->baseQuery()->where('status', 'success')->count(),
+            'rejected' => $this->baseQuery()->where('status', 'failed')->where('is_fraudulent', false)->count(),
+            'fraudulent' => $this->baseQuery()->where('is_fraudulent', true)->count(),
         ];
 
         return view('admin.bank-transfers.index', compact('transfers', 'stats'));
     }
 
-    // Show bank transfer details
-// Show bank transfer details (for modal)
-public function show($id)
-{
-    $transfer = Transactions::where('service_type', 'funding')
-        ->where('payment_method', 'bank_transfer')
-        ->with('user')
-        ->findOrFail($id);
+    public function show(Transactions $transfer)
+    {
+        $this->assertIsBankTransfer($transfer);
 
-    $meta = json_decode($transfer->meta, true);
-    
-    // If AJAX request, return modal content only
-    if (request()->ajax()) {
-        return view('admin.bank-transfers.show', compact('transfer', 'meta'));
+        $transfer->load('user');
+
+        return view('admin.bank-transfers.show', ['transfer' => $transfer, 'meta' => $transfer->meta ?? []]);
     }
 
-    // For direct access, return full page (or redirect)
-    return redirect()->route('admin.bank-transfers.index');
-}
-
-    // Approve bank transfer
-    public function approve(Request $request, $id)
+    /**
+     * Approve a transfer and credit the wallet.
+     *
+     * Rewritten to run inside a single locked transaction and to reuse
+     * WalletService. Previously it incremented `balance` AND decremented
+     * `pending_balance`, but nothing ever *added* to `pending_balance`, so the
+     * decrement drove the column negative.
+     */
+    public function approve(Request $request, Transactions $transfer)
     {
-        $transfer = Transactions::where('service_type', 'funding')
-            ->where('payment_method', 'bank_transfer')
-            ->where('status', 'pending')
-            ->with('user')
-            ->findOrFail($id);
+        $this->assertIsBankTransfer($transfer);
 
-        $request->validate([
+        $validated = $request->validate([
             'remarks' => 'nullable|string|max:500',
         ]);
 
-        DB::beginTransaction();
+        $outcome = DB::transaction(function () use ($transfer, $validated) {
+            $locked = Transactions::whereKey($transfer->getKey())->lockForUpdate()->firstOrFail();
 
-        try {
-            // Update transaction
-            $transfer->update([
+            if (! in_array($locked->status, self::REVIEWABLE, true)) {
+                return ['status' => 'not_reviewable', 'transaction' => $locked];
+            }
+
+            if (! $locked->user) {
+                throw new \RuntimeException('Transfer has no associated customer.');
+            }
+
+            $movement = $this->wallets->credit($locked->user, (float) $locked->amount);
+
+            $locked->forceFill([
                 'status' => 'success',
                 'payment_status' => 'success',
-                'status_message' => 'Approved by admin: ' . ($request->remarks ?? 'No remarks'),
+                'status_message' => 'Approved by admin' . ($validated['remarks'] ? ': ' . $validated['remarks'] : '.'),
+                'balance_after' => $movement['balance_after'],
                 'completed_at' => now(),
-                'meta' => json_encode(array_merge(
-                    json_decode($transfer->meta, true) ?? [],
-                    [
-                        'approved_by' => Auth::id(),
-                        'approved_at' => now()->toDateTimeString(),
-                        'approval_remarks' => $request->remarks,
-                        'admin_action' => 'approved'
-                    ]
-                ))
-            ]);
+                'meta' => array_merge($locked->meta ?? [], [
+                    'approved_by' => Auth::id(),
+                    'approved_at' => now()->toDateTimeString(),
+                    'approval_remarks' => $validated['remarks'] ?? null,
+                ]),
+            ])->save();
 
-            // Update user wallet
-            $user = $transfer->user;
-            if ($user && $user->wallet) {
-                // Deduct from pending balance and add to actual balance
-                $user->wallet->decrement('pending_balance', $transfer->amount);
-                $user->wallet->increment('balance', $transfer->amount);
-                $user->wallet->increment('total_funded', $transfer->amount);
-                $user->wallet->increment('transaction_count');
-
-                // Update transaction with final balances
-                $transfer->update([
-                    'balance_after' => $user->wallet->fresh()->balance
-                ]);
-            }
-
-            // Log the approval
             AdminLog::log(Auth::id(), 'approve_bank_transfer', [
-                'transaction_id' => $transfer->id,
-                'user_id' => $user->id,
-                'amount' => $transfer->amount,
-                'remarks' => $request->remarks
+                'transaction_id' => $locked->id,
+                'user_id' => $locked->user_id,
+                'amount' => (float) $locked->amount,
+                'remarks' => $validated['remarks'] ?? null,
             ]);
 
-            DB::commit();
+            return ['status' => 'credited', 'transaction' => $locked];
+        });
 
-            return redirect()->route('admin.bank-transfers.index')
-                ->with('success', 'Bank transfer approved successfully. User wallet credited.');
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Bank transfer approval failed: ' . $e->getMessage());
-
-            return back()->withErrors(['error' => 'Approval failed: ' . $e->getMessage()]);
+        if ($outcome['status'] === 'not_reviewable') {
+            return back()->with('error', 'That transfer has already been actioned.');
         }
+
+        return redirect()->route('admin.bank-transfers.index')->with(
+            'success',
+            'Transfer approved. ₦' . number_format((float) $outcome['transaction']->amount, 2) . ' credited.'
+        );
     }
 
-    // Reject bank transfer
-    public function reject(Request $request, $id)
+    public function reject(Request $request, Transactions $transfer)
     {
-        $transfer = Transactions::where('service_type', 'funding')
-            ->where('payment_method', 'bank_transfer')
-            ->where('status', 'pending')
-            ->with('user')
-            ->findOrFail($id);
+        $this->assertIsBankTransfer($transfer);
 
-        $request->validate([
-            'reason' => 'required|string|max:500',
-            'refund_pending_balance' => 'boolean',
+        $validated = $request->validate([
+            'reason' => 'required|string|min:5|max:500',
         ]);
 
-        DB::beginTransaction();
+        $outcome = DB::transaction(function () use ($transfer, $validated) {
+            $locked = Transactions::whereKey($transfer->getKey())->lockForUpdate()->firstOrFail();
 
-        try {
-            // Update transaction
-            $transfer->update([
-                'status' => 'failed',
-                'payment_status' => 'failed',
-                'status_message' => 'Rejected by admin: ' . $request->reason,
-                'meta' => json_encode(array_merge(
-                    json_decode($transfer->meta, true) ?? [],
-                    [
-                        'rejected_by' => Auth::id(),
-                        'rejected_at' => now()->toDateTimeString(),
-                        'rejection_reason' => $request->reason,
-                        'admin_action' => 'rejected'
-                    ]
-                ))
-            ]);
-
-            // If refund pending balance is requested
-            if ($request->boolean('refund_pending_balance')) {
-                $user = $transfer->user;
-                if ($user && $user->wallet) {
-                    // Deduct from pending balance (since transfer was rejected)
-                    $user->wallet->decrement('pending_balance', $transfer->amount);
-                }
+            if (! in_array($locked->status, self::REVIEWABLE, true)) {
+                return ['status' => 'not_reviewable', 'transaction' => $locked];
             }
 
-            // Log the rejection
+            $locked->forceFill([
+                'status' => 'failed',
+                'payment_status' => 'failed',
+                'status_message' => 'Rejected by admin: ' . $validated['reason'],
+                'completed_at' => now(),
+                'meta' => array_merge($locked->meta ?? [], [
+                    'rejected_by' => Auth::id(),
+                    'rejected_at' => now()->toDateTimeString(),
+                    'rejection_reason' => $validated['reason'],
+                ]),
+            ])->save();
+
             AdminLog::log(Auth::id(), 'reject_bank_transfer', [
-                'transaction_id' => $transfer->id,
-                'user_id' => $transfer->user_id,
-                'amount' => $transfer->amount,
-                'reason' => $request->reason,
-                'refund_pending_balance' => $request->boolean('refund_pending_balance')
+                'transaction_id' => $locked->id,
+                'user_id' => $locked->user_id,
+                'amount' => (float) $locked->amount,
+                'reason' => $validated['reason'],
             ]);
 
-            DB::commit();
+            return ['status' => 'rejected', 'transaction' => $locked];
+        });
 
-            return redirect()->route('admin.bank-transfers.index')
-                ->with('success', 'Bank transfer rejected successfully.');
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Bank transfer rejection failed: ' . $e->getMessage());
-
-            return back()->withErrors(['error' => 'Rejection failed: ' . $e->getMessage()]);
+        if ($outcome['status'] === 'not_reviewable') {
+            return back()->with('error', 'That transfer has already been actioned.');
         }
+
+        return redirect()->route('admin.bank-transfers.index')->with('success', 'Transfer rejected.');
     }
 
-    // Mark as fraudulent
-    public function markFraudulent(Request $request, $id)
+    public function markFraudulent(Request $request, Transactions $transfer)
     {
-        $transfer = Transactions::where('service_type', 'funding')
-            ->where('payment_method', 'bank_transfer')
-            ->with('user')
-            ->findOrFail($id);
+        $this->assertIsBankTransfer($transfer);
 
-        $request->validate([
-            'fraud_reason' => 'required|string|max:500',
+        $validated = $request->validate([
+            'fraud_reason' => 'required|string|min:5|max:500',
             'suspend_user' => 'boolean',
-            'block_user' => 'boolean',
         ]);
 
-        DB::beginTransaction();
+        DB::transaction(function () use ($transfer, $validated) {
+            $locked = Transactions::whereKey($transfer->getKey())->lockForUpdate()->firstOrFail();
 
-        try {
-            // Update transaction
-            $transfer->update([
+            $locked->forceFill([
                 'status' => 'failed',
                 'payment_status' => 'failed',
-                'status_message' => 'Marked as fraudulent: ' . $request->fraud_reason,
-                'meta' => json_encode(array_merge(
-                    json_decode($transfer->meta, true) ?? [],
-                    [
-                        'fraud_marked_by' => Auth::id(),
-                        'fraud_marked_at' => now()->toDateTimeString(),
-                        'fraud_reason' => $request->fraud_reason,
-                        'admin_action' => 'fraudulent'
-                    ]
-                ))
-            ]);
+                'is_fraudulent' => true,
+                'status_message' => 'Marked fraudulent: ' . $validated['fraud_reason'],
+                'completed_at' => now(),
+                'meta' => array_merge($locked->meta ?? [], [
+                    'fraud_marked_by' => Auth::id(),
+                    'fraud_marked_at' => now()->toDateTimeString(),
+                    'fraud_reason' => $validated['fraud_reason'],
+                ]),
+            ])->save();
 
-            // Update user wallet (deduct pending balance)
-            $user = $transfer->user;
-            if ($user && $user->wallet) {
-                $user->wallet->decrement('pending_balance', $transfer->amount);
+            if ($request->boolean('suspend_user') && $locked->user) {
+                $locked->user->forceFill(['status' => 'suspended'])->save();
             }
 
-            // Take action against user if requested
-            if ($request->boolean('suspend_user')) {
-                $user->update(['status' => 'suspended']);
-            }
-
-            if ($request->boolean('block_user')) {
-                // Add user to fraud list or block
-                // You can create a separate fraud_users table or add a flag
-                $user->update(['is_blocked' => true]);
-            }
-
-            // Log the fraud marking
             AdminLog::log(Auth::id(), 'mark_bank_transfer_fraud', [
-                'transaction_id' => $transfer->id,
-                'user_id' => $user->id,
-                'amount' => $transfer->amount,
-                'fraud_reason' => $request->fraud_reason,
-                'actions_taken' => [
-                    'suspend_user' => $request->boolean('suspend_user'),
-                    'block_user' => $request->boolean('block_user')
-                ]
+                'transaction_id' => $locked->id,
+                'user_id' => $locked->user_id,
+                'amount' => (float) $locked->amount,
+                'fraud_reason' => $validated['fraud_reason'],
+                'suspended_user' => $request->boolean('suspend_user'),
             ]);
+        });
 
-            DB::commit();
-
-            return redirect()->route('admin.bank-transfers.index')
-                ->with('success', 'Bank transfer marked as fraudulent. User account actions applied.');
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Mark fraud failed: ' . $e->getMessage());
-
-            return back()->withErrors(['error' => 'Operation failed: ' . $e->getMessage()]);
-        }
+        return redirect()->route('admin.bank-transfers.index')
+            ->with('success', 'Transfer flagged as fraudulent.');
     }
 
-    // View proof image
-    public function viewProof($id)
+    /**
+     * Stream a proof of payment to an authorised admin.
+     *
+     * The file lives on the private disk now, so this is the only way to read
+     * it. Previously `proof` was written to the `public` disk and served from
+     * a predictable URL with no authentication at all, and the admin viewer
+     * referenced a class that does not exist (`Transaction`).
+     */
+    public function viewProof(Transactions $transfer): StreamedResponse
     {
-        $transfer = Transaction::findOrFail($id);
-        $meta = json_decode($transfer->meta, true);
-        $proofPath = $meta['proof_path'] ?? null;
-
-        if (!$proofPath || !Storage::exists($proofPath)) {
-            abort(404, 'Proof file not found.');
-        }
-
-        $file = Storage::get($proofPath);
-        $mimeType = Storage::mimeType($proofPath);
-
-        return response($file, 200, [
-            'Content-Type' => $mimeType,
-            'Content-Disposition' => 'inline; filename="proof_' . $transfer->reference . '"'
-        ]);
+        return $this->streamProof($transfer, inline: true);
     }
 
-    // Download proof
-    public function downloadProof($id)
+    public function downloadProof(Transactions $transfer): StreamedResponse
     {
-        $transfer = Transaction::findOrFail($id);
-        $meta = json_decode($transfer->meta, true);
-        $proofPath = $meta['proof_path'] ?? null;
+        return $this->streamProof($transfer, inline: false);
+    }
 
-        if (!$proofPath || !Storage::exists($proofPath)) {
-            abort(404, 'Proof file not found.');
+    private function streamProof(Transactions $transfer, bool $inline): StreamedResponse
+    {
+        $this->assertIsBankTransfer($transfer);
+
+        $path = $transfer->meta['proof_path'] ?? null;
+
+        if (! $path || ! Storage::disk('local')->exists($path)) {
+            abort(404, 'No proof of payment has been uploaded for this transfer.');
         }
 
-        return Storage::download($proofPath, 'proof_' . $transfer->reference . '.' . pathinfo($proofPath, PATHINFO_EXTENSION));
+        if (! $inline) {
+            AdminLog::log(Auth::id(), 'download_bank_proof', ['transaction_id' => $transfer->id]);
+        }
+
+        $mime = Storage::disk('local')->mimeType($path) ?: 'application/octet-stream';
+        $extension = pathinfo($path, PATHINFO_EXTENSION) ?: 'bin';
+        $name = 'proof-' . $transfer->reference . '.' . $extension;
+
+        return response()->streamDownload(
+            fn () => fpassthru(Storage::disk('local')->readStream($path)),
+            $name,
+            [
+                'Content-Type' => $mime,
+                'Content-Disposition' => ($inline ? 'inline' : 'attachment') . '; filename="' . $name . '"',
+                // Never let a browser sniff an uploaded file into something executable.
+                'X-Content-Type-Options' => 'nosniff',
+            ]
+        );
+    }
+
+    private function assertIsBankTransfer(Transactions $transfer): void
+    {
+        if ($transfer->service_type !== 'funding' || $transfer->payment_method !== 'bank_transfer') {
+            throw ValidationException::withMessages([
+                'transfer' => 'That record is not a bank transfer funding transaction.',
+            ]);
+        }
     }
 }

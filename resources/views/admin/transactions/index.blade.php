@@ -1,410 +1,364 @@
 @extends('admin.layouts.app')
 
 @section('title', 'Transactions')
-@section('page-title', 'Transaction Management')
+@section('page-title', 'Transactions')
+@section('page-description', 'Search, filter and inspect every transaction on the platform.')
 
 @section('content')
-<div class="space-y-6">
-    <!-- Stats Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <div class="flex items-center justify-between mb-2">
-                <span class="text-sm font-medium text-gray-600">Total Transactions</span>
-                <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
-                    </svg>
+@php
+    $serviceTypeLabels = [
+        'airtime' => 'Airtime',
+        'data' => 'Data',
+        'funding' => 'Funding',
+        'transfer' => 'Transfer',
+        'cable-tv' => 'Cable TV',
+        'electricity' => 'Electricity',
+        'exam' => 'Exam',
+    ];
+
+    $serviceTypeIcons = [
+        'airtime' => 'device-phone-mobile',
+        'data' => 'signal',
+        'funding' => 'wallet',
+        'transfer' => 'arrow-path',
+        'cable-tv' => 'tv',
+        'electricity' => 'bolt',
+        'exam' => 'academic-cap',
+    ];
+
+    $hasFilters = request()->hasAny(['search', 'service_type', 'status', 'payment_method', 'date_from', 'date_to', 'min_amount', 'max_amount']);
+
+    $successRate = $stats['total'] > 0 ? round(($stats['success'] / $stats['total']) * 100, 1) : 0;
+@endphp
+
+<div class="space-y-6" id="transactionsPage" x-data="{ detailsId: null }">
+
+    {{-- ============================ Metrics ============================ --}}
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="card">
+            <div class="card-content">
+                <div class="flex items-start justify-between gap-3">
+                    <span class="stat-label">Total transactions</span>
+                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+                        <x-icon name="queue-list" class="h-4 w-4" />
+                    </span>
                 </div>
+                <p class="stat-value mt-2">{{ number_format($stats['total']) }}</p>
             </div>
-            <h3 class="text-2xl font-bold text-gray-900">{{ number_format($stats['total']) }}</h3>
         </div>
 
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <div class="flex items-center justify-between mb-2">
-                <span class="text-sm font-medium text-gray-600">Total Volume</span>
-                <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                    <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                    </svg>
+        <div class="card">
+            <div class="card-content">
+                <div class="flex items-start justify-between gap-3">
+                    <span class="stat-label">Successful volume</span>
+                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+                        <x-icon name="banknotes" class="h-4 w-4" />
+                    </span>
                 </div>
+                <p class="stat-value mt-2">&#8358;{{ number_format($stats['total_amount'], 2) }}</p>
             </div>
-            <h3 class="text-2xl font-bold text-gray-900">₦{{ number_format($stats['total_amount'], 2) }}</h3>
         </div>
 
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <div class="flex items-center justify-between mb-2">
-                <span class="text-sm font-medium text-gray-600">Successful</span>
-                <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                    <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                    </svg>
+        <div class="card">
+            <div class="card-content">
+                <div class="flex items-start justify-between gap-3">
+                    <span class="stat-label">Successful</span>
+                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-green-50 text-green-700">
+                        <x-icon name="check-circle" variant="solid" class="h-4 w-4" />
+                    </span>
                 </div>
+                <p class="stat-value mt-2">{{ number_format($stats['success']) }}</p>
+                <p class="mt-1 text-xs tabular-nums text-muted-foreground">{{ $successRate }}% success rate</p>
             </div>
-            <h3 class="text-2xl font-bold text-gray-900">{{ number_format($stats['success']) }}</h3>
-            <p class="text-xs text-green-600 mt-1">
-                {{ $stats['total'] > 0 ? round(($stats['success'] / $stats['total']) * 100, 1) : 0 }}% success rate
-            </p>
         </div>
 
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <div class="flex items-center justify-between mb-2">
-                <span class="text-sm font-medium text-gray-600">Pending</span>
-                <div class="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center">
-                    <svg class="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                    </svg>
+        <div class="card">
+            <div class="card-content">
+                <div class="flex items-start justify-between gap-3">
+                    <span class="stat-label">Pending</span>
+                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-700">
+                        <x-icon name="clock" variant="solid" class="h-4 w-4" />
+                    </span>
                 </div>
+                <p class="stat-value mt-2">{{ number_format($stats['pending']) }}</p>
+                <p class="mt-1 text-xs tabular-nums text-muted-foreground">{{ number_format($stats['failed']) }} failed</p>
             </div>
-            <h3 class="text-2xl font-bold text-gray-900">{{ number_format($stats['pending']) }}</h3>
         </div>
     </div>
 
-    <!-- Service Type Distribution -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h3 class="text-lg font-bold text-gray-900 mb-4">Service Type Distribution</h3>
-        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-            @php
-                $serviceTypeLabels = [
-                    'airtime' => 'Airtime',
-                    'data' => 'Data',
-                    'funding' => 'Funding',
-                    'transfer' => 'Transfer',
-                    'cable-tv' => 'Cable TV',
-                    'electricity' => 'Electricity',
-                    'exam' => 'Exam',
-                ];
-                
-                $serviceTypeColors = [
-                    'airtime' => 'bg-blue-500',
-                    'data' => 'bg-purple-500',
-                    'funding' => 'bg-green-500',
-                    'transfer' => 'bg-indigo-500',
-                    'cable-tv' => 'bg-red-500',
-                    'electricity' => 'bg-yellow-500',
-                    'exam' => 'bg-pink-500',
-                ];
-            @endphp
-            
-            @foreach($serviceTypes as $type => $count)
-                @if($count > 0)
-                <div class="text-center">
-                    <div class="mb-2">
-                        <div class="w-12 h-12 {{ $serviceTypeColors[$type] }} rounded-full flex items-center justify-center text-white font-bold mx-auto">
-                            {{ $count }}
-                        </div>
-                    </div>
-                    <p class="text-xs font-medium text-gray-700">{{ $serviceTypeLabels[$type] }}</p>
+    {{-- ====================== Service type mix ======================== --}}
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Service type distribution</h2>
+            <p class="card-description">All-time transaction count per service.</p>
+        </div>
+        <div class="card-content">
+            @if(array_sum($serviceTypes) > 0)
+                <div class="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-7">
+                    @foreach($serviceTypes as $type => $count)
+                        @if($count > 0)
+                            <div class="rounded-lg border border-border bg-surface p-3 text-center">
+                                <span class="mx-auto flex h-9 w-9 items-center justify-center rounded-lg bg-white text-brand-600 ring-1 ring-border">
+                                    <x-icon :name="$serviceTypeIcons[$type] ?? 'document-text'" class="h-4 w-4" />
+                                </span>
+                                <p class="mt-2 text-lg font-semibold tabular-nums">{{ number_format($count) }}</p>
+                                <p class="text-xs text-muted-foreground">{{ $serviceTypeLabels[$type] ?? ucfirst($type) }}</p>
+                            </div>
+                        @endif
+                    @endforeach
                 </div>
-                @endif
-            @endforeach
+            @else
+                <div class="empty-state py-8">
+                    <x-icon name="chart-bar" class="h-8 w-8 text-ink-300" />
+                    <p class="mt-2 text-sm text-muted-foreground">No transactions recorded yet.</p>
+                </div>
+            @endif
         </div>
     </div>
 
-    <!-- Filters -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div class="flex items-center justify-between mb-4">
-            <h3 class="text-lg font-bold text-gray-900">Filter Transactions</h3>
-            <button onclick="toggleAdvancedFilters()" class="text-sm text-green-600 hover:text-green-700 font-medium">
-                <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/>
-                </svg>
-                Advanced Filters
+    {{-- ============================ Filters =========================== --}}
+    <div class="card" x-data="{ advanced: {{ $hasFilters && (request()->filled('date_from') || request()->filled('date_to') || request()->filled('min_amount') || request()->filled('max_amount')) ? 'true' : 'false' }} }">
+        <div class="card-header flex-row items-center justify-between">
+            <div>
+                <h2 class="card-title">Filter transactions</h2>
+                <p class="card-description">Narrow the list by reference, customer, service or date.</p>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" @click="advanced = !advanced"
+                    :aria-expanded="advanced ? 'true' : 'false'" aria-controls="advancedFilters">
+                <x-icon name="adjustments-horizontal" class="h-4 w-4" />
+                Advanced
+                <x-icon name="chevron-down" class="h-3.5 w-3.5 transition-transform" x-bind:class="advanced && 'rotate-180'" />
             </button>
         </div>
-        
-        <form method="GET" action="{{ route('admin.transactions.index') }}" id="filterForm">
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Search</label>
-                    <input type="text" name="search" value="{{ request('search') }}" 
-                           placeholder="Reference, user, description..." 
-                           class="w-full border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500">
-                </div>
 
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Service Type</label>
-                    <select name="service_type" class="w-full border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500">
-                        <option value="">All Types</option>
-                        <option value="airtime" {{ request('service_type') == 'airtime' ? 'selected' : '' }}>Airtime</option>
-                        <option value="data" {{ request('service_type') == 'data' ? 'selected' : '' }}>Data</option>
-                        <option value="funding" {{ request('service_type') == 'funding' ? 'selected' : '' }}>Funding</option>
-                        <option value="transfer" {{ request('service_type') == 'transfer' ? 'selected' : '' }}>Transfer</option>
-                        <option value="cable-tv" {{ request('service_type') == 'cable-tv' ? 'selected' : '' }}>Cable TV</option>
-                        <option value="electricity" {{ request('service_type') == 'electricity' ? 'selected' : '' }}>Electricity</option>
-                        <option value="exam" {{ request('service_type') == 'exam' ? 'selected' : '' }}>Exam</option>
-                    </select>
-                </div>
-
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Status</label>
-                    <select name="status" class="w-full border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500">
-                        <option value="">All Statuses</option>
-                        <option value="pending" {{ request('status') == 'pending' ? 'selected' : '' }}>Pending</option>
-                        <option value="processing" {{ request('status') == 'processing' ? 'selected' : '' }}>Processing</option>
-                        <option value="success" {{ request('status') == 'success' ? 'selected' : '' }}>Success</option>
-                        <option value="failed" {{ request('status') == 'failed' ? 'selected' : '' }}>Failed</option>
-                        <option value="cancelled" {{ request('status') == 'cancelled' ? 'selected' : '' }}>Cancelled</option>
-                    </select>
-                </div>
-
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
-                    <select name="payment_method" class="w-full border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500">
-                        <option value="">All Methods</option>
-                        <option value="wallet" {{ request('payment_method') == 'wallet' ? 'selected' : '' }}>Wallet</option>
-                        <option value="bank_transfer" {{ request('payment_method') == 'bank_transfer' ? 'selected' : '' }}>Bank Transfer</option>
-                        <option value="card" {{ request('payment_method') == 'card' ? 'selected' : '' }}>Card</option>
-                        <option value="manual" {{ request('payment_method') == 'manual' ? 'selected' : '' }}>Manual</option>
-                    </select>
-                </div>
-            </div>
-
-            <!-- Advanced Filters (Hidden by Default) -->
-            <div id="advancedFilters" class="hidden space-y-4">
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="card-content">
+            <form method="GET" action="{{ route('admin.transactions.index') }}" id="filterForm" class="space-y-4">
+                <div class="grid grid-cols-1 gap-4 md:grid-cols-4">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Date From</label>
-                        <input type="date" name="date_from" value="{{ request('date_from') }}" 
-                               class="w-full border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500">
+                        <label class="label mb-2" for="filterSearch">Search</label>
+                        <input type="text" id="filterSearch" name="search" value="{{ request('search') }}"
+                               placeholder="Reference, user, description..." class="input">
                     </div>
 
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Date To</label>
-                        <input type="date" name="date_to" value="{{ request('date_to') }}" 
-                               class="w-full border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500">
+                        <label class="label mb-2" for="filterServiceType">Service type</label>
+                        <select id="filterServiceType" name="service_type" class="select">
+                            <option value="">All types</option>
+                            @foreach($serviceTypeLabels as $value => $label)
+                                <option value="{{ $value }}" {{ request('service_type') == $value ? 'selected' : '' }}>{{ $label }}</option>
+                            @endforeach
+                        </select>
                     </div>
 
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Min Amount (₦)</label>
-                        <input type="number" name="min_amount" value="{{ request('min_amount') }}" 
-                               placeholder="0" min="0" step="0.01"
-                               class="w-full border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500">
+                        <label class="label mb-2" for="filterStatus">Status</label>
+                        <select id="filterStatus" name="status" class="select">
+                            <option value="">All statuses</option>
+                            @foreach(['pending' => 'Pending', 'processing' => 'Processing', 'success' => 'Success', 'failed' => 'Failed', 'cancelled' => 'Cancelled'] as $value => $label)
+                                <option value="{{ $value }}" {{ request('status') == $value ? 'selected' : '' }}>{{ $label }}</option>
+                            @endforeach
+                        </select>
                     </div>
 
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Max Amount (₦)</label>
-                        <input type="number" name="max_amount" value="{{ request('max_amount') }}" 
-                               placeholder="1000000" min="0" step="0.01"
-                               class="w-full border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500">
+                        <label class="label mb-2" for="filterPaymentMethod">Payment method</label>
+                        <select id="filterPaymentMethod" name="payment_method" class="select">
+                            <option value="">All methods</option>
+                            @foreach(['wallet' => 'Wallet', 'bank_transfer' => 'Bank transfer', 'card' => 'Card', 'manual' => 'Manual'] as $value => $label)
+                                <option value="{{ $value }}" {{ request('payment_method') == $value ? 'selected' : '' }}>{{ $label }}</option>
+                            @endforeach
+                        </select>
                     </div>
                 </div>
-            </div>
 
-            <div class="flex items-center justify-between mt-6">
-                <div class="flex items-center space-x-2">
-                    <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2.5 px-6 rounded-lg transition-colors">
-                        Apply Filters
+                <div id="advancedFilters" x-show="advanced" x-cloak x-transition.opacity class="grid grid-cols-1 gap-4 border-t border-border pt-4 md:grid-cols-4">
+                    <div>
+                        <label class="label mb-2" for="filterDateFrom">Date from</label>
+                        <input type="date" id="filterDateFrom" name="date_from" value="{{ request('date_from') }}" class="input">
+                    </div>
+
+                    <div>
+                        <label class="label mb-2" for="filterDateTo">Date to</label>
+                        <input type="date" id="filterDateTo" name="date_to" value="{{ request('date_to') }}" class="input">
+                    </div>
+
+                    <div>
+                        <label class="label mb-2" for="filterMinAmount">Min amount (&#8358;)</label>
+                        <input type="number" id="filterMinAmount" name="min_amount" value="{{ request('min_amount') }}"
+                               placeholder="0" min="0" step="0.01" class="input tabular-nums">
+                    </div>
+
+                    <div>
+                        <label class="label mb-2" for="filterMaxAmount">Max amount (&#8358;)</label>
+                        <input type="number" id="filterMaxAmount" name="max_amount" value="{{ request('max_amount') }}"
+                               placeholder="1000000" min="0" step="0.01" class="input tabular-nums">
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2 border-t border-border pt-4">
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        <x-icon name="funnel" class="h-4 w-4" />
+                        Apply filters
                     </button>
-                    <a href="{{ route('admin.transactions.index') }}" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2.5 px-6 rounded-lg transition-colors">
+                    <a href="{{ route('admin.transactions.index') }}" class="btn btn-outline btn-sm">
+                        <x-icon name="arrow-path" class="h-4 w-4" />
                         Reset
                     </a>
                 </div>
-                
-                <div class="flex items-center space-x-2">
-                    <button type="button" onclick="exportTransactions()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-6 rounded-lg transition-colors">
-                        Export CSV
-                    </button>
-                </div>
-            </div>
-        </form>
+            </form>
+        </div>
     </div>
 
-    <!-- Transactions List -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-            <h3 class="text-lg font-bold text-gray-900">All Transactions</h3>
-            <div class="text-sm text-gray-600">
-                Showing {{ $transactions->firstItem() ?? 0 }} - {{ $transactions->lastItem() ?? 0 }} of {{ $transactions->total() }} transactions
+    {{-- ========================== Transactions ======================== --}}
+    <div class="card">
+        <div class="card-header flex-row flex-wrap items-center justify-between gap-2">
+            <div>
+                <h2 class="card-title">All transactions</h2>
+                <p class="card-description tabular-nums">
+                    Showing {{ $transactions->firstItem() ?? 0 }}&ndash;{{ $transactions->lastItem() ?? 0 }} of {{ number_format($transactions->total()) }}
+                </p>
             </div>
         </div>
-        
-        <div class="overflow-x-auto">
-            <table class="w-full">
-                <thead class="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                        <th class="text-left py-4 px-6 text-xs font-semibold text-gray-600 uppercase">Transaction</th>
-                        <th class="text-left py-4 px-6 text-xs font-semibold text-gray-600 uppercase">User</th>
-                        <th class="text-left py-4 px-6 text-xs font-semibold text-gray-600 uppercase">Service</th>
-                        <th class="text-left py-4 px-6 text-xs font-semibold text-gray-600 uppercase">Amount</th>
-                        <th class="text-left py-4 px-6 text-xs font-semibold text-gray-600 uppercase">Status</th>
-                        <th class="text-left py-4 px-6 text-xs font-semibold text-gray-600 uppercase">Date</th>
-                        <th class="text-left py-4 px-6 text-xs font-semibold text-gray-600 uppercase">Actions</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-200">
-                    @forelse($transactions as $transaction)
-                    <tr class="hover:bg-gray-50 transition-colors">
-                        <td class="py-4 px-6">
-                            <div>
-                                <p class="font-semibold text-gray-900">{{ $transaction->reference }}</p>
-                                <p class="text-xs text-gray-600 truncate max-w-xs">{{ $transaction->description }}</p>
-                                @if($transaction->payment_method)
-                                <div class="inline-flex items-center mt-1 px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
-                                    {{ ucfirst(str_replace('_', ' ', $transaction->payment_method)) }}
-                                </div>
-                                @endif
-                            </div>
-                        </td>
-                        <td class="py-4 px-6">
-                            @if($transaction->user)
-                            <div class="flex items-center">
-                                <div class="w-8 h-8 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center text-white font-bold text-sm mr-2">
-                                    {{ substr($transaction->user->name, 0, 1) }}
-                                </div>
-                                <div>
-                                    <p class="font-medium text-gray-900">{{ $transaction->user->name }}</p>
-                                    <p class="text-xs text-gray-600">{{ $transaction->user->email }}</p>
-                                </div>
-                            </div>
-                            @else
-                            <span class="text-gray-400 text-sm">User deleted</span>
-                            @endif
-                        </td>
-                        <td class="py-4 px-6">
-                            <div class="flex items-center">
-                                @php
-                                    $serviceIcons = [
-                                        'airtime' => 'M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z',
-                                        'data' => 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z',
-                                        'funding' => 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
-                                        'transfer' => 'M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4',
-                                        'cable-tv' => 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z',
-                                        'electricity' => 'M13 10V3L4 14h7v7l9-11h-7z',
-                                        'exam' => 'M12 14l9-5-9-5-9 5 9 5zm0 0l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14zm-4 6v-7.5l4-2.222',
-                                    ];
-                                    
-                                    $serviceColors = [
-                                        'airtime' => 'text-blue-600 bg-blue-100',
-                                        'data' => 'text-purple-600 bg-purple-100',
-                                        'funding' => 'text-green-600 bg-green-100',
-                                        'transfer' => 'text-indigo-600 bg-indigo-100',
-                                        'cable-tv' => 'text-red-600 bg-red-100',
-                                        'electricity' => 'text-yellow-600 bg-yellow-100',
-                                        'exam' => 'text-pink-600 bg-pink-100',
-                                    ];
-                                    
-                                    $serviceLabel = ucwords(str_replace('-', ' ', $transaction->service_type));
-                                    $iconPath = $serviceIcons[$transaction->service_type] ?? 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2';
-                                    $colorClass = $serviceColors[$transaction->service_type] ?? 'text-gray-600 bg-gray-100';
-                                @endphp
-                                <div class="w-8 h-8 {{ $colorClass }} rounded-lg flex items-center justify-center mr-2">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ $iconPath }}"/>
-                                    </svg>
-                                </div>
-                                <span class="text-sm font-medium text-gray-900">{{ $serviceLabel }}</span>
-                            </div>
-                        </td>
-                        <td class="py-4 px-6">
-                            <div>
-                                <p class="text-lg font-bold text-gray-900">₦{{ number_format($transaction->amount, 2) }}</p>
-                                @if($transaction->service_fee > 0)
-                                <p class="text-xs text-gray-500">Fee: ₦{{ number_format($transaction->service_fee, 2) }}</p>
-                                @endif
-                            </div>
-                        </td>
-                        <td class="py-4 px-6">
-                            @if($transaction->status === 'pending')
-                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
-                                    <span class="w-2 h-2 bg-yellow-500 rounded-full mr-2"></span>
-                                    Pending
-                                </span>
-                            @elseif($transaction->status === 'processing')
-                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                                    <svg class="w-3 h-3 mr-1 animate-spin" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/>
-                                    </svg>
-                                    Processing
-                                </span>
-                            @elseif($transaction->status === 'success')
-                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
-                                    <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
-                                    </svg>
-                                    Success
-                                </span>
-                            @elseif($transaction->status === 'failed')
-                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
-                                    <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
-                                    </svg>
-                                    Failed
-                                </span>
-                            @else
-                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-800">
-                                    Cancelled
-                                </span>
-                            @endif
-                            @if($transaction->status_message)
-                            <p class="text-xs text-gray-500 mt-1 truncate max-w-xs">{{ $transaction->status_message }}</p>
-                            @endif
-                        </td>
-                        <td class="py-4 px-6 text-sm text-gray-600">
-                            {{ $transaction->created_at->format('M d, Y') }}<br>
-                            <span class="text-xs text-gray-500">{{ $transaction->created_at->format('h:i A') }}</span>
-                            @if($transaction->completed_at)
-                            <div class="text-xs text-green-600 mt-1">
-                                Completed: {{ $transaction->completed_at->format('h:i A') }}
-                            </div>
-                            @endif
-                        </td>
-                        <td class="py-4 px-6">
-                            <button onclick="viewTransactionDetails({{ $transaction->id }})" 
-                                    class="text-green-600 hover:text-green-700 font-semibold text-sm px-3 py-1.5 bg-green-50 hover:bg-green-100 rounded-lg transition-colors">
-                                View Details
-                            </button>
-                        </td>
-                    </tr>
-                    @empty
-                    <tr>
-                        <td colspan="7" class="py-12 text-center">
-                            <div class="flex flex-col items-center">
-                                <svg class="w-16 h-16 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                                </svg>
-                                <p class="text-gray-600 font-medium">No transactions found</p>
-                                <p class="text-sm text-gray-500 mt-1">
-                                    @if(request()->hasAny(['search', 'service_type', 'status', 'payment_method']))
-                                        Try adjusting your filters
-                                    @else
-                                        Transactions will appear here when users make them
-                                    @endif
-                                </p>
-                            </div>
-                        </td>
-                    </tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </div>
 
-        @if($transactions->hasPages())
-        <div class="p-6 border-t border-gray-200">
-            {{ $transactions->withQueryString()->links() }}
-        </div>
+        @if($transactions->count())
+            <div class="overflow-x-auto">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Transaction</th>
+                            <th>Customer</th>
+                            <th>Service</th>
+                            <th>Amount</th>
+                            <th>Status</th>
+                            <th>Date</th>
+                            <th class="text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($transactions as $transaction)
+                            <tr>
+                                <td>
+                                    <p class="font-medium tabular-nums">{{ $transaction->reference }}</p>
+                                    @if($transaction->description)
+                                        <p class="mt-0.5 max-w-xs truncate text-xs text-muted-foreground">{{ $transaction->description }}</p>
+                                    @endif
+                                    @if($transaction->payment_method)
+                                        <span class="badge badge-neutral mt-1">{{ ucfirst(str_replace('_', ' ', $transaction->payment_method)) }}</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if($transaction->user)
+                                        <div class="flex items-center gap-2.5">
+                                            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-700">
+                                                {{ strtoupper(substr($transaction->user->name, 0, 1)) }}
+                                            </span>
+                                            <div class="min-w-0">
+                                                <p class="truncate font-medium">{{ $transaction->user->name }}</p>
+                                                <p class="truncate text-xs text-muted-foreground">{{ $transaction->user->email }}</p>
+                                            </div>
+                                        </div>
+                                    @else
+                                        <span class="text-sm text-muted-foreground">Customer deleted</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    <div class="flex items-center gap-2">
+                                        <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface text-ink-600 ring-1 ring-border">
+                                            <x-icon :name="$serviceTypeIcons[$transaction->service_type] ?? 'document-text'" class="h-4 w-4" />
+                                        </span>
+                                        <span class="font-medium">{{ $serviceTypeLabels[$transaction->service_type] ?? ucwords(str_replace('-', ' ', $transaction->service_type)) }}</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <p class="font-semibold tabular-nums">&#8358;{{ number_format($transaction->amount, 2) }}</p>
+                                    @if($transaction->service_fee > 0)
+                                        <p class="text-xs tabular-nums text-muted-foreground">Fee: &#8358;{{ number_format($transaction->service_fee, 2) }}</p>
+                                    @endif
+                                </td>
+                                <td>
+                                    @php
+                                        $statusClass = match ($transaction->status) {
+                                            'success' => 'badge-success',
+                                            'pending' => 'badge-warning',
+                                            'processing' => 'badge-info',
+                                            'failed' => 'badge-destructive',
+                                            default => 'badge-neutral',
+                                        };
+                                    @endphp
+                                    <span class="badge {{ $statusClass }}">{{ ucfirst($transaction->status) }}</span>
+                                    @if($transaction->status_message)
+                                        <p class="mt-1 max-w-xs truncate text-xs text-muted-foreground">{{ $transaction->status_message }}</p>
+                                    @endif
+                                </td>
+                                <td class="text-sm text-muted-foreground">
+                                    <span class="tabular-nums">{{ $transaction->created_at->format('M d, Y') }}</span><br>
+                                    <span class="text-xs tabular-nums">{{ $transaction->created_at->format('h:i A') }}</span>
+                                    @if($transaction->completed_at)
+                                        <p class="mt-1 text-xs tabular-nums text-green-700">Completed {{ $transaction->completed_at->format('h:i A') }}</p>
+                                    @endif
+                                </td>
+                                <td class="text-right">
+                                    <button type="button"
+                                            class="btn btn-outline btn-sm"
+                                            data-transaction-id="{{ $transaction->id }}"
+                                            @click="viewTransactionDetails($event.currentTarget.dataset.transactionId)">
+                                        <x-icon name="eye" class="h-4 w-4" />
+                                        View
+                                    </button>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+
+            @if($transactions->hasPages())
+                <div class="border-t border-border p-4">
+                    {{ $transactions->withQueryString()->links() }}
+                </div>
+            @endif
+        @else
+            <div class="empty-state">
+                <x-icon name="document-text" class="h-10 w-10 text-ink-300" />
+                <p class="mt-3 font-medium">No transactions found</p>
+                <p class="mt-1 text-sm text-muted-foreground">
+                    @if($hasFilters)
+                        Try adjusting or resetting your filters.
+                    @else
+                        Transactions will appear here when customers make them.
+                    @endif
+                </p>
+                @if($hasFilters)
+                    <a href="{{ route('admin.transactions.index') }}" class="btn btn-outline btn-sm mt-4">
+                        <x-icon name="arrow-path" class="h-4 w-4" />
+                        Clear filters
+                    </a>
+                @endif
+            </div>
         @endif
     </div>
-</div>
 
-<!-- Transaction Details Modal -->
-<div id="transactionModal" class="fixed inset-0 bg-black/50 z-50 hidden items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-        <div class="p-6 border-b border-gray-200">
-            <div class="flex items-center justify-between">
-                <div>
-                    <h3 id="modalTitle" class="text-xl font-bold text-gray-900">Transaction Details</h3>
-                    <p id="modalSubtitle" class="text-sm text-gray-600">Loading...</p>
+    {{-- ===================== Transaction detail modal ================= --}}
+    <div x-show="detailsId !== null" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/50 p-4"
+         @keydown.escape.window="closeTransactionModal()"
+         @click.self="closeTransactionModal()">
+        <div class="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-border bg-white shadow-overlay"
+             role="dialog" aria-modal="true" aria-labelledby="transactionModalTitle">
+            <div class="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
+                <div class="min-w-0">
+                    <h3 id="transactionModalTitle" class="card-title">Transaction details</h3>
+                    <p id="modalSubtitle" class="card-description">Loading&hellip;</p>
                 </div>
-                <button onclick="closeTransactionModal()" class="text-gray-400 hover:text-gray-600">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                    </svg>
+                <button type="button" class="btn btn-ghost btn-icon" aria-label="Close dialog"
+                        @click="closeTransactionModal()">
+                    <x-icon name="x-mark" class="h-5 w-5" />
                 </button>
             </div>
-        </div>
 
-        <div id="transactionModalContent" class="p-6">
-            <!-- Content will be loaded dynamically -->
+            <div id="transactionModalContent" class="scrollbar-slim overflow-y-auto p-5">
+                {{-- Filled over AJAX from admin.transactions.show --}}
+            </div>
         </div>
     </div>
 </div>
@@ -412,174 +366,98 @@
 
 @push('scripts')
 <script>
-function toggleAdvancedFilters() {
-    const advancedFilters = document.getElementById('advancedFilters');
-    advancedFilters.classList.toggle('hidden');
-}
-
-function viewTransactionDetails(transactionId) {
-    console.log('Loading transaction details for ID:', transactionId);
-    
-    const modalContent = document.getElementById('transactionModalContent');
-    const modal = document.getElementById('transactionModal');
-    
-    modalContent.innerHTML = `
-        <div class="flex items-center justify-center py-12">
-            <div class="text-center">
-                <svg class="w-8 h-8 text-gray-400 animate-spin mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                </svg>
-                <p class="text-gray-600">Loading transaction details...</p>
-            </div>
-        </div>
-    `;
-    
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
-    
-    // Use the correct route URL
-    const url = `/admin/transactions/${transactionId}?modal=true`;
-    console.log('Fetching URL:', url);
-    
-    fetch(url, {
-        headers: {
-            'X-Requested-With': 'XMLHttpRequest',
-            'Accept': 'text/html, application/json'
-        }
-    })
-    .then(response => {
-        console.log('Response status:', response.status, response.statusText);
-        
-        if (!response.ok) {
-            return response.text().then(text => {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            });
-        }
-        
-        return response.text();
-    })
-    .then(html => {
-        console.log('Successfully loaded HTML, length:', html.length);
-        
-        if (!html || html.trim() === '') {
-            throw new Error('Received empty response from server');
-        }
-        
-        modalContent.innerHTML = html;
-        
-        // Initialize any scripts in the loaded content
-        const scripts = modalContent.querySelectorAll('script');
-        scripts.forEach(script => {
-            const newScript = document.createElement('script');
-            if (script.src) {
-                newScript.src = script.src;
-            } else {
-                newScript.textContent = script.textContent;
-            }
-            document.body.appendChild(newScript);
-        });
-    })
-    .catch(error => {
-        console.error('=== ERROR LOADING TRANSACTION DETAILS ===');
-        console.error('Transaction ID:', transactionId);
-        console.error('Error name:', error.name);
-        console.error('Error message:', error.message);
-        console.error('Full error:', error);
-        
-        modalContent.innerHTML = `
+    // ---------------------------------------------------------------
+    // Transaction detail modal
+    // ---------------------------------------------------------------
+    // Endpoint and response contract are unchanged: the modal still GETs
+    // `/admin/transactions/{id}?modal=true` and injects the returned HTML.
+    // The open/close state now lives in Alpine (`detailsId`), so the view no
+    // longer toggles Tailwind's `hidden`/`flex` classes by hand.
+    (function () {
+        const page = () => document.getElementById('transactionsPage');
+        const content = () => document.getElementById('transactionModalContent');
+        const spinner = `
             <div class="flex items-center justify-center py-12">
-                <div class="text-center max-w-md">
-                    <svg class="w-16 h-16 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.998-.833-2.732 0L4.732 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+                <div class="text-center">
+                    <svg class="mx-auto h-7 w-7 animate-spin text-ink-400" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/>
                     </svg>
-                    <h3 class="text-lg font-semibold text-gray-900 mb-2">Error Loading Details</h3>
-                    <p class="text-gray-600 text-sm mb-4">Failed to load transaction details. Please try again.</p>
-                    <div class="bg-gray-50 rounded-lg p-3 mb-4 text-left">
-                        <p class="text-xs font-mono text-gray-500 break-all">Error: ${error.message.substring(0, 100)}</p>
-                    </div>
-                    <div class="flex justify-center space-x-3">
-                        <button onclick="viewTransactionDetails(${transactionId})" 
-                                class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors">
-                            Try Again
-                        </button>
-                        <button onclick="closeTransactionModal()" 
-                                class="px-4 py-2 border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium rounded-lg transition-colors">
-                            Close
-                        </button>
-                    </div>
+                    <p class="mt-2 text-sm text-muted-foreground">Loading transaction details&hellip;</p>
                 </div>
-            </div>
-        `;
-    });
-}
+            </div>`;
 
-function closeTransactionModal() {
-    document.getElementById('transactionModal').classList.add('hidden');
-    document.getElementById('transactionModal').classList.remove('flex');
-    document.getElementById('transactionModalContent').innerHTML = '';
-}
+        window.viewTransactionDetails = function (transactionId) {
+            const Alpine = window.Alpine;
+            const shell = page();
 
-function closeTransactionModal() {
-    document.getElementById('transactionModal').classList.add('hidden');
-    document.getElementById('transactionModal').classList.remove('flex');
-    document.getElementById('transactionModalContent').innerHTML = '';
-}
+            if (Alpine && shell) {
+                Alpine.$data(shell).detailsId = transactionId;
+            }
 
-function exportTransactions() {
-    const form = document.getElementById('filterForm');
-    const formData = new FormData(form);
-    const params = new URLSearchParams(formData).toString();
-    
-    // Show loading state
-    const exportBtn = document.querySelector('button[onclick="exportTransactions()"]');
-    const originalText = exportBtn.innerHTML;
-    exportBtn.innerHTML = `
-        <svg class="w-4 h-4 animate-spin inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-        </svg>
-        Exporting...
-    `;
-    exportBtn.disabled = true;
-    
-    fetch(`/admin/transactions/export?${params}`, {
-        headers: {
-            'X-Requested-With': 'XMLHttpRequest',
-            'Accept': 'application/json'
+            const box = content();
+            if (box) box.innerHTML = spinner;
+
+            fetch(`{{ route('admin.transactions.show', '') }}/${transactionId}?modal=true`, {
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'text/html, application/json',
+                },
+                credentials: 'same-origin',
+            })
+                .then((response) => {
+                    if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+                    return response.text();
+                })
+                .then((html) => {
+                    if (!html || html.trim() === '') throw new Error('The server returned an empty response.');
+                    if (box) box.innerHTML = html;
+                })
+                .catch((error) => {
+                    if (!box) return;
+                    box.innerHTML = `
+                        <div class="empty-state py-10">
+                            <span class="flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-red-600">
+                                <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+                                </svg>
+                            </span>
+                            <p class="mt-3 font-medium">Could not load this transaction</p>
+                            <p class="mt-1 text-sm text-muted-foreground">${escapeHtml(error.message)}</p>
+                            <div class="mt-4 flex items-center gap-2">
+                                <button type="button" class="btn btn-primary btn-sm" data-retry="${escapeHtml(transactionId)}">Try again</button>
+                                <button type="button" class="btn btn-outline btn-sm" data-close-modal>Close</button>
+                            </div>
+                        </div>`;
+
+                    box.querySelector('[data-retry]')?.addEventListener('click', (event) => {
+                        window.viewTransactionDetails(event.currentTarget.dataset.retry);
+                    });
+                    box.querySelector('[data-close-modal]')?.addEventListener('click', () => {
+                        window.closeTransactionModal();
+                    });
+                });
+        };
+
+        window.closeTransactionModal = function () {
+            const Alpine = window.Alpine;
+            const shell = page();
+
+            if (Alpine && shell) {
+                Alpine.$data(shell).detailsId = null;
+            }
+
+            const box = content();
+            if (box) box.innerHTML = '';
+        };
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
         }
-    })
-    .then(response => response.json())
-    .then(data => {
-        // Reset button
-        exportBtn.innerHTML = originalText;
-        exportBtn.disabled = false;
-        
-        if (data.url) {
-            // Download the file
-            window.location.href = data.url;
-        } else if (data.message) {
-            alert(data.message);
-        }
-    })
-    .catch(error => {
-        console.error('Export error:', error);
-        exportBtn.innerHTML = originalText;
-        exportBtn.disabled = false;
-        alert('Export failed. Please try again.');
-    });
-}
-
-// Close modal when clicking outside
-document.getElementById('transactionModal').addEventListener('click', function(e) {
-    if (e.target === this) {
-        closeTransactionModal();
-    }
-});
-
-// Close modal on Escape key
-document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape' && document.getElementById('transactionModal').classList.contains('flex')) {
-        closeTransactionModal();
-    }
-});
+    })();
 </script>
 @endpush

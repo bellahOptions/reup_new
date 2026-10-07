@@ -56,7 +56,8 @@ class CustomResetPassword extends Notification implements ShouldQueue
 
         return (new MailMessage)
             ->subject('Reset Your Password - ReUp')
-            ->markdown('emails.auth.reset-password', [
+            // `view`, not `markdown` — see CustomVerifyEmail for the rationale.
+            ->view('emails.auth.reset-password', [
                 'user' => $notifiable,
                 'resetUrl' => $resetUrl,
                 'expireTime' => config('auth.passwords.' . config('auth.defaults.passwords') . '.expire')

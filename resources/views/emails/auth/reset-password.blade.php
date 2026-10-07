@@ -1,131 +1,129 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Password Reset – ReUp</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Reset your password</title>
+    {{-- Inline styles; the site's design tokens flattened to hex. See
+         emails/auth/verify-email.blade.php for the reasoning. --}}
 </head>
-<body style="margin:0; padding:0; background-color:#F3F4F6; font-family:Arial, Helvetica, sans-serif;">
+<body style="margin:0;padding:0;background-color:#f7f8f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;line-height:1.6;color:#1b1f1b;-webkit-text-size-adjust:100%;">
 
-    <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#F3F4F6; padding:40px 0;">
-        <tr>
-            <td align="center">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">
+    Choose a new password for your ReUp account.
+</div>
 
-                <!-- Email Container -->
-                <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background:#ffffff; border-radius:14px; box-shadow:0 8px 20px rgba(0,0,0,0.08); overflow:hidden;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f7f8f7;">
+    <tr>
+        <td align="center" style="padding:32px 12px;">
 
-                    <!-- Header -->
-                    <tr>
-                        <td style="padding:30px; text-align:center;">
-                            <img src="https://i.postimg.cc/VNMvqyqc/12.png"
-                                 alt="ReUp"
-                                 style="height:50px; width:auto; display:block; margin:0 auto 10px;">
+            <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;">
 
-                            <h1 style="margin:0; font-size:24px; color:#2AB70D; font-weight:700;">
-                                ReUp
-                            </h1>
+                <tr>
+                    <td style="padding:0 4px 18px;">
+                        <span style="font-size:20px;font-weight:700;letter-spacing:-0.03em;color:#2AB70D;">ReUp</span>
+                        <span style="font-size:12px;color:#98a298;">&nbsp;·&nbsp;Digital Services &amp; Payments</span>
+                    </td>
+                </tr>
 
-                            <p style="margin:4px 0 0; font-size:12px; color:#6B7280;">
-                                Digital Services & Payments
-                            </p>
-                        </td>
-                    </tr>
+                <tr>
+                    <td style="background-color:#ffffff;border:1px solid #dfe3df;border-radius:12px;">
+                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                <td style="height:4px;background-color:#2AB70D;line-height:4px;font-size:0;border-radius:12px 12px 0 0;">&nbsp;</td>
+                            </tr>
 
-                    <!-- Body -->
-                    <tr>
-                        <td style="padding:40px; color:#1F2937;">
+                            <tr>
+                                <td style="padding:32px 32px 8px;">
 
-                            <h2 style="margin-top:0; font-size:20px; font-weight:600;">
-                                Password Reset Request
-                            </h2>
+                                    <h1 style="margin:0 0 6px;font-size:23px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#0d100d;">
+                                        Reset your password
+                                    </h1>
 
-                            <p style="font-size:15px; line-height:1.7; color:#4B5563;">
-                                Hello <strong>{{ $user->name }}</strong>,
-                                <br><br>
-                                We received a request to reset the password for your ReUp account.
-                                If this was you, click the button below to set a new password.
-                            </p>
+                                    <p style="margin:0 0 22px;font-size:15px;color:#6f7a6f;">
+                                        We received a request to change your password.
+                                    </p>
 
-                            <!-- Button -->
-                            <div style="text-align:center; margin:35px 0;">
-                                <a href="{{ $resetUrl }}"
-                                   style="
-                                       background-color:#2AB70D;
-                                       color:#ffffff;
-                                       text-decoration:none;
-                                       padding:14px 40px;
-                                       font-size:15px;
-                                       font-weight:600;
-                                       border-radius:10px;
-                                       display:inline-block;
-                                   ">
-                                    Reset Password
-                                </a>
+                                    <p style="margin:0 0 16px;font-size:15px;color:#1b1f1b;">
+                                        Hi {{ $user->name ?? 'there' }},
+                                    </p>
 
-                                <p style="margin-top:14px; font-size:12px; color:#9CA3AF;">
-                                    This link will expire in {{ $expireTime }} minutes.
-                                </p>
+                                    <p style="margin:0 0 24px;font-size:15px;line-height:1.65;color:#1b1f1b;">
+                                        Choose a new password for your ReUp account using the button
+                                        below. For your security this link can only be used once.
+                                    </p>
 
-                                <p style="font-size:12px; word-break:break-all;">
-                                    <a href="{{ $resetUrl }}" style="color:#2AB70D;">
-                                        {{ $resetUrl }}
-                                    </a>
-                                </p>
-                            </div>
+                                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px;">
+                                        <tr>
+                                            <td style="background-color:#2AB70D;border-radius:10px;">
+                                                <a href="{{ $resetUrl }}"
+                                                   style="display:inline-block;padding:15px 34px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+                                                    Choose a new password
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    </table>
 
-                            <!-- Security Notice -->
-                            <div style="
-                                background-color:#ECFDF5;
-                                border:1px solid #A7F3D0;
-                                border-radius:10px;
-                                padding:18px;
-                            ">
-                                <strong style="color:#065F46;">
-                                    Security Notice
-                                </strong>
+                                    <p style="margin:0 0 26px;font-size:13px;color:#98a298;">
+                                        This link expires in {{ $expireTime ?? 60 }} minutes.
+                                    </p>
 
-                                <p style="margin:10px 0 0; font-size:13px; color:#065F46; line-height:1.6;">
-                                    • If you did not request this password reset, you can safely ignore this email.<br>
-                                    • Never share your reset link with anyone.<br>
-                                    • This link automatically expires to protect your account.
-                                </p>
-                            </div>
+                                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 26px;background-color:#f7f8f7;border:1px solid #dfe3df;border-radius:10px;">
+                                        <tr>
+                                            <td style="padding:16px;">
+                                                <p style="margin:0 0 6px;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#98a298;">
+                                                    Button not working?
+                                                </p>
+                                                <p style="margin:0;font-size:12px;line-height:1.5;word-break:break-all;">
+                                                    <a href="{{ $resetUrl }}" style="color:#1b720c;text-decoration:underline;">{{ $resetUrl }}</a>
+                                                </p>
+                                            </td>
+                                        </tr>
+                                    </table>
 
-                            <!-- Support -->
-                            <div style="
-                                margin-top:20px;
-                                background:#F9FAFB;
-                                border:1px solid #E5E7EB;
-                                border-radius:10px;
-                                padding:18px;
-                            ">
-                                <p style="margin:0; font-size:13px; color:#374151; line-height:1.6;">
-                                    Need help? Contact us at:<br>
-                                    <a href="mailto:reup.bellahoptions@gmail.com" style="color:#2AB70D; text-decoration:none;">
-                                        reup.bellahoptions@gmail.com
-                                    </a>
-                                </p>
-                            </div>
+                                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 8px;background-color:#f1fce9;border:1px solid #c1f0a1;border-radius:10px;">
+                                        <tr>
+                                            <td style="padding:16px;">
+                                                <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#1b720c;">
+                                                    Did not request this?
+                                                </p>
+                                                <p style="margin:0;font-size:13px;line-height:1.6;color:#1b1f1b;">
+                                                    You can ignore this email — your password will not change
+                                                    until the link above is used. If you are concerned about
+                                                    your account, contact support.
+                                                </p>
+                                            </td>
+                                        </tr>
+                                    </table>
 
-                        </td>
-                    </tr>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
 
-                    <!-- Footer -->
-                    <tr>
-                        <td style="padding:25px; text-align:center; background:#F9FAFB;">
-                            <p style="margin:0; font-size:11px; color:#9CA3AF;">
-                                © {{ date('Y') }} ReUp. All rights reserved.
-                            </p>
-                            <p style="margin:6px 0 0; font-size:11px; color:#9CA3AF;">
-                                This is an automated message. Please do not reply.
-                            </p>
-                        </td>
-                    </tr>
+                <tr>
+                    <td style="padding:22px 4px 0;font-size:12px;color:#6f7a6f;">
+                        <p style="margin:0 0 6px;">
+                            ReUp is operated by Bellah Options (BN3668420).
+                        </p>
+                        <p style="margin:0 0 6px;">
+                            Questions?
+                            <a href="mailto:{{ config('services.support.email') }}" style="color:#1b720c;text-decoration:underline;">{{ config('services.support.email') }}</a>
+                            @if(config('services.support.phone'))
+                                &middot; {{ config('services.support.phone') }}
+                            @endif
+                        </p>
+                        <p style="margin:0;color:#98a298;">
+                            This is an automated message. &copy; {{ date('Y') }} ReUp. All rights reserved.
+                        </p>
+                    </td>
+                </tr>
 
-                </table>
-
-            </td>
-        </tr>
-    </table>
-
+            </table>
+        </td>
+    </tr>
+</table>
 </body>
 </html>

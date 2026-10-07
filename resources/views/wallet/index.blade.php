@@ -1,268 +1,373 @@
 @extends('layouts.app')
+@section('title', 'Wallet')
 @section('content')
-<main class="min-h-screen bg-gradient-to-br from-gray-50 to-green-50/30">
-    <div class="py-8 md:py-12">
-        <div class="max-w-full md:max-w-[900px] overflow-clip mx-auto px-4 sm:px-6 lg:px-8">
-            <!-- Page Header -->
-            <div class="mb-8 md:mb-12">
-                <div class="flex flex-col md:flex-row items-center justify-between mb-4">
-                    <div class="flex flex-col md:flex-row space-y-5 items-center space-x-3">
-                        <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center shadow-lg">
-                            <span class="text-2xl">💰</span>
-                        </div>
-                        <div class="text-center sm:mb-5 md:text-left">
-                            <h1 class="text-2xl md:text-4xl font-bold text-gray-900">Wallet Management</h1>
-                            <p class="text-gray-600 text-sm md:text-base mt-1">Manage your balance, fund your wallet, and view transactions</p>
-                        </div>
+@php
+    /*
+    |--------------------------------------------------------------------------
+    | Wallet overview
+    |--------------------------------------------------------------------------
+    | WalletController::index() passes `$wallet`, `$recentTransactions` and
+    | `$monthlyStats`. The previous view read `$recent_transactions`, which is
+    | never shared, so the recent-activity block could not render at all; the
+    | controller's actual variable is used here.
+    |
+    | `$monthlyStats` keys: spent, funded, transactions, today_volume.
+    */
+    $user = auth()->user();
+
+    $balance = (float) ($wallet->balance ?? $user->wallet_balance ?? 0);
+    $spentToday = (float) ($monthlyStats['today_volume'] ?? 0);
+    $spentThisMonth = (float) ($monthlyStats['spent'] ?? 0);
+    $fundedThisMonth = (float) ($monthlyStats['funded'] ?? 0);
+    $transactionCount = (int) ($monthlyStats['transactions'] ?? 0);
+
+    // Average daily spend across the days elapsed this month, not across the
+    // month's full length — dividing by 30 on the 2nd would understate it.
+    $daysElapsed = max(1, now()->day);
+    $averageDaily = $spentThisMonth / $daysElapsed;
+
+    // Service glyphs. The old view switched on emoji here; the icon component
+    // only renders names from its own sets, so every name is whitelisted.
+    $serviceIcons = [
+        'airtime' => 'device-phone-mobile',
+        'data' => 'wifi',
+        'cable-tv' => 'tv',
+        'electricity' => 'bolt',
+        'exam' => 'academic-cap',
+        'waec' => 'document-check',
+        'jamb' => 'academic-cap',
+        'funding' => 'credit-card',
+        'wallet_funding' => 'credit-card',
+        'refund' => 'arrow-path',
+        'transfer' => 'arrows-up-down',
+    ];
+
+    $statusBadges = [
+        'success' => 'badge-success',
+        'pending' => 'badge-warning',
+        'processing' => 'badge-info',
+        'verifying' => 'badge-info',
+        'failed' => 'badge-destructive',
+        'cancelled' => 'badge-neutral',
+    ];
+
+    $statusIcons = [
+        'success' => 'check-circle',
+        'pending' => 'clock',
+        'processing' => 'arrow-path',
+        'verifying' => 'finger-print',
+        'failed' => 'x-mark',
+        'cancelled' => 'no-symbol',
+    ];
+
+    $quickActions = [
+        [
+            'label' => 'Fund wallet',
+            'description' => 'Add money',
+            'icon' => 'credit-card',
+            'href' => route('wallet.fund'),
+            'tint' => 'border-brand-200 bg-brand-50 text-brand-700',
+        ],
+        [
+            'label' => 'Buy airtime',
+            'description' => 'Instant recharge',
+            'icon' => 'device-phone-mobile',
+            'href' => route('airtime-data.index'),
+            'tint' => 'border-sky-200 bg-sky-50 text-sky-700',
+        ],
+        [
+            'label' => 'Buy data',
+            'description' => 'Fast delivery',
+            'icon' => 'wifi',
+            'href' => route('airtime-data.index'),
+            'tint' => 'border-violet-200 bg-violet-50 text-violet-700',
+        ],
+        [
+            'label' => 'Pay TV',
+            'description' => 'Cable subscription',
+            'icon' => 'tv',
+            'href' => route('cable-tv.index'),
+            'tint' => 'border-amber-200 bg-amber-50 text-amber-700',
+        ],
+    ];
+
+    $paymentMethods = [
+        ['name' => 'Bank transfer', 'detail' => 'Instant &middot; no fees', 'icon' => 'building-library'],
+        ['name' => 'Card payment', 'detail' => 'Visa &middot; Mastercard', 'icon' => 'credit-card'],
+        ['name' => 'Wallet balance', 'detail' => 'Spend what you have', 'icon' => 'wallet'],
+    ];
+@endphp
+
+<main class="min-h-screen bg-surface">
+    <div class="container-page py-8 md:py-12">
+
+        {{-- Page heading --}}
+        <header class="mb-8 flex flex-wrap items-end justify-between gap-4 md:mb-10">
+            <div>
+                <h1 class="mt-2 text-2xl font-semibold md:text-3xl">Wallet management</h1>
+                <p class="mt-2 max-w-2xl text-sm text-muted-foreground md:text-base">
+                    Your balance, recent movements and the fastest routes to funding.
+                </p>
+            </div>
+            <div class="flex shrink-0 items-center gap-2">
+                <a href="{{ route('wallet.history') }}" class="btn btn-outline">
+                    <x-icon name="queue-list" class="h-4 w-4" />
+                    History
+                </a>
+                <a href="{{ route('wallet.fund') }}" class="btn btn-primary">
+                    <x-icon name="plus" class="h-4 w-4" />
+                    Fund wallet
+                </a>
+            </div>
+        </header>
+
+        {{-- Balance: the single accent surface on this page. --}}
+        <section class="mb-6 rounded-xl border border-brand-600 bg-brand-500 p-5 text-white shadow-subtle md:p-6">
+            <div class="flex flex-wrap items-start justify-between gap-6">
+                <div>
+                    <p class="text-sm font-medium text-brand-50">Available balance</p>
+                    <p class="mt-2 text-3xl font-semibold tabular-nums md:text-4xl">
+                        &#8358;{{ number_format($balance, 2) }}
+                    </p>
+                    <div class="mt-3 flex flex-wrap items-center gap-2">
+                        <span class="badge border-white/20 bg-white/10 text-white">
+                            <x-icon name="check-circle" variant="solid" class="h-3.5 w-3.5" />
+                            Active
+                        </span>
+                        <span class="badge border-white/20 bg-white/10 text-white">
+                            <x-icon name="bolt" variant="solid" class="h-3.5 w-3.5" />
+                            Instant
+                        </span>
                     </div>
-                    <a href="{{ route('wallet.fund') }}" class="mt-5 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-3 px-6 rounded-xl shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all duration-200 flex items-center space-x-2">
-                        <span>+ Fund Wallet</span>
-                        <span>💳</span>
-                    </a>
                 </div>
+                <p class="text-xs text-brand-50">Last updated {{ now()->format('jS M, Y') }}</p>
             </div>
 
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
-                <!-- Main Content -->
-                <div class="lg:col-span-2 space-y-6">
-                    <!-- Wallet Balance Card -->
-                    <div class="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl shadow-xl p-6 md:p-8 text-white">
-                        <div class="flex items-center justify-between mb-6">
-                            <div>
-                                <p class="text-sm opacity-90">Total Balance</p>
-                                <p class="text-2xl md:text-4xl font-bold mt-2">₦{{ number_format(auth()->user()->wallet_balance ?? 0, 2) }}</p>
-                                <div class="flex items-center space-x-2 mt-3">
-                                    <span class="text-xs bg-white/20 px-3 py-1 rounded-full">💎 Active</span>
-                                    <span class="text-xs bg-white/20 px-3 py-1 rounded-full">⚡ Instant</span>
-                                </div>
-                            </div>
-                            <div class="text-right">
-                                <span class="text-5xl">💰</span>
-                                <p class="text-sm mt-2 opacity-90">Last updated: {{ now()->format('jS M, Y') }}</p>
-                            </div>
+            <dl class="mt-6 grid grid-cols-2 gap-4 border-t border-white/20 pt-5 md:grid-cols-4">
+                <div>
+                    <dt class="text-xs text-brand-50">Spent today</dt>
+                    <dd class="mt-1 text-lg font-semibold tabular-nums">&#8358;{{ number_format($spentToday, 2) }}</dd>
+                </div>
+                <div>
+                    <dt class="text-xs text-brand-50">Spent this month</dt>
+                    <dd class="mt-1 text-lg font-semibold tabular-nums">&#8358;{{ number_format($spentThisMonth, 2) }}</dd>
+                </div>
+                <div>
+                    <dt class="text-xs text-brand-50">Funded this month</dt>
+                    <dd class="mt-1 text-lg font-semibold tabular-nums">&#8358;{{ number_format($fundedThisMonth, 2) }}</dd>
+                </div>
+                <div>
+                    <dt class="text-xs text-brand-50">Movements</dt>
+                    <dd class="mt-1 text-lg font-semibold tabular-nums">{{ number_format($transactionCount) }}</dd>
+                </div>
+            </dl>
+        </section>
+
+        <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <div class="space-y-6 lg:col-span-2">
+
+                {{-- Quick actions --}}
+                <section class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Quick actions</h2>
+                        <p class="card-description">What would you like to do next?</p>
+                    </div>
+                    <div class="card-content grid grid-cols-2 gap-3 md:grid-cols-4">
+                        @foreach($quickActions as $action)
+                            <a href="{{ $action['href'] }}"
+                               class="flex flex-col items-center gap-2 rounded-xl border border-border p-4 text-center transition-colors hover:border-ink-300 hover:bg-ink-50">
+                                <span class="flex h-11 w-11 items-center justify-center rounded-lg border {{ $action['tint'] }}">
+                                    <x-icon :name="$action['icon']" class="h-5 w-5" />
+                                </span>
+                                <span class="text-sm font-medium">{{ $action['label'] }}</span>
+                                <span class="text-xs text-muted-foreground">{{ $action['description'] }}</span>
+                            </a>
+                        @endforeach
+                    </div>
+                </section>
+
+                {{-- Recent activity --}}
+                <section class="card overflow-hidden">
+                    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+                        <div>
+                            <h2 class="card-title">Recent transactions</h2>
+                            <p class="card-description">Your last {{ $recentTransactions->count() }} movements.</p>
                         </div>
-                        
-                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-                            <div class="bg-white/10 rounded-xl p-3 text-center backdrop-blur-sm">
-                                <p class="text-xs opacity-80">Today's Spent</p>
-                                <p class="text-lg font-bold">₦{{ number_format($monthlyStats['today_volume'] ?? 0, 2) }}</p>
-                            </div>
-                            <div class="bg-white/10 rounded-xl p-3 text-center backdrop-blur-sm">
-                                <p class="text-xs opacity-80">This Month</p>
-                                <p class="text-lg font-bold">₦{{ $monthlyStats['spent'] }}</p>
-                            </div>
-                            <div class="bg-white/10 rounded-xl p-3 text-center backdrop-blur-sm">
-                                <p class="text-xs opacity-80">Transactions</p>
-                                <p class="text-lg font-bold">{{ $monthlyStats['transactions'] }}</p>
-                            </div>
-                            <div class="bg-white/10 rounded-xl p-3 text-center backdrop-blur-sm">
-                                <p class="text-xs opacity-80">Avg. Daily</p>
-                                <p class="text-lg font-bold">₦{{ $monthlyStats['today_volume'] }}</p>
-                            </div>
-                        </div>
+                        <a href="{{ route('wallet.history') }}" class="btn btn-outline btn-sm shrink-0">
+                            View all
+                            <x-icon name="arrow-right" class="h-4 w-4" />
+                        </a>
                     </div>
 
-                    <!-- Quick Actions -->
-                    <div class="bg-white rounded-2xl shadow-lg border border-gray-200/60 p-6">
-                        <h3 class="font-bold text-gray-900 mb-4 flex items-center">
-                            <span class="text-xl mr-2">⚡</span>
-                            Quick Actions
-                        </h3>
-                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                            <a href="{{ route('wallet.fund') }}" class="bg-green-50 hover:bg-green-100 border-2 border-green-200 rounded-xl p-4 text-center transition-all duration-200 group">
-                                <div class="w-12 h-12 bg-green-100 rounded-lg mx-auto mb-3 flex items-center justify-center group-hover:scale-110 transition-transform">
-                                    <span class="text-2xl">💳</span>
-                                </div>
-                                <p class="font-semibold text-green-800">Fund Wallet</p>
-                                <p class="text-xs text-gray-600 mt-1">Add money</p>
-                            </a>
-                            
-                            <a href="#" class="bg-blue-50 hover:bg-blue-100 border-2 border-blue-200 rounded-xl p-4 text-center transition-all duration-200 group">
-                                <div class="w-12 h-12 bg-blue-100 rounded-lg mx-auto mb-3 flex items-center justify-center group-hover:scale-110 transition-transform">
-                                    <span class="text-2xl">📞</span>
-                                </div>
-                                <p class="font-semibold text-blue-800">Buy Airtime</p>
-                                <p class="text-xs text-gray-600 mt-1">Instant recharge</p>
-                            </a>
-                            
-                            <a href="#" class="bg-purple-50 hover:bg-purple-100 border-2 border-purple-200 rounded-xl p-4 text-center transition-all duration-200 group">
-                                <div class="w-12 h-12 bg-purple-100 rounded-lg mx-auto mb-3 flex items-center justify-center group-hover:scale-110 transition-transform">
-                                    <span class="text-2xl">📶</span>
-                                </div>
-                                <p class="font-semibold text-purple-800">Buy Data</p>
-                                <p class="text-xs text-gray-600 mt-1">Fast delivery</p>
-                            </a>
-                            
-                            <a href="{{ route('cable-tv.index') }}" class="bg-amber-50 hover:bg-amber-100 border-2 border-amber-200 rounded-xl p-4 text-center transition-all duration-200 group">
-                                <div class="w-12 h-12 bg-amber-100 rounded-lg mx-auto mb-3 flex items-center justify-center group-hover:scale-110 transition-transform">
-                                    <span class="text-2xl">📺</span>
-                                </div>
-                                <p class="font-semibold text-amber-800">TV Subscription</p>
-                                <p class="text-xs text-gray-600 mt-1">Cable TV</p>
-                            </a>
+                    @if($recentTransactions->isEmpty())
+                        <div class="empty-state">
+                            <span class="flex h-14 w-14 items-center justify-center rounded-full bg-ink-100 text-ink-500">
+                                <x-icon name="inbox" class="h-6 w-6" />
+                            </span>
+                            <h3 class="mt-4 text-base font-semibold">No transactions yet</h3>
+                            <p class="mt-1 max-w-sm text-sm text-muted-foreground">
+                                Fund your wallet and your activity will appear here.
+                            </p>
+                            <a href="{{ route('wallet.fund') }}" class="btn btn-primary btn-sm mt-5">Fund wallet</a>
                         </div>
-                    </div>
+                    @else
+                        <div class="overflow-x-auto">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Description</th>
+                                        <th scope="col">Date</th>
+                                        <th scope="col" class="text-right">Amount</th>
+                                        <th scope="col">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach($recentTransactions as $transaction)
+                                        <tr>
+                                            <td>
+                                                <span class="flex items-start gap-2.5">
+                                                    <x-icon :name="$serviceIcons[$transaction->service_type] ?? 'arrow-path'"
+                                                            class="mt-0.5 h-4 w-4 shrink-0 text-ink-500" />
+                                                    <span class="min-w-0">
+                                                        <span class="block text-sm font-medium">
+                                                            {{ $transaction->description ?: ucfirst((string) $transaction->service_type) }}
+                                                        </span>
+                                                        @if($transaction->reference)
+                                                            <span class="mt-0.5 block font-mono text-xs text-muted-foreground">
+                                                                {{ $transaction->reference }}
+                                                            </span>
+                                                        @endif
+                                                    </span>
+                                                </span>
+                                            </td>
+                                            <td class="whitespace-nowrap">
+                                                <span class="block text-sm">{{ $transaction->created_at->format('M j, Y') }}</span>
+                                                <span class="block text-xs text-muted-foreground">{{ $transaction->created_at->format('g:i A') }}</span>
+                                            </td>
+                                            <td class="whitespace-nowrap text-right">
+                                                <span class="text-sm font-semibold tabular-nums {{ $transaction->type === 'credit' ? 'text-green-700' : 'text-foreground' }}">
+                                                    {{ $transaction->type === 'credit' ? '+' : '-' }}&#8358;{{ number_format((float) $transaction->amount, 2) }}
+                                                </span>
+                                            </td>
+                                            <td class="whitespace-nowrap">
+                                                <span class="badge {{ $statusBadges[$transaction->status] ?? 'badge-neutral' }}">
+                                                    <x-icon :name="$statusIcons[$transaction->status] ?? 'information-circle'" class="h-3.5 w-3.5" />
+                                                    {{ ucfirst((string) $transaction->status) }}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    @endif
+                </section>
+            </div>
 
-                    <!-- Recent Transactions -->
-                    <div class="bg-white rounded-2xl shadow-lg border border-gray-200/60 p-6">
-                        <div class="flex items-center justify-between mb-6">
-                            <h3 class="font-bold text-gray-900 flex items-center">
-                                <span class="text-xl mr-2">📊</span>
-                                Recent Transactions
-                            </h3>
-                            <a href="#" class="text-green-600 hover:text-green-700 text-sm font-medium">View All →</a>
+            {{-- Sidebar --}}
+            <div class="space-y-6">
+
+                {{-- Spending snapshot --}}
+                <section class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">This month</h2>
+                        <p class="card-description">A quick read on your spending pace.</p>
+                    </div>
+                    <dl class="card-content space-y-4">
+                        <div class="flex items-baseline justify-between gap-3">
+                            <dt class="stat-label">Total spent</dt>
+                            <dd class="stat-value text-lg">&#8358;{{ number_format($spentThisMonth, 2) }}</dd>
                         </div>
-                        
-                        <div class="space-y-3">
-                            @forelse($recent_transactions as $transaction)
-                            <div class="flex items-center justify-between p-4 border border-gray-100 rounded-xl hover:bg-gray-50 transition-all duration-200">
-                                <div class="flex items-center space-x-3">
-                                    <div class="w-10 h-10 rounded-lg flex items-center justify-center 
-                                        {{ $transaction->type === 'credit' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600' }}">
-                                        <span class="text-xl">
-                                            @if($transaction->type === 'credit')
-                                            ⬇️
-                                            @elseif($transaction->service_type === 'airtime')
-                                            📞
-                                            @elseif($transaction->service_type === 'data')
-                                            📶
-                                            @elseif($transaction->service_type === 'cable-tv')
-                                            📺
-                                            @elseif($transaction->service_type === 'jamb')
-                                            🎓
-                                            @else
-                                            💸
-                                            @endif
-                                        </span>
-                                    </div>
-                                    <div>
-                                        <p class="font-semibold text-gray-900">{{ $transaction->description }}</p>
-                                        <p class="text-xs text-gray-500">
-                                            {{ $transaction->created_at->format('M j, Y • h:i A') }}
-                                            @if($transaction->reference)
-                                            • Ref: {{ $transaction->reference }}
-                                            @endif
-                                        </p>
-                                    </div>
-                                </div>
-                                <div class="text-right">
-                                    <p class="font-bold {{ $transaction->type === 'credit' ? 'text-green-600' : 'text-red-600' }}">
-                                        {{ $transaction->type === 'credit' ? '+' : '-' }}₦{{ number_format($transaction->amount, 2) }}
-                                    </p>
-                                    <span class="text-xs px-2 py-1 rounded-full 
-                                        {{ $transaction->status === 'success' ? 'bg-green-100 text-green-600' : 
-                                           ($transaction->status === 'pending' ? 'bg-amber-100 text-amber-600' : 'bg-red-100 text-red-600') }}">
-                                        {{ ucfirst($transaction->status) }}
+                        <div class="divider"></div>
+                        <div class="flex items-baseline justify-between gap-3">
+                            <dt class="stat-label">Average per day</dt>
+                            <dd class="text-lg font-semibold tabular-nums">&#8358;{{ number_format($averageDaily, 2) }}</dd>
+                        </div>
+                        <p class="text-xs text-muted-foreground">
+                            Across {{ $daysElapsed }} {{ Str::plural('day', $daysElapsed) }} so far this month.
+                        </p>
+                    </dl>
+                </section>
+
+                {{-- Payment methods --}}
+                <section class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Payment methods</h2>
+                        <p class="card-description">All available on your account.</p>
+                    </div>
+                    <ul class="card-content space-y-3">
+                        @foreach($paymentMethods as $method)
+                            <li class="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+                                <span class="flex min-w-0 items-center gap-3">
+                                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ink-100 text-ink-600">
+                                        <x-icon :name="$method['icon']" class="h-4 w-4" />
                                     </span>
-                                </div>
-                            </div>
-                            @empty
-                            <div class="text-center py-8">
-                                <div class="w-16 h-16 bg-gray-100 rounded-full mx-auto mb-4 flex items-center justify-center">
-                                    <span class="text-2xl">📭</span>
-                                </div>
-                                <p class="text-gray-600">No transactions yet</p>
-                                <p class="text-sm text-gray-500 mt-1">Your transaction history will appear here</p>
-                            </div>
-                            @endforelse
-                        </div>
-                    </div>
-                </div>
+                                    <span class="min-w-0">
+                                        <span class="block text-sm font-medium">{{ $method['name'] }}</span>
+                                        <span class="block text-xs text-muted-foreground">{!! $method['detail'] !!}</span>
+                                    </span>
+                                </span>
+                                <x-icon name="check" variant="solid" class="h-4 w-4 shrink-0 text-green-600" />
+                            </li>
+                        @endforeach
+                    </ul>
+                </section>
 
-                <!-- Sidebar -->
-                <div class="space-y-6">
-                    <!-- Payment Methods -->
-                    <div class="bg-white rounded-2xl shadow-lg border border-gray-200/60 p-6">
-                        <h3 class="font-bold text-gray-900 mb-4 flex items-center">
-                            <span class="text-xl mr-2">💳</span>
-                            Payment Methods
-                        </h3>
-                        <div class="space-y-3">
-                            <div class="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
-                                <div class="flex items-center space-x-3">
-                                    <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                                        <span class="text-blue-600">🏦</span>
-                                    </div>
-                                    <div>
-                                        <p class="font-medium text-gray-900">Bank Transfer</p>
-                                        <p class="text-xs text-gray-600">Instant • No fees</p>
-                                    </div>
-                                </div>
-                                <span class="text-green-600">✓</span>
-                            </div>
-                            
-                            <div class="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
-                                <div class="flex items-center space-x-3">
-                                    <div class="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                                        <span class="text-purple-600">💎</span>
-                                    </div>
-                                    <div>
-                                        <p class="font-medium text-gray-900">Card Payment</p>
-                                        <p class="text-xs text-gray-600">Visa/Mastercard</p>
-                                    </div>
-                                </div>
-                                <span class="text-green-600">✓</span>
-                            </div>
-                            
-                            <div class="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
-                                <div class="flex items-center space-x-3">
-                                    <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                                        <span class="text-green-600">📱</span>
-                                    </div>
-                                    <div>
-                                        <p class="font-medium text-gray-900">USSD</p>
-                                        <p class="text-xs text-gray-600">*966# Code</p>
-                                    </div>
-                                </div>
-                                <span class="text-green-600">✓</span>
+                {{-- Tips --}}
+                <section class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Wallet tips</h2>
+                    </div>
+                    <ul class="card-content space-y-3 text-sm text-muted-foreground">
+                        <li class="flex items-start gap-2.5">
+                            <x-icon name="check" class="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
+                            <span>Keep at least &#8358;500 available for instant transactions.</span>
+                        </li>
+                        <li class="flex items-start gap-2.5">
+                            <x-icon name="check" class="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
+                            <span>Fund ahead of peak hours so a recharge never waits.</span>
+                        </li>
+                        <li class="flex items-start gap-2.5">
+                            <x-icon name="check" class="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
+                            <span>Keep the reference of any failed transaction to hand.</span>
+                        </li>
+                    </ul>
+                </section>
+
+                {{-- Support --}}
+                <section class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Need help?</h2>
+                        <p class="card-description">For wallet issues or questions.</p>
+                    </div>
+                    <div class="card-content space-y-3 text-sm">
+                        <div class="rounded-lg border border-border bg-surface p-3">
+                            <p class="font-medium">Support team</p>
+                            <div class="mt-2 space-y-1.5 text-xs text-muted-foreground">
+                                @if(!empty($siteSettings['contact_phone']))
+                                    <p class="flex items-center gap-2">
+                                        <x-icon name="phone" class="h-3.5 w-3.5 shrink-0 text-ink-400" />
+                                        <span class="tabular-nums">{{ $siteSettings['contact_phone'] }}</span>
+                                    </p>
+                                @endif
+                                @if(!empty($siteSettings['support_email']))
+                                    <p class="flex items-center gap-2">
+                                        <x-icon name="envelope" class="h-3.5 w-3.5 shrink-0 text-ink-400" />
+                                        <span class="break-all">{{ $siteSettings['support_email'] }}</span>
+                                    </p>
+                                @endif
+                                <p class="flex items-center gap-2">
+                                    <x-icon name="clock" class="h-3.5 w-3.5 shrink-0 text-ink-400" />
+                                    <span>Around the clock</span>
+                                </p>
                             </div>
                         </div>
+                        <a href="{{ route('contact') }}" class="btn btn-outline btn-sm w-full">
+                            <x-icon name="lifebuoy" class="h-4 w-4" />
+                            Contact support
+                        </a>
                     </div>
-
-                    <!-- Wallet Tips -->
-                    <div class="bg-white rounded-2xl shadow-lg border border-gray-200/60 p-6">
-                        <h3 class="font-bold text-gray-900 mb-4 flex items-center">
-                            <span class="text-xl mr-2">💡</span>
-                            Wallet Tips
-                        </h3>
-                        <ul class="space-y-3 text-sm text-gray-600">
-                            <li class="flex items-start">
-                                <span class="text-green-500 mr-2">✓</span>
-                                <span>Keep minimum ₦500 for instant transactions</span>
-                            </li>
-                            <li class="flex items-start">
-                                <span class="text-green-500 mr-2">✓</span>
-                                <span>Set up auto-fund for uninterrupted service</span>
-                            </li>
-                            <li class="flex items-start">
-                                <span class="text-green-500 mr-2">✓</span>
-                                <span>Monitor spending with transaction alerts</span>
-                            </li>
-                            <li class="flex items-start">
-                                <span class="text-green-500 mr-2">✓</span>
-                                <span>Contact support for failed transactions</span>
-                            </li>
-                        </ul>
-                    </div>
-
-                    <!-- Support -->
-                    <div class="bg-white rounded-2xl shadow-lg border border-gray-200/60 p-6">
-                        <h3 class="font-bold text-gray-900 mb-4 flex items-center">
-                            <span class="text-xl mr-2">🛟</span>
-                            Need Help?
-                        </h3>
-                        <div class="space-y-3 text-sm text-gray-600">
-                            <p>For wallet issues or questions:</p>
-                            <div class="bg-green-50 rounded-lg p-3">
-                                <p class="font-medium text-green-900 mb-1">Support Team</p>
-                                <p class="text-xs">📞 {{ $siteSettings['contact_phone'] ?? '' }}</p>
-                                <p class="text-xs">✉️ {{ $siteSettings['support_email'] ?? '' }}</p>
-                                <p class="text-xs">🕐 24/7 Support</p>
-                            </div>
-                            <p class="text-xs text-gray-500">Average response time: 5 minutes</p>
-                        </div>
-                    </div>
-                </div>
+                </section>
             </div>
         </div>
     </div>

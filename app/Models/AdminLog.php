@@ -17,14 +17,21 @@ class AdminLog extends Model
         'details' => 'array'
     ];
 
-     public function user()
+    /**
+     * The administrator who performed the action.
+     *
+     * This pointed at a non-existent `admin_id` column, so every attempt to
+     * eager-load `with('user')` on the activity feed threw. The table's
+     * foreign key is `user_id`.
+     */
+    public function user()
     {
-        return $this->belongsTo(User::class, 'admin_id');
+        return $this->belongsTo(User::class, 'user_id');
     }
 
     public function admin()
     {
-        return $this->belongsTo(User::class, 'admin_id');
+        return $this->belongsTo(User::class, 'user_id');
     }
 
     /**

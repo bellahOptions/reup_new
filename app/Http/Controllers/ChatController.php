@@ -38,72 +38,82 @@ class ChatController extends Controller
             'session_id' => 'required|exists:chat_sessions,id'
         ]);
 
-        $user = Auth::User();
-        $session = ChatSession::with('user')->findOrFail($request->session_id);
+        $user = Auth::user();
+        // `admin` is eager-loaded so the chat view can name the assigned agent
+        // without an extra round trip per poll.
+        $session = ChatSession::with(['user', 'admin'])->findOrFail($request->session_id);
 
         // Verify user has access to this session
-        if (!$user->isAdmin() && $session->user_id !== $user->id) {
+        if (! $user->isAdmin() && $session->user_id !== $user->id) {
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
-        // Mark messages as read
-        $unreadMessages = $session->messages()
-            ->where('sender_type', '!=', $user->isAdmin() ? 'admin' : 'user')
-            ->where('is_read', false)
-            ->get();
+        // Mark the counterparty's messages as read. The previous filter read
+        // `sender_type != 'admin'` for a customer, which is true for customer
+        // messages — i.e. it marked the customer's *own* messages read and left
+        // the agent's unread.
+        $counterparty = $user->isAdmin()
+            ? ChatMessage::SENDER_USER
+            : ChatMessage::SENDER_ADMIN;
 
-        foreach ($unreadMessages as $message) {
-            $message->markAsRead();
-        }
+        $session->messages()
+            ->where('sender_type', $counterparty)
+            ->where('is_read', false)
+            ->update(['is_read' => true, 'read_at' => now()]);
 
         $messages = $session->messages()
-            ->with(['sender' => function($query) {
-                $query->select('id', 'name', 'email');
-            }])
-            ->orderBy('created_at', 'asc')
+            ->with(['sender:id,name,email'])
+            ->orderBy('created_at')
             ->get();
 
         return response()->json([
             'messages' => $messages,
             'session' => $session,
             'user' => $session->user,
-            'admin_assigned' => $session->admin_id ? true : false
+            'admin_assigned' => $session->admin_id !== null,
         ]);
     }
 
     public function sendMessage(Request $request)
 {
-    $request->validate([
+    $validated = $request->validate([
         'session_id' => 'required|exists:chat_sessions,id',
         'message' => 'required|string|max:1000'
     ]);
 
-    $user = Auth::User();
-    $session = ChatSession::findOrFail($request->session_id);
+    $user = Auth::user();
+    $session = ChatSession::findOrFail($validated['session_id']);
 
     // Verify user has access
-    if (!$user->isAdmin() && $session->user_id !== $user->id) {
+    if (! $user->isAdmin() && $session->user_id !== $user->id) {
         return response()->json(['error' => 'Unauthorized'], 403);
     }
 
-    // Create message with proper sender_type
+    // `sender_type` is the role label the schema documents and the value every
+    // unread query filters on. This previously wrote the class name
+    // 'App\Models\User' for both customers and agents, so no unread count,
+    // notification or read receipt ever matched.
+    $isAdmin = $user->isAdmin();
+
     $message = ChatMessage::create([
         'chat_session_id' => $session->id,
         'sender_id' => $user->id,
-        'sender_type' => 'App\Models\User', // Use full class path
-        'message' => $request->message,
-        'is_read' => $user->isAdmin() // Admin messages are read immediately
+        'sender_type' => $isAdmin ? ChatMessage::SENDER_ADMIN : ChatMessage::SENDER_USER,
+        'message' => $validated['message'],
+        // An agent's own message needs no acknowledgement from the agent.
+        'is_read' => $isAdmin,
     ]);
 
-    // Update session
     $session->update([
         'status' => 'active',
-        'last_message_at' => now()
+        'last_message_at' => now(),
+        // First agent to reply takes ownership of the conversation.
+        'admin_id' => $session->admin_id ?? ($isAdmin ? $user->id : null),
     ]);
 
     return response()->json([
         'success' => true,
-        'message' => $message->load('sender')
+        'message' => $message->load('sender'),
     ]);
 }
 
@@ -142,25 +152,24 @@ class ChatController extends Controller
 
     public function getAvailableAdmins()
     {
-        // Get online admins
-        $admins = User::where('role', 'admin')
+        // `role` is not a column on users — admins are identified by the
+        // is_admin / is_super_admin flags. The old query also leaked the
+        // admin's email address to any authenticated customer.
+        $admins = User::admins()
             ->where('is_online', true)
-            ->orWhere('last_activity', '>=', now()->subMinutes(5))
-            ->select('id', 'name', 'email', 'is_online', 'last_activity')
-            ->get();
+            ->where('last_activity', '>=', now()->subMinutes(5))
+            ->get(['id', 'name']);
 
         return response()->json(['admins' => $admins]);
     }
 
     private function getAvailableAdmin()
     {
-        // Simple round-robin admin assignment
-        return User::where('role', 'admin')
-            ->where(function($query) {
-                $query->where('is_online', true)
-                      ->orWhere('last_activity', '>=', now()->subMinutes(5));
-            })
-            ->orderBy('last_assigned_at', 'asc')
+        // Simple round-robin admin assignment.
+        return User::admins()
+            ->where('is_online', true)
+            ->where('last_activity', '>=', now()->subMinutes(5))
+            ->orderBy('last_assigned_at')
             ->first();
     }
 
@@ -214,13 +223,14 @@ class ChatController extends Controller
 
     public function getOnlineAdmins()
     {
-        $admins = User::where('role', 'admin')
-            ->where(function($query) {
-                $query->where('is_online', true)
-                      ->orWhere('last_activity', '>=', now()->subMinutes(5));
-            })
-            ->select('id', 'name', 'email', 'role as admin_role')
-            ->get();
+        $admins = User::admins()
+            ->where('is_online', true)
+            ->where('last_activity', '>=', now()->subMinutes(5))
+            ->get(['id', 'name'])
+            ->map(fn (User $admin) => [
+                'id' => $admin->id,
+                'name' => $admin->name,
+            ]);
 
         return response()->json(['admins' => $admins]);
     }
@@ -290,7 +300,7 @@ public function sendAdminMessage(Request $request)
     $message = ChatMessage::create([
         'chat_session_id' => $session->id,
         'sender_id' => $user->id,
-        'sender_type' => 'App\Models\User', // Use full class path
+        'sender_type' => ChatMessage::SENDER_ADMIN,
         'message' => $request->message,
         'is_read' => true // Admin messages are automatically read
     ]);

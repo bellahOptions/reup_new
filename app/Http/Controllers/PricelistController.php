@@ -2,7 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Transactions;
+use App\Services\BillPaymentService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -10,7 +13,11 @@ use Illuminate\Support\Facades\Log;
 class PricelistController extends Controller
 {
     private $profitMargin = 0.015; // 1.5% profit
-    
+
+    public function __construct(private readonly BillPaymentService $bills)
+    {
+    }
+
     // Network mapping based on the API response
     private $networkMapping = [
         '01' => 'MTN',
@@ -32,39 +39,48 @@ class PricelistController extends Controller
     private function fetchDataPlans()
     {
         try {
-            $userId = config('services.clubkonnect.user_id');
-            
-            // Fetch data plans from ClubKonnect API
+            // The config key is `client_id`; this previously read `user_id`,
+            // which does not exist, so every catalogue fetch went upstream
+            // unauthenticated and returned nothing.
+            $userId = config('services.clubkonnect.client_id');
+
+            if (empty($userId)) {
+                throw new \Exception('Airtime provider is not configured.');
+            }
+
+            // Fetch data plans from the upstream catalogue
             $response = Http::timeout(30)->get('https://www.nellobytesystems.com/APIDatabundlePlansV2.asp', [
                 'UserID' => $userId,
             ]);
-            
+
             if (!$response->successful()) {
-                throw new \Exception('Failed to fetch data plans from ClubKonnect');
+                throw new \Exception('Catalogue request failed with status ' . $response->status());
             }
-            
+
             $apiData = $response->json();
-            
-            // Log the raw response for debugging
-            Log::info('ClubKonnect Raw Response:', $apiData);
-            
+
             $processedPlans = $this->processPlans($apiData);
-            
-            return [
+
+            $payload = [
                 'data_plans' => $processedPlans,
                 'last_updated' => now()->toDateTimeString(),
                 'total_plans' => count($processedPlans),
             ];
-            
+
+            // Keep a fallback copy so a transient upstream outage does not
+            // empty the price list.
+            Cache::put('clubkonnect_data_plans_fallback', $payload, 86400);
+
+            return $payload;
+
         } catch (\Exception $e) {
-            Log::error('ClubKonnect data plans error: ' . $e->getMessage());
-            
-            // Return cached or empty data
+            Log::error('Data plan catalogue fetch failed: ' . $e->getMessage());
+
             return Cache::get('clubkonnect_data_plans_fallback', [
                 'data_plans' => [],
-                'last_updated' => now()->toDateTimeString(),
+                'last_updated' => null,
                 'total_plans' => 0,
-                'error' => 'Unable to fetch real-time data. Please try again later.',
+                'error' => 'Live rates are temporarily unavailable. Please try again shortly.',
             ]);
         }
     }
@@ -254,24 +270,188 @@ class PricelistController extends Controller
     public function refresh()
     {
         Cache::forget('clubkonnect_data_plans');
-        $data = $this->fetchDataPlans();
-        Cache::put('clubkonnect_data_plans', $data, 600);
-        
+        Cache::forget('clubkonnect.data_plans');
+
         return redirect()->route('pricelist')
-            ->with('success', 'Data plans refreshed successfully!');
+            ->with('success', 'Rates refreshed from the provider.');
     }
-    
+
     // Get plan details for purchase
     public function getPlan($planCode)
     {
-        $plans = Cache::get('clubkonnect_data_plans', ['data_plans' => []]);
-        
-        foreach ($plans['data_plans'] as $plan) {
-            if ($plan['plan_code'] == $planCode) {
-                return response()->json($plan);
+        $plan = $this->findPlan($planCode);
+
+        return $plan
+            ? response()->json($plan)
+            : response()->json(['error' => 'Plan not found'], 404);
+    }
+
+    /**
+     * Resolve a plan from the server-side catalogue by product code or id.
+     *
+     * This is the only authoritative price. A request must never be able to
+     * tell us what a plan costs — the pricelist markup previously carried
+     * `plan_price` from a data attribute and posted it back, so editing the
+     * page in devtools bought a ₦20,000 bundle for ₦1.
+     */
+    private function findPlan(string $planCode): ?array
+    {
+        $plans = Cache::remember('clubkonnect_data_plans', 600, fn () => $this->fetchDataPlans());
+
+        foreach ($plans['data_plans'] ?? [] as $plan) {
+            if ((string) ($plan['plan_code'] ?? '') === $planCode
+                || (string) ($plan['plan_id'] ?? '') === $planCode) {
+                return $plan;
             }
         }
-        
-        return response()->json(['error' => 'Plan not found'], 404);
+
+        return null;
+    }
+
+    /**
+     * Buy a data bundle from the pricelist.
+     *
+     * The plan and its price are resolved server-side, the wallet is debited
+     * through BillPaymentService, and the upstream call happens afterwards with
+     * a compensating refund on failure.
+     */
+    public function purchaseData(Request $request)
+    {
+        $validated = $request->validate([
+            'plan_code' => 'required|string|max:60',
+            'phone' => ['required', 'string', 'regex:/^0[7-9][0-9]{9}$/'],
+            'pin' => 'required|string|size:4',
+            'idempotency_key' => 'nullable|string|min:8|max:64',
+        ]);
+
+        $plan = $this->findPlan($validated['plan_code']);
+
+        if (! $plan) {
+            return back()->withInput()
+                ->with('error', 'That data plan is no longer available. Please refresh the pricelist and try again.');
+        }
+
+        $networkCode = (string) ($plan['network_code'] ?? '');
+        $amount = round((float) ($plan['your_price'] ?? 0), 2);
+
+        if ($amount <= 0 || $networkCode === '') {
+            return back()->withInput()
+                ->with('error', 'That data plan has no valid price. Please contact support.');
+        }
+
+        $user = Auth::user();
+
+        $result = $this->bills->purchase(
+            user: $user,
+            product: 'data',
+            amount: $amount,
+            fee: (float) Transactions::calculateServiceFee('data', $amount),
+            recipient: $validated['phone'],
+            providerLabel: $plan['network'] ?? $this->networkMapping[$networkCode] ?? 'Unknown',
+            description: 'Data — ' . ($plan['plan_name'] ?? $plan['plan_code']),
+            meta: [
+                'network_code' => $networkCode,
+                'plan_id' => $plan['plan_id'] ?? null,
+                'plan_code' => $plan['plan_code'] ?? null,
+                'plan_name' => $plan['plan_name'] ?? null,
+                'plan_type' => $plan['plan_type'] ?? null,
+                'phone_number' => $validated['phone'],
+                'source' => 'pricelist',
+            ],
+            dispatch: fn ($provider, Transactions $transaction) => $provider->purchase(
+                'data',
+                [
+                    'network' => $networkCode,
+                    'plan' => (string) ($plan['plan_id'] ?? $plan['plan_code']),
+                    'phone' => $validated['phone'],
+                ],
+                $transaction->reference,
+            ),
+            successMessage: ($plan['plan_name'] ?? 'Data bundle') . ' sent to ' . $validated['phone'] . '.',
+            pin: $validated['pin'],
+            idempotencyKey: $validated['idempotency_key'] ?? null,
+        );
+
+        if (! $result['ok']) {
+            return back()->withInput()->with('error', $result['message']);
+        }
+
+        $this->bills->sendReceipts($user, $result['transaction']);
+
+        return redirect()->route('transactions.success', $result['transaction']->reference)
+            ->with('success', $result['message']);
+    }
+
+    /**
+     * Status poll for a purchase initiated from the pricelist.
+     */
+    public function queryTransaction(string $orderId)
+    {
+        $transaction = Transactions::where('user_id', Auth::id())
+            ->whereReference($orderId)
+            ->first();
+
+        if (! $transaction) {
+            return response()->json(['success' => false, 'message' => 'Transaction not found.'], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'reference' => $transaction->reference,
+                'status' => $transaction->status,
+                'payment_status' => $transaction->payment_status,
+                'amount' => (float) $transaction->amount,
+                'description' => $transaction->description,
+                'provider_reference' => $transaction->api_reference,
+                'created_at' => $transaction->created_at?->toIso8601String(),
+                'completed_at' => $transaction->completed_at?->toIso8601String(),
+            ],
+        ]);
+    }
+
+    /**
+     * Upstream status callback for pricelist purchases.
+     *
+     * Authenticated by an HMAC of the raw body in `X-Reup-Signature`. Without
+     * verification this endpoint would let anyone mark any transaction
+     * successful.
+     */
+    public function callback(Request $request)
+    {
+        $secret = (string) config('services.clubkonnect.api_key');
+        $signature = (string) $request->header('X-Reup-Signature', '');
+
+        if ($secret === '' || $signature === '') {
+            abort(401, 'Missing signature.');
+        }
+
+        if (! hash_equals(hash_hmac('sha256', $request->getContent(), $secret), $signature)) {
+            Log::warning('Pricelist callback rejected: bad signature', ['ip' => $request->ip()]);
+            abort(401, 'Invalid signature.');
+        }
+
+        $reference = $request->input('reference') ?? $request->input('RequestID');
+
+        if (! $reference) {
+            return response()->json(['success' => false, 'message' => 'No reference supplied.'], 422);
+        }
+
+        $transaction = Transactions::whereReference($reference)->first();
+
+        if (! $transaction) {
+            Log::warning('Pricelist callback for unknown reference', ['reference' => $reference]);
+
+            return response()->json(['success' => false, 'message' => 'Unknown reference.'], 404);
+        }
+
+        Log::info('Pricelist callback received', [
+            'transaction_id' => $transaction->id,
+            'status' => $request->input('status'),
+        ]);
+
+        // Status is reconciled by a provider status query, not by an inbound
+        // callback asserting success — that would be a credit with no funds.
+        return response()->json(['success' => true]);
     }
 }

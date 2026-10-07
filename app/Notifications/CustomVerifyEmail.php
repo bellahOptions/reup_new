@@ -51,7 +51,12 @@ class CustomVerifyEmail extends Notification implements ShouldQueue
     {
         return (new MailMessage)
             ->subject('Verify Your Email Address - ReUp')
-            ->markdown('emails.auth.verify-email', [
+            // `view`, not `markdown`: this template is a full HTML document with
+            // inline styles and a table layout. Rendering it through the Markdown
+            // mailer wrapped it in Laravel's generic theme (doubling the payload
+            // and re-styling the card), which is exactly what the template was
+            // rewritten to avoid. Every other mailable in this app uses `view`.
+            ->view('emails.auth.verify-email', [
                 'user' => $notifiable,
                 'verificationUrl' => $this->verificationUrl,
                 'expireTime' => config('auth.verification.expire', 60)

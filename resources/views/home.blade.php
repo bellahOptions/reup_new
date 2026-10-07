@@ -1,543 +1,299 @@
 @extends('layouts.main')
-@section('title', 'Welcome')
+
+@section('title', 'Buy airtime, data and pay bills instantly')
+@section('meta_description', 'ReUp is a Nigerian bill-payment platform for airtime, data bundles, cable TV, electricity tokens and exam PINs — settled in seconds from one wallet.')
+
 @section('main')
-<!--hero--> 
-    <div class="relative min-h-screen overflow-hidden bg-gradient-to-br from-green-50 via-white to-emerald-50">
-    <!-- Background Decorative Elements -->
-    <div class="absolute inset-0 overflow-hidden pointer-events-none">
-        <!-- Gradient Orbs -->
-        <div class="absolute top-20 -left-20 w-72 h-72 bg-green-200/30 rounded-full blur-3xl animate-pulse"></div>
-        <div class="absolute bottom-20 -right-20 w-96 h-96 bg-emerald-200/30 rounded-full blur-3xl animate-pulse" style="animation-delay: 1s;"></div>
-        <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-green-100/20 rounded-full blur-3xl"></div>
-        
-        <!-- Floating Icons -->
-        <div class="absolute top-32 left-[10%] text-6xl animate-bounce" style="animation-duration: 3s;">📱</div>
-        <div class="absolute top-48 right-[15%] text-5xl animate-bounce" style="animation-duration: 4s; animation-delay: 0.5s;">💳</div>
-        <div class="absolute bottom-40 left-[15%] text-5xl animate-bounce" style="animation-duration: 3.5s; animation-delay: 1s;">⚡</div>
-        <div class="absolute bottom-32 right-[20%] text-6xl animate-bounce" style="animation-duration: 4s; animation-delay: 1.5s;">🚀</div>
-        <div class="absolute top-[60%] left-[8%] text-4xl animate-bounce" style="animation-duration: 3s; animation-delay: 2s;">💰</div>
-        <div class="absolute top-[40%] right-[10%] text-4xl animate-bounce" style="animation-duration: 3.5s; animation-delay: 0.8s;">📡</div>
-    </div>
+@php
+    $services = [
+        [
+            'title' => 'Airtime',
+            'copy' => 'Top up MTN, Glo, 9mobile and Airtel at discounted rates.',
+            'icon' => 'device-phone-mobile',
+            'route' => 'airtime-data.index',
+            'cta' => 'Buy airtime',
+        ],
+        [
+            'title' => 'Data bundles',
+            'copy' => 'SME, corporate and direct data plans with instant delivery.',
+            'icon' => 'signal',
+            'route' => 'airtime-data.index',
+            'cta' => 'Buy data',
+        ],
+        [
+            'title' => 'Cable TV',
+            'copy' => 'Renew DStv, GOtv and StarTimes subscriptions in one tap.',
+            'icon' => 'tv',
+            'route' => 'cable-tv.index',
+            'cta' => 'Subscribe',
+        ],
+        [
+            'title' => 'Electricity',
+            'copy' => 'Buy prepaid tokens or settle postpaid bills for every disco.',
+            'icon' => 'bolt',
+            'route' => 'electricity.index',
+            'cta' => 'Pay a bill',
+        ],
+        [
+            'title' => 'WAEC e-PIN',
+            'copy' => 'Verification and registration scratch cards, issued instantly.',
+            'icon' => 'document-check',
+            'route' => 'waec-pin.index',
+            'cta' => 'Get a PIN',
+        ],
+        [
+            'title' => 'JAMB e-PIN',
+            'copy' => 'UTME and Direct Entry PINs delivered to your dashboard.',
+            'icon' => 'academic-cap',
+            'route' => 'jamb-pin.index',
+            'cta' => 'Get a PIN',
+        ],
+    ];
 
-    <!-- Main Content -->
-    <div class="relative z-10 grid place-items-center min-h-screen py-20 px-4">
-        <!-- Hero Headlines -->
-        <div class="-space-y-4 text-center md:-space-y-6 mb-12">
-            <div class="transform hover:scale-105 transition-transform duration-300">
-                <h1 class="text-center hover:rotate-1 bg-gradient-to-r from-green-200 to-green-300 p-6 md:p-10 border-2 border-green-400/30 shadow-lg hover:shadow-xl transition-shadow duration-300 w-auto inline-block rounded-2xl rotate-2 text-gray-800 text-3xl md:text-5xl lg:text-6xl font-bold">
-                    💸 Pay Bills Fast.
+    $steps = [
+        ['Create an account', 'Sign up with your email in under a minute. No paperwork.', 'user-plus'],
+        ['Fund your wallet', 'Pay by card or direct bank transfer. Funds land instantly.', 'credit-card'],
+        ['Pay for anything', 'Buy airtime, data, TV, power or PINs from a single balance.', 'bolt'],
+    ];
+@endphp
+
+{{-- ============================ Hero ============================ --}}
+<section class="border-b border-border">
+    <div class="container-page py-20 sm:py-28 lg:py-32">
+        <div class="grid items-center gap-14 lg:grid-cols-12 lg:gap-16">
+
+            <div class="lg:col-span-6">
+
+                <h1 class="mt-4 text-4xl font-semibold leading-[1.08] tracking-tight text-ink-950 sm:text-5xl lg:text-6xl">
+                    One wallet for every bill you pay.
                 </h1>
-            </div>
-            
-            <div class="transform hover:scale-105 transition-transform duration-300">
-                <h1 class="text-center hover:-rotate-2 bg-gradient-to-r from-green-300 to-green-400 p-6 md:p-10 border-2 border-green-500/30 shadow-lg hover:shadow-xl transition-shadow duration-300 w-auto inline-block rounded-2xl -rotate-2 font-bold text-gray-800 text-4xl md:text-6xl lg:text-7xl">
-                    ⚡ Recharge Instantly
-                </h1>
-            </div>
-            
-            <div class="transform hover:scale-105 transition-transform duration-300">
-                <h1 class="text-center hover:rotate-1 bg-gradient-to-r from-green-400 to-green-500 p-6 md:p-10 border-2 border-green-600/30 shadow-lg hover:shadow-xl transition-shadow duration-300 w-auto inline-block rounded-2xl rotate-2 text-white text-3xl md:text-5xl lg:text-6xl font-bold">
-                    📱 Stay Connected.
-                </h1>
-            </div>
-        </div>
 
-        <!-- Description -->
-        <div class="max-w-3xl mx-auto">
-            <p class="text-center text-gray-700 px-6 md:px-10 py-6 text-lg md:text-2xl leading-relaxed">
-                Buy airtime, data, and pay bills instantly with <span class="font-bold text-green-600">ReUp</span>. 
-                Fast, secure, and stress-free — anytime, anywhere. 🌍✨
-            </p>
-        </div>
+                <p class="mt-6 max-w-xl text-lg leading-relaxed text-muted-foreground">
+                    Airtime, data, cable TV, electricity and exam PINs — settled in seconds
+                    at rates that stay transparent. No queues, no hidden charges, no waiting.
+                </p>
 
-        <!-- CTA Buttons -->
-        <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8 px-4">
-            <a href="{{route('register')}}" 
-               class="inline-flex items-center justify-center bg-green-500 hover:bg-green-600 text-white font-semibold px-8 py-4 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300 text-base md:text-lg w-full sm:w-auto">
-                🚀 Get Started
-            </a>
-            <a href="{{route('login')}}" 
-               class="inline-flex items-center justify-center ring-2 ring-green-500 hover:bg-green-50 text-gray-700 hover:text-green-600 font-semibold px-8 py-4 rounded-full shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-300 text-base md:text-lg w-full sm:w-auto">
-                🔐 Login
-            </a>
-        </div>
-    </div>
-
-    <!-- Trust Badges Section -->
-        <div id="trust-badges" class="w-full max-w-4xl mx-auto px-4 mb-16">
-            <p class="text-center text-sm md:text-base text-gray-500 font-medium mb-6 uppercase tracking-wide">
-                Trusted & Verified by
-            </p>
-            <div class="flex flex-wrap items-center justify-center gap-8 md:gap-12 lg:gap-16">        
-                <div class="grayscale hover:grayscale-0 opacity-50 hover:opacity-100 transition-all duration-300 transform hover:scale-110 cursor-pointer">
-                    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/0/0b/Paystack_Logo.png/1200px-Paystack_Logo.png" 
-                         alt="Paystack Verified" 
-                         class="h-8 md:h-10 object-contain">
-                </div>
-                <div class="grayscale hover:grayscale-0 opacity-50 hover:opacity-100 transition-all duration-300 transform hover:scale-110 cursor-pointer">
-                    <img src="https://upload.wikimedia.org/wikipedia/commons/9/9e/Flutterwave_Logo.png" 
-                         alt="Flutterwave Verified" 
-                         class="h-8 md:h-10 object-contain">
-                </div>
-                <div class="grayscale hover:grayscale-0 opacity-50 hover:opacity-100 transition-all duration-300 transform hover:scale-110 cursor-pointer">
-                    <img src="https://swiftbills.ng/wp-content/uploads/2023/06/image-1.png" 
-                         alt="Monnify Verified" 
-                         class="h-8 md:h-10 object-contain">
-                </div>
-            </div>
-        </div>
-  <!-- Marquee Announcements -->
-            <div class="bg-gradient-to-r from-green-100 to-emerald-100 border border-green-200 rounded-2xl py-3 px-4 mb-8 overflow-hidden">
-                <div class="flex items-center">
-                    <span class="text-green-600 font-bold mr-3 flex-shrink-0">📢 Announcements:</span>
-                    <div class="marquee-container overflow-hidden flex-1">
-                        @include('layouts.marquee')
-                    </div>
-                </div>
-            </div>
-        <!-- Services Section -->
-<section class="relative py-16 md:py-24 bg-gray-50 overflow-hidden">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <!-- Section Header -->
-        <div class="text-center mb-12 md:mb-16">
-            <h2 class="text-3xl md:text-5xl font-bold text-gray-900 mb-4">
-                Electronic Top Up
-            </h2>
-            <p class="text-base md:text-xl text-gray-600">
-                Electronic vending of data and airtime and so much more
-            </p>
-        </div>
-
-        <!-- Services Grid -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
-            <!-- Buy Data Bundle -->
-            <div class="group bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden transform hover:-translate-y-2">
-                <div class="relative h-56 overflow-hidden">
-                    <img src="https://www.nairaland.com/attachments/8246111_opeyemmithdataconnect20181201172649_jpeg426cac20996fa907c16f82fee9242444" 
-                         alt="Data Bundle" 
-                         class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500">
-                    <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-                    <div class="absolute bottom-4 left-4 right-4">
-                        <span class="inline-block px-3 py-1 bg-red-500 text-white text-sm font-semibold rounded-full">
-                            📊 Data Plans
-                        </span>
-                    </div>
-                </div>
-                <div class="p-6">
-                    <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">Buy Data Bundle</h3>
-                    <p class="text-sm md:text-base text-gray-600 mb-4 leading-relaxed">
-                        Start enjoying this very low rates for your internet browsing databundle.
-                    </p>
-                    <a href="#" class="inline-flex items-center text-blue-600 hover:text-blue-700 font-semibold text-sm md:text-base group-hover:translate-x-1 transition-transform duration-300">
-                        Buy Now
-                        <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                        </svg>
+                <div class="mt-9 flex flex-col gap-3 sm:flex-row">
+                    <a href="{{ route('register') }}" class="btn btn-primary btn-lg">
+                        Create a free account
+                        <x-icon name="arrow-right" class="h-4 w-4" />
+                    </a>
+                    <a href="{{ route('login') }}" class="btn btn-outline btn-lg">
+                        Sign in
                     </a>
                 </div>
+
+                <dl class="mt-12 grid max-w-lg grid-cols-3 gap-6 border-t border-border pt-8">
+                    <div>
+                        <dt class="text-xs text-muted-foreground">Settlement</dt>
+                        <dd class="mt-1 text-lg font-semibold">Instant</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs text-muted-foreground">Availability</dt>
+                        <dd class="mt-1 text-lg font-semibold">24 / 7</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs text-muted-foreground">Support</dt>
+                        <dd class="mt-1 text-lg font-semibold">In-app</dd>
+                    </div>
+                </dl>
             </div>
 
-            <!-- Buy Airtime -->
-            <div class="group bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden transform hover:-translate-y-2">
-                <div class="relative h-56 overflow-hidden">
-                    <img src="https://www.nairaland.com/attachments/8246111_opeyemmithdataconnect20181201172649_jpeg426cac20996fa907c16f82fee9242444" 
-                         alt="Buy Airtime" 
-                         class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500">
-                    <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-                    <div class="absolute bottom-4 left-4 right-4">
-                        <span class="inline-block px-3 py-1 bg-blue-500 text-white text-sm font-semibold rounded-full">
-                            📱 Instant Top-up
-                        </span>
-                    </div>
-                </div>
-                <div class="p-6">
-                    <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">Buy Airtime</h3>
-                    <p class="text-sm md:text-base text-gray-600 mb-4 leading-relaxed">
-                        Enjoy huge discount when you purchase airtime.
-                    </p>
-                    <a href="#" class="inline-flex items-center text-blue-600 hover:text-blue-700 font-semibold text-sm md:text-base group-hover:translate-x-1 transition-transform duration-300">
-                        Buy Now
-                        <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                        </svg>
-                    </a>
-                </div>
-            </div>
+            {{-- Product surface: a quiet mock of the dashboard wallet card --}}
+            <div class="lg:col-span-6">
+                <div class="relative mx-auto max-w-md">
+                    <div class="card overflow-hidden shadow-overlay">
+                        <div class="bg-ink-950 px-6 py-7">
+                            <div class="flex items-center justify-between">
+                                <p class="text-xs font-medium uppercase tracking-[0.14em] text-ink-400">Wallet balance</p>
+                                <x-icon name="wallet" class="h-5 w-5 text-brand-400" />
+                            </div>
+                            <p class="mt-3 text-3xl font-semibold tracking-tight text-white tabular-nums">
+                                &#8358;48,250.00
+                            </p>
+                            <div class="mt-6 flex gap-2">
+                                <span class="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-ink-200">
+                                    <x-icon name="plus" class="h-3.5 w-3.5" /> Fund wallet
+                                </span>
+                                <span class="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-ink-200">
+                                    <x-icon name="arrow-up-right" class="h-3.5 w-3.5" /> Send
+                                </span>
+                            </div>
+                        </div>
 
-            <!-- CableTV Subscription -->
-            <div class="group bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden transform hover:-translate-y-2">
-                <div class="relative h-56 overflow-hidden">
-                    <img src="https://www.rizpay.app/_next/image?url=%2Fimages%2Fblogs%2Fnigeria-cable-tvs.jpg&w=3840&q=75" 
-                         alt="Cable TV" 
-                         class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500">
-                    <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-                    <div class="absolute bottom-4 left-4 right-4">
-                        <span class="inline-block px-3 py-1 bg-purple-500 text-white text-sm font-semibold rounded-full">
-                            📺 TV Subscriptions
-                        </span>
+                        <ul class="divide-y divide-border">
+                            @foreach([
+                                ['Airtime — MTN', '0803 ••• 4471', '− ₦2,000.00', 'bolt'],
+                                ['Data — 10GB SME', '0806 ••• 1180', '− ₦3,400.00', 'signal'],
+                                ['Wallet funding', 'Card • 4242', '+ ₦20,000.00', 'credit-card'],
+                            ] as [$title, $meta, $amount, $icon])
+                                <li class="flex items-center gap-3 px-5 py-3.5">
+                                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ink-100 text-ink-600">
+                                        <x-icon :name="$icon" class="h-4 w-4" />
+                                    </span>
+                                    <div class="min-w-0 flex-1">
+                                        <p class="truncate text-sm font-medium">{{ $title }}</p>
+                                        <p class="truncate text-xs text-muted-foreground">{{ $meta }}</p>
+                                    </div>
+                                    <span class="shrink-0 text-sm font-medium tabular-nums {{ str_starts_with($amount, '+') ? 'text-green-600' : 'text-ink-700' }}">
+                                        {{ $amount }}
+                                    </span>
+                                </li>
+                            @endforeach
+                        </ul>
                     </div>
-                </div>
-                <div class="p-6">
-                    <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">CableTV Subscription</h3>
-                    <p class="text-sm md:text-base text-gray-600 mb-4 leading-relaxed">
-                        Instant recharge of DStv, GOtv and Startimes e.t.c.
-                    </p>
-                    <a href="#" class="inline-flex items-center text-blue-600 hover:text-blue-700 font-semibold text-sm md:text-base group-hover:translate-x-1 transition-transform duration-300">
-                        Pay Now
-                        <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                        </svg>
-                    </a>
-                </div>
-            </div>
 
-            <!-- Pay Electricity Bill -->
-            <div class="group bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden transform hover:-translate-y-2">
-                <div class="relative h-56 overflow-hidden">
-                    <img src="https://global.ariseplay.com/amg/www.arise.tv/uploads/2023/06/Electricity-Distribution-Companies-DisCos.webp" 
-                         alt="Electricity Bill" 
-                         class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500">
-                    <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-                    <div class="absolute bottom-4 left-4 right-4">
-                        <span class="inline-block px-3 py-1 bg-yellow-500 text-white text-sm font-semibold rounded-full">
-                            💡 Power Bills
-                        </span>
+                    <div class="pointer-events-none absolute -bottom-5 -right-5 hidden rounded-xl border border-border bg-white px-4 py-3 shadow-card sm:block">
+                        <div class="flex items-center gap-2">
+                            <x-icon name="shield-check" variant="solid" class="h-5 w-5 text-brand-500" />
+                            <div>
+                                <p class="text-xs font-semibold">Encrypted</p>
+                                <p class="text-[11px] text-muted-foreground">PCI-DSS gateway</p>
+                            </div>
+                        </div>
                     </div>
-                </div>
-                <div class="p-6">
-                    <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">Pay Electricity Bill</h3>
-                    <p class="text-sm md:text-base text-gray-600 mb-4 leading-relaxed">
-                        Pay you electricity bill online e.g. EKEDC, IKEDC, AEDC, PHEDC e.t.c.
-                    </p>
-                    <a href="#" class="inline-flex items-center text-blue-600 hover:text-blue-700 font-semibold text-sm md:text-base group-hover:translate-x-1 transition-transform duration-300">
-                        Pay Now
-                        <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                        </svg>
-                    </a>
-                </div>
-            </div>
-
-            <!-- Buy WAEC e-pin -->
-            <div class="group bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden transform hover:-translate-y-2">
-                <div class="relative h-56 overflow-hidden">
-                    <img src="https://edupast.com.ng/wp-content/uploads/2024/03/waec.jpg" 
-                         alt="WAEC Exam" 
-                         class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500">
-                    <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-                    <div class="absolute bottom-4 left-4 right-4">
-                        <span class="inline-block px-3 py-1 bg-orange-500 text-white text-sm font-semibold rounded-full">
-                            📝 WAEC E-PIN
-                        </span>
-                    </div>
-                </div>
-                <div class="p-6">
-                    <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">Buy WAEC e-pin</h3>
-                    <p class="text-sm md:text-base text-gray-600 mb-4 leading-relaxed">
-                        Buy WAEC e-pin for Verification & Registration
-                    </p>
-                    <a href="#" class="inline-flex items-center text-blue-600 hover:text-blue-700 font-semibold text-sm md:text-base group-hover:translate-x-1 transition-transform duration-300">
-                        Print Now
-                        <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                        </svg>
-                    </a>
-                </div>
-            </div>
-
-            <!-- Buy JAMB e-pin -->
-            <div class="group bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden transform hover:-translate-y-2">
-                <div class="relative h-56 overflow-hidden">
-                    <img src="https://cdn.businessday.ng/wp-content/uploads/2025/05/JAMB-invites-Alex-Onyia-to-2025-UTME-review-panel.png" 
-                         alt="JAMB Exam" 
-                         class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500">
-                    <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-                    <div class="absolute bottom-4 left-4 right-4">
-                        <span class="inline-block px-3 py-1 bg-green-500 text-white text-sm font-semibold rounded-full">
-                            🎓 JAMB E-PIN
-                        </span>
-                    </div>
-                </div>
-                <div class="p-6">
-                    <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">Buy JAMB e-pin</h3>
-                    <p class="text-sm md:text-base text-gray-600 mb-4 leading-relaxed">
-                        Buy JAMB e-pin for UTME & Direct Entry (DE)
-                    </p>
-                    <a href="#" class="inline-flex items-center text-blue-600 hover:text-blue-700 font-semibold text-sm md:text-base group-hover:translate-x-1 transition-transform duration-300">
-                        Print Now
-                        <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                        </svg>
-                    </a>
                 </div>
             </div>
         </div>
     </div>
 </section>
 
-    <!-- Metrics Section -->
-    <div class="relative z-10 max-w-6xl mx-auto px-4 pb-20">
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
-            <!-- Metric 1 -->
-            <div class="bg-white/80 backdrop-blur-sm rounded-2xl p-8 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300 border border-green-100">
-                <div class="text-5xl mb-4 text-center">👥</div>
-                <div class="text-4xl font-bold text-green-600 text-center mb-2">50K+</div>
-                <div class="text-gray-600 text-center font-medium">Happy Users</div>
-            </div>
-
-            <!-- Metric 2 -->
-            <div class="bg-white/80 backdrop-blur-sm rounded-2xl p-8 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300 border border-green-100">
-                <div class="text-5xl mb-4 text-center">💳</div>
-                <div class="text-4xl font-bold text-green-600 text-center mb-2">₦1M+</div>
-                <div class="text-gray-600 text-center font-medium">Transactions</div>
-            </div>
-
-            <!-- Metric 3 -->
-            <div class="bg-white/80 backdrop-blur-sm rounded-2xl p-8 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300 border border-green-100">
-                <div class="text-5xl mb-4 text-center">⚡</div>
-                <div class="text-4xl font-bold text-green-600 text-center mb-2">99.9%</div>
-                <div class="text-gray-600 text-center font-medium">Uptime</div>
+{{-- ============================ Announcements ============================ --}}
+@if(isset($announcements) && $announcements->count() > 0)
+    <section class="border-b border-border bg-surface">
+        <div class="container-page flex items-center gap-4 py-4">
+            <span class="flex shrink-0 items-center gap-2 text-sm font-semibold text-brand-700">
+                <x-icon name="megaphone" class="h-4 w-4" />
+                Announcements
+            </span>
+            <div class="marquee-container min-w-0 flex-1 overflow-hidden">
+                <x-marquee :items="$announcements" :speed="38" compact />
             </div>
         </div>
-    </div>
-</div>
+    </section>
+@endif
 
-<!-- Why ReUp Section -->
-<section class="relative py-16 md:py-24 bg-white overflow-hidden">
-    <div class="absolute inset-0 bg-gradient-to-b from-green-50/30 to-transparent pointer-events-none"></div>
-    
-    <div class="relative z-10 max-w-6xl mx-auto px-4">
-        <div class="text-center mb-12 md:mb-16">
-            <h2 class="text-3xl md:text-5xl lg:text-6xl font-bold text-gray-900 mb-4">
-                Why <span class="text-green-600">ReUp</span>?
+{{-- ============================ Services ============================ --}}
+<section id="services" class="border-b border-border">
+    <div class="container-page py-20 sm:py-24">
+        <div class="max-w-2xl">
+            <h2 class="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
+                Everything on one balance
             </h2>
-            <p class="text-xl md:text-3xl text-gray-600 font-semibold">
-                Fast. Simple. Reliable.
+            <p class="mt-4 text-lg text-muted-foreground">
+                Fund once, then spend across every service. Each purchase settles against
+                your wallet and appears in your history immediately.
             </p>
         </div>
 
-        <div class="max-w-3xl mx-auto text-center">
-            <p class="text-lg md:text-2xl text-gray-700 leading-relaxed">
-                No long processes. No stress. Just instant bill payments and wallet funding — whenever you need it. ⚡
-            </p>
+        <div class="mt-14 grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
+            @foreach($services as $service)
+                <a href="{{ route($service['route']) }}"
+                   class="group flex flex-col bg-white p-6 transition-colors hover:bg-surface sm:p-7">
+                    <span class="flex h-10 w-10 items-center justify-center rounded-lg bg-accent text-brand-600 transition-colors group-hover:bg-brand-100">
+                        <x-icon :name="$service['icon']" class="h-5 w-5" />
+                    </span>
+
+                    <h3 class="mt-5 text-base font-semibold">{{ $service['title'] }}</h3>
+                    <p class="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground">{{ $service['copy'] }}</p>
+
+                    <span class="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-brand-700">
+                        {{ $service['cta'] }}
+                        <x-icon name="arrow-right" class="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                    </span>
+                </a>
+            @endforeach
         </div>
     </div>
 </section>
 
-<!-- What You Can Do Section -->
-<section class="relative py-16 md:py-24 bg-gradient-to-br from-green-50 to-emerald-50 overflow-hidden">
-    <div class="absolute top-10 right-10 w-64 h-64 bg-green-200/20 rounded-full blur-3xl pointer-events-none"></div>
-    <div class="absolute bottom-10 left-10 w-80 h-80 bg-emerald-200/20 rounded-full blur-3xl pointer-events-none"></div>
-    
-    <div class="relative z-10 max-w-6xl mx-auto px-4">
-        <div class="text-center mb-12 md:mb-16">
-            <h2 class="text-3xl md:text-5xl font-bold text-gray-900 mb-4">
-                What You Can Do
+{{-- ============================ How it works ============================ --}}
+<section class="border-b border-border bg-surface">
+    <div class="container-page py-20 sm:py-24">
+        <div class="max-w-2xl">
+            <h2 class="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
+                Three steps, start to finish
             </h2>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
-            <!-- Feature 1 -->
-            <div class="group bg-white/90 backdrop-blur-sm rounded-2xl p-6 md:p-8 shadow-md hover:shadow-xl transform hover:-translate-y-2 transition-all duration-300 border border-green-100/60">
-                <div class="text-5xl mb-4 group-hover:scale-110 transition-transform duration-300">📱</div>
-                <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-2">Buy Airtime instantly</h3>
-                <p class="text-gray-600">Top up your phone in seconds across all networks</p>
+        <ol class="mt-14 grid gap-10 sm:grid-cols-3 sm:gap-8">
+            @foreach($steps as $index => [$title, $copy, $icon])
+                <li class="relative">
+                    <div class="flex items-center gap-4">
+                        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-border bg-white text-brand-600">
+                            <x-icon :name="$icon" class="h-5 w-5" />
+                        </span>
+                        <span class="font-mono text-xs text-ink-400">0{{ $index + 1 }}</span>
+                    </div>
+                    <h3 class="mt-5 text-base font-semibold">{{ $title }}</h3>
+                    <p class="mt-2 text-sm leading-relaxed text-muted-foreground">{{ $copy }}</p>
+                </li>
+            @endforeach
+        </ol>
+    </div>
+</section>
+
+{{-- ============================ Why ReUp ============================ --}}
+<section class="border-b border-border">
+    <div class="container-page py-20 sm:py-24">
+        <div class="grid gap-14 lg:grid-cols-12 lg:gap-16">
+            <div class="lg:col-span-5">
+                <h2 class="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
+                    Built to be boringly reliable
+                </h2>
+                <p class="mt-4 text-lg text-muted-foreground">
+                    Payments should not be exciting. They should just work — at 2am on a
+                    Sunday, on a slow connection, the first time.
+                </p>
             </div>
 
-            <!-- Feature 2 -->
-            <div class="group bg-white/90 backdrop-blur-sm rounded-2xl p-6 md:p-8 shadow-md hover:shadow-xl transform hover:-translate-y-2 transition-all duration-300 border border-green-100/60">
-                <div class="text-5xl mb-4 group-hover:scale-110 transition-transform duration-300">📶</div>
-                <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-2">Purchase Data on all networks</h3>
-                <p class="text-gray-600">Stay connected with affordable data bundles</p>
-            </div>
-
-            <!-- Feature 3 -->
-            <div class="group bg-white/90 backdrop-blur-sm rounded-2xl p-6 md:p-8 shadow-md hover:shadow-xl transform hover:-translate-y-2 transition-all duration-300 border border-green-100/60">
-                <div class="text-5xl mb-4 group-hover:scale-110 transition-transform duration-300">💡</div>
-                <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-2">Pay Electricity bills easily</h3>
-                <p class="text-gray-600">Never worry about power bills again</p>
-            </div>
-
-            <!-- Feature 4 -->
-            <div class="group bg-white/90 backdrop-blur-sm rounded-2xl p-6 md:p-8 shadow-md hover:shadow-xl transform hover:-translate-y-2 transition-all duration-300 border border-green-100/60">
-                <div class="text-5xl mb-4 group-hover:scale-110 transition-transform duration-300">📺</div>
-                <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-2">Renew Cable TV subscriptions</h3>
-                <p class="text-gray-600">DSTV, GOtv, Startimes - all in one place</p>
-            </div>
-
-            <!-- Feature 5 -->
-            <div class="group bg-white/90 backdrop-blur-sm rounded-2xl p-6 md:p-8 shadow-md hover:shadow-xl transform hover:-translate-y-2 transition-all duration-300 border border-green-100/60">
-                <div class="text-5xl mb-4 group-hover:scale-110 transition-transform duration-300">🔒</div>
-                <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-2">Fund your wallet securely</h3>
-                <p class="text-gray-600">Safe, encrypted transactions you can trust</p>
-            </div>
-
-            <!-- Feature 6 - Empty for symmetry or add more -->
-            <div class="hidden lg:flex items-center justify-center bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl p-6 md:p-8 shadow-lg">
-                <div class="text-center text-white">
-                    <div class="text-5xl mb-3">✨</div>
-                    <p class="text-xl font-bold">And much more coming soon!</p>
-                </div>
+            <div class="lg:col-span-7">
+                <dl class="grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-2">
+                    @foreach([
+                        ['Secure by default', 'Every session is encrypted and every payment verified against the gateway before your wallet moves.', 'lock-closed'],
+                        ['Clear pricing', 'What you see on the pricelist is what gets charged. Fees are itemised on every receipt.', 'receipt-percent'],
+                        ['Full history', 'Every kobo in and out, searchable and exportable from your dashboard.', 'queue-list'],
+                        ['Human support', 'Live chat with a real agent, plus email for anything that needs a paper trail.', 'lifebuoy'],
+                    ] as [$title, $copy, $icon])
+                        <div class="bg-white p-6">
+                            <x-icon :name="$icon" class="h-5 w-5 text-brand-600" />
+                            <dt class="mt-4 text-base font-semibold">{{ $title }}</dt>
+                            <dd class="mt-2 text-sm leading-relaxed text-muted-foreground">{{ $copy }}</dd>
+                        </div>
+                    @endforeach
+                </dl>
             </div>
         </div>
     </div>
 </section>
 
-<!-- How It Works Section -->
-<section class="relative py-16 md:py-24 bg-white overflow-hidden">
-    <div class="max-w-6xl mx-auto px-4">
-        <div class="text-center mb-12 md:mb-16">
-            <h2 class="text-3xl md:text-5xl font-bold text-gray-900 mb-4">
-                How It Works
+{{-- ============================ Final CTA ============================ --}}
+<section class="bg-ink-950">
+    <div class="container-page py-20 sm:py-24">
+        <div class="mx-auto max-w-2xl text-center">
+            <h2 class="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+                Open a wallet in a minute
             </h2>
-        </div>
+            <p class="mt-4 text-lg leading-relaxed text-ink-400">
+                No credit checks, no minimum balance and no monthly fee. Fund what you
+                need, when you need it.
+            </p>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-12 mb-12">
-            <!-- Step 1 -->
-            <div class="text-center group">
-                <div class="relative inline-flex items-center justify-center w-20 h-20 md:w-24 md:h-24 bg-gradient-to-br from-green-400 to-green-600 rounded-full shadow-lg mb-6 group-hover:scale-110 transition-transform duration-300">
-                    <span class="text-3xl md:text-4xl font-bold text-white">1</span>
-                </div>
-                <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">Create an account in seconds</h3>
-                <p class="text-gray-600 text-base md:text-lg">Quick signup with just your phone number and email</p>
+            <div class="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
+                <a href="{{ route('register') }}" class="btn btn-primary btn-lg">
+                    Create a free account
+                    <x-icon name="arrow-right" class="h-4 w-4" />
+                </a>
+                <a href="{{ route('contact') }}"
+                   class="btn btn-lg border border-ink-700 bg-transparent text-white hover:bg-white/5">
+                    Talk to us
+                </a>
             </div>
 
-            <!-- Step 2 -->
-            <div class="text-center group">
-                <div class="relative inline-flex items-center justify-center w-20 h-20 md:w-24 md:h-24 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full shadow-lg mb-6 group-hover:scale-110 transition-transform duration-300">
-                    <span class="text-3xl md:text-4xl font-bold text-white">2</span>
-                </div>
-                <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">Fund your wallet</h3>
-                <p class="text-gray-600 text-base md:text-lg">Multiple secure payment options available</p>
-            </div>
-
-            <!-- Step 3 -->
-            <div class="text-center group">
-                <div class="relative inline-flex items-center justify-center w-20 h-20 md:w-24 md:h-24 bg-gradient-to-br from-emerald-500 to-green-700 rounded-full shadow-lg mb-6 group-hover:scale-110 transition-transform duration-300">
-                    <span class="text-3xl md:text-4xl font-bold text-white">3</span>
-                </div>
-                <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">Pay bills instantly</h3>
-                <p class="text-gray-600 text-base md:text-lg">Enjoy lightning-fast transactions 24/7</p>
-            </div>
-        </div>
-
-        <div class="text-center">
-            <p class="text-lg md:text-2xl text-gray-700 font-semibold">
-                No delays. No hidden steps. 🎯
+            <p class="mt-6 text-xs text-ink-500">
+                Already registered? <a href="{{ route('login') }}" class="font-medium text-ink-300 underline underline-offset-4 hover:text-white">Sign in</a>
             </p>
         </div>
     </div>
 </section>
-
-<!-- Built for Everyday Nigerians Section -->
-<section class="relative py-16 md:py-24 bg-gradient-to-br from-gray-50 to-green-50 overflow-hidden">
-    <div class="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiMyMmM1NWUiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTM2IDE2YzAtMi4yMSAxLjc5LTQgNC00czQgMS43OSA0IDQtMS43OSA0LTQgNC00LTEuNzktNC00em0wIDI0YzAtMi4yMSAxLjc5LTQgNC00czQgMS43OSA0IDQtMS43OSA0LTQgNC00LTEuNzktNC00ek0xMiAxNmMwLTIuMjEgMS43OS00IDQtNHM0IDEuNzkgNCA0LTEuNzkgNC00IDQtNC0xLjc5LTQtNHptMCAyNGMwLTIuMjEgMS43OS00IDQtNHM0IDEuNzkgNCA0LTEuNzkgNC00IDQtNC0xLjc5LTQtNHoiLz48L2c+PC9nPjwvc3ZnPg==')] opacity-40 pointer-events-none"></div>
-    
-    <div class="relative z-10 max-w-6xl mx-auto px-4">
-        <div class="text-center mb-12 md:mb-16">
-            <h2 class="text-3xl md:text-5xl font-bold text-gray-900 mb-4">
-                Built for Everyday Nigerians 🇳🇬
-            </h2>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 max-w-4xl mx-auto">
-            <!-- Benefit 1 -->
-            <div class="flex items-start space-x-4 p-6 bg-white/80 backdrop-blur-sm rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300">
-                <div class="flex-shrink-0">
-                    <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                        <span class="text-2xl">📱</span>
-                    </div>
-                </div>
-                <div>
-                    <h3 class="text-lg md:text-xl font-bold text-gray-900 mb-1">Mobile-first experience</h3>
-                    <p class="text-gray-600">Optimized for your smartphone, anywhere you go</p>
-                </div>
-            </div>
-
-            <!-- Benefit 2 -->
-            <div class="flex items-start space-x-4 p-6 bg-white/80 backdrop-blur-sm rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300">
-                <div class="flex-shrink-0">
-                    <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                        <span class="text-2xl">🔐</span>
-                    </div>
-                </div>
-                <div>
-                    <h3 class="text-lg md:text-xl font-bold text-gray-900 mb-1">Secure transactions</h3>
-                    <p class="text-gray-600">Bank-level security protecting every payment</p>
-                </div>
-            </div>
-
-            <!-- Benefit 3 -->
-            <div class="flex items-start space-x-4 p-6 bg-white/80 backdrop-blur-sm rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300">
-                <div class="flex-shrink-0">
-                    <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                        <span class="text-2xl">📊</span>
-                    </div>
-                </div>
-                <div>
-                    <h3 class="text-lg md:text-xl font-bold text-gray-900 mb-1">Clear transaction history</h3>
-                    <p class="text-gray-600">Track every naira spent with detailed records</p>
-                </div>
-            </div>
-
-            <!-- Benefit 4 -->
-            <div class="flex items-start space-x-4 p-6 bg-white/80 backdrop-blur-sm rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300">
-                <div class="flex-shrink-0">
-                    <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                        <span class="text-2xl">⚡</span>
-                    </div>
-                </div>
-                <div>
-                    <h3 class="text-lg md:text-xl font-bold text-gray-900 mb-1">Reliable service, every time</h3>
-                    <p class="text-gray-600">99.9% uptime ensures you're never stuck</p>
-                </div>
-            </div>
-        </div>
-    </div>
-</section>
-
-<!-- Final CTA Section -->
-<section class="relative py-20 md:py-28 bg-gradient-to-br from-green-600 to-green-800 overflow-hidden">
-    <!-- Decorative elements -->
-    <div class="absolute inset-0 overflow-hidden pointer-events-none">
-        <div class="absolute top-0 left-0 w-96 h-96 bg-white/10 rounded-full blur-3xl"></div>
-        <div class="absolute bottom-0 right-0 w-[500px] h-[500px] bg-white/10 rounded-full blur-3xl"></div>
-    </div>
-
-    <div class="relative z-10 max-w-4xl mx-auto px-4 text-center">
-        <h2 class="text-3xl md:text-5xl lg:text-6xl font-bold text-white mb-6">
-            Get started today. 🚀
-        </h2>
-        <p class="text-lg md:text-2xl text-green-50 mb-10 md:mb-12 max-w-2xl mx-auto">
-            Join thousands of users paying bills faster with <span class="font-bold">ReUp</span>.
-        </p>
-
-        <div class="flex flex-col sm:flex-row items-center justify-center gap-4 md:gap-6">
-            <a href="{{ route('register') }}" 
-               class="group relative inline-flex items-center justify-center bg-white text-green-600 hover:text-green-700 font-bold px-10 py-4 md:px-12 md:py-5 rounded-full shadow-xl hover:shadow-2xl transform hover:scale-105 transition-all duration-300 text-base md:text-lg w-full sm:w-auto overflow-hidden">
-                <span class="relative z-10">✨ Create Account</span>
-                <div class="absolute inset-0 bg-gradient-to-r from-green-50 to-emerald-50 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-            </a>
-            <a href="{{ route('login') }}"
-               class="inline-flex items-center justify-center ring-2 ring-white text-white hover:bg-white/10 font-semibold px-10 py-4 md:px-12 md:py-5 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300 text-base md:text-lg w-full sm:w-auto">
-                Login
-            </a>
-        </div>
-
-        <p class="mt-8 text-green-100 text-sm md:text-base">
-            No credit card required • Free to sign up • Start in seconds
-        </p>
-    </div>
-</section>
-
-<style>
-    @keyframes pulse {
-        0%, 100% {
-            opacity: 0.3;
-        }
-        50% {
-            opacity: 0.5;
-        }
-    }
-</style>
 @endsection

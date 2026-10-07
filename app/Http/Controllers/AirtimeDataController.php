@@ -2,417 +2,242 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
+use App\Models\PromotionNotification;
 use App\Models\Transactions;
-use App\Models\User;
-use App\Services\ClubKonnectService;
+use App\Services\BillPaymentService;
+use App\Services\SecurityService;
+use App\Services\WalletService;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use App\Mail\TransactionReceiptMail;
-use App\Mail\AdminTransactionNotification;
-use Illuminate\Support\Facades\Mail;
+use Throwable;
 
 class AirtimeDataController extends Controller
 {
-    protected ClubKonnectService $clubKonnect;
+    /** ClubKonnect network identifiers. */
+    public const NETWORKS = [
+        '01' => 'MTN',
+        '02' => 'Glo',
+        '03' => '9mobile',
+        '04' => 'Airtel',
+    ];
 
-    public function __construct(ClubKonnectService $clubKonnect)
-    {
-        $this->clubKonnect = $clubKonnect;
+    public function __construct(
+        private readonly BillPaymentService $bills,
+        private readonly WalletService $wallets,
+        private readonly SecurityService $security,
+    ) {
     }
 
     public function index()
     {
         $user = Auth::user();
-        $recentTransactions = Transactions::where('user_id', $user->id)
-            ->whereIn('service_type', ['airtime', 'data'])
-            ->latest()
-            ->limit(5)
-            ->get();
 
         return view('airtime-data.index', [
             'user' => $user,
-            'recentTransactions' => $recentTransactions,
+            'wallet' => $this->wallets->forUser($user),
+            'recentTransactions' => Transactions::where('user_id', $user->id)
+                ->whereIn('service_type', ['airtime', 'data'])
+                ->latest()
+                ->limit(5)
+                ->get(),
+            'networks' => self::NETWORKS,
+            'ranges' => (array) config('bills.ranges', []),
+            'hasPin' => $this->security->hasPin($user),
+            /*
+             * Live announcements for the marquee.
+             *
+             * The view had always guarded with `$announcements ?? []`, so when
+             * the global view composer that used to supply this was removed, the
+             * page kept rendering — just with an empty marquee and no error. That
+             * silent degradation is why this is now passed explicitly here rather
+             * than relied on from a global.
+             */
+            'announcements' => PromotionNotification::query()->live()->latest()->limit(6)->get(),
         ]);
     }
-    
-    /**
-     * Handle Airtime Purchase
-     */
+
+    public function history(Request $request)
+    {
+        return view('airtime-data.history', [
+            'transactions' => $this->bills->historyFor(Auth::user(), ['airtime', 'data']),
+        ]);
+    }
+
+    public function networks()
+    {
+        return response()->json(self::NETWORKS);
+    }
+
+    /* =====================================================================
+     | Purchases
+     |=================================================================== */
+
     public function purchaseAirtime(Request $request)
     {
+        $range = (array) config('bills.ranges.airtime', ['min' => 50, 'max' => 50000]);
+
         $validated = $request->validate([
-            'network' => 'required|string|in:01,02,03,04',
-            'phone' => 'required|string|regex:/^0[7-9][0-9]{9}$/',
-            'amount' => 'required|numeric|min:100|max:10000',
+            'network' => 'required|string|in:' . implode(',', array_keys(self::NETWORKS)),
+            'phone' => ['required', 'string', 'regex:/^0[7-9][0-9]{9}$/'],
+            'amount' => 'required|numeric|min:' . $range['min'] . '|max:' . $range['max'],
+            'pin' => 'required|string|size:4',
+            'idempotency_key' => 'nullable|string|min:8|max:64',
         ]);
 
-        $user = Auth::user();
-        
-        // Calculate amounts
-        $amount = $validated['amount'];
-        $serviceFee = Transactions::calculateServiceFee('airtime', $amount);
-        $totalAmount = $amount + $serviceFee;
-        
-        // Check balance
-        if ($user->wallet_balance < $totalAmount) {
-            return redirect()->back()
-                ->with('error', "Insufficient balance. You need ₦" . number_format($totalAmount, 2) . " but have ₦" . number_format($user->wallet_balance, 2))
-                ->withInput();
-        }
+        $network = self::NETWORKS[$validated['network']];
+        $amount = round((float) $validated['amount'], 2);
 
-        DB::beginTransaction();
-        
-        try {
-            // Create transaction
-            $transaction = $this->createTransaction([
-                'user_id' => $user->id,
-                'type' => 'debit',
-                'service_type' => 'airtime',
-                'description' => 'Airtime purchase - ' . $this->getNetworkName($validated['network']),
+        return $this->dispatchPurchase(
+            $request,
+            product: 'airtime',
+            amount: $amount,
+            recipient: $validated['phone'],
+            providerLabel: $network,
+            description: 'Airtime — ' . $network,
+            meta: [
+                'network_code' => $validated['network'],
+                'network_name' => $network,
+                'phone_number' => $validated['phone'],
+            ],
+            providerParams: [
+                'network' => $validated['network'],
+                'phone' => $validated['phone'],
                 'amount' => $amount,
-                'service_fee' => $serviceFee,
-                'total_amount' => $totalAmount,
-                'balance_before' => $user->wallet_balance,
-                'recipient' => $validated['phone'],
-                'provider' => $this->getNetworkName($validated['network']),
-                'payment_method' => 'wallet',
-                'status' => 'pending',
-                'meta' => [
-                    'network_code' => $validated['network'],
-                    'phone_number' => $validated['phone'],
-                    'request_amount' => $amount,
-                ],
-            ]);
-
-            // Mark as processing
-            $transaction->update(['status' => 'processing']);
-
-            // Call API
-            $response = $this->clubKonnect->purchaseAirtime(
-                $validated['network'],
-                $validated['phone'],
-                $amount,
-                $transaction->reference
-            );
-            
-            Log::info('Airtime API Response', [
-                'transaction_id' => $transaction->id,
-                'response' => $response
-            ]);
-            
-            // Check if successful using helper method
-            if ($this->clubKonnect->isSuccessResponse($response)) {
-                // Deduct from wallet
-                $this->deductFromWallet($transaction);
-                
-                // Get order reference
-                $orderRef = $response['orderid'] ?? $response['OrderID'] ?? $response['order_id'] ?? null;
-                
-                // Mark as successful
-                $transaction->update([
-                    'status' => 'success',
-                    'payment_status' => 'success',
-                    'api_reference' => $orderRef,
-                    'api_response' => $response,
-                    'completed_at' => now(),
-                ]);
-                
-                DB::commit();
-                // In purchaseAirtime method, after marking as success:
-if ($this->clubKonnect->isSuccessResponse($response)) {
-    // Deduct from wallet
-    $this->deductFromWallet($transaction);
-    
-    $orderRef = $response['orderid'] ?? $response['OrderID'] ?? $response['order_id'] ?? null;
-    
-    $transaction->update([
-        'status' => 'success',
-        'payment_status' => 'success',
-        'api_reference' => $orderRef,
-        'api_response' => $response,
-        'completed_at' => now(),
-    ]);
-    
-    // Send receipt email to user
-    try {
-        Mail::to($user->email)->send(new TransactionReceiptMail($transaction));
-        
-        // Send notification to admin
-        Mail::to(['reup.bellahoptions@gmail.com', 'support@reup.com.ng'])
-            ->send(new AdminTransactionNotification($transaction));
-    } catch (\Exception $e) {
-        Log::error('Email sending failed', ['error' => $e->getMessage()]);
+            ],
+            successMessage: '₦' . number_format($amount, 2) . ' airtime sent to ' . $validated['phone'] . '.',
+            pin: $validated['pin'],
+            idempotencyKey: $validated['idempotency_key'] ?? null,
+        );
     }
-    
-    DB::commit();
-    
-    return redirect()->route('transaction.success', $transaction->reference)
-        ->with('success', 'Airtime purchase successful! ₦' . number_format($amount, 2) . ' sent to ' . $validated['phone']);
-}
-                
-                return redirect()->route('transaction.success', $transaction->reference)
-                    ->with('success', 'Airtime purchase successful! ₦' . number_format($amount, 2) . ' sent to ' . $validated['phone']);
-            } else {
-                // Transaction failed
-                DB::rollBack();
-                
-                $errorMessage = $this->clubKonnect->getErrorMessage($response);
-                
-                $transaction->update([
-                    'status' => 'failed',
-                    'payment_status' => 'failed',
-                    'failure_reason' => $errorMessage,
-                    'api_response' => $response,
-                    'completed_at' => now(),
-                ]);
-                
-                return redirect()->route('airtime.transaction.failed', $transaction->reference)
-                    ->with('error', $errorMessage);
-            }
-            
-        } catch (\Exception $e) {
-            DB::rollBack();
-            
-            Log::error('Airtime Purchase Exception', [
-                'error' => $e->getMessage(),
-                'user_id' => $user->id,
-                'trace' => $e->getTraceAsString()
-            ]);
-            
-            if (isset($transaction)) {
-                $transaction->update([
-                    'status' => 'failed',
-                    'failure_reason' => 'System error: ' . $e->getMessage()
-                ]);
-            }
-            
-            return redirect()->back()
-                ->with('error', 'An error occurred. Please try again.')
-                ->withInput();
-        }
-    }
-    
-    /**
-     * Handle Data Purchase
-     */
+
     public function purchaseData(Request $request)
     {
+        $range = (array) config('bills.ranges.data', ['min' => 50, 'max' => 200000]);
+
         $validated = $request->validate([
-            'data_network' => 'required|string|in:01,02,03,04',
-            'data_plan' => 'required|string',
-            'phone' => 'required|string|regex:/^0[7-9][0-9]{9}$/',
-            'plan_name' => 'required|string',
-            'plan_price' => 'required|numeric',
-            'plan_type' => 'nullable|string',
+            'data_network' => 'required|string|in:' . implode(',', array_keys(self::NETWORKS)),
+            'data_plan' => 'required|string|max:120',
+            'phone' => ['required', 'string', 'regex:/^0[7-9][0-9]{9}$/'],
+            'plan_name' => 'required|string|max:120',
+            'plan_price' => 'required|numeric|min:' . $range['min'] . '|max:' . $range['max'],
+            'plan_type' => 'nullable|string|max:60',
+            'pin' => 'required|string|size:4',
+            'idempotency_key' => 'nullable|string|min:8|max:64',
         ]);
-        
-        $user = Auth::user();
-        
-        // Calculate amounts
-        $amount = $validated['plan_price'];
-        $serviceFee = Transactions::calculateServiceFee('data', $amount);
-        $totalAmount = $amount + $serviceFee;
-        
-        // Check balance
-        if ($user->wallet_balance < $totalAmount) {
-            return redirect()->back()
-                ->with('error', "Insufficient balance. You need ₦" . number_format($totalAmount, 2) . " but have ₦" . number_format($user->wallet_balance, 2))
-                ->withInput();
-        }
 
-        DB::beginTransaction();
-        
-        try {
-            // Create transaction
-            $transaction = $this->createTransaction([
-                'user_id' => $user->id,
-                'type' => 'debit',
-                'service_type' => 'data',
-                'description' => 'Data purchase - ' . $validated['plan_name'],
-                'amount' => $amount,
-                'service_fee' => $serviceFee,
-                'total_amount' => $totalAmount,
-                'balance_before' => $user->wallet_balance,
-                'recipient' => $validated['phone'],
-                'provider' => $this->getNetworkName($validated['data_network']),
+        $network = self::NETWORKS[$validated['data_network']];
+        $amount = round((float) $validated['plan_price'], 2);
+
+        return $this->dispatchPurchase(
+            $request,
+            product: 'data',
+            amount: $amount,
+            recipient: $validated['phone'],
+            providerLabel: $network,
+            description: 'Data — ' . $validated['plan_name'],
+            meta: [
+                'network_code' => $validated['data_network'],
+                'network_name' => $network,
+                'phone_number' => $validated['phone'],
+                'plan_id' => $validated['data_plan'],
                 'plan_name' => $validated['plan_name'],
-                'plan_type' => $validated['plan_type'] ?? 'Direct Data',
-                'payment_method' => 'wallet',
-                'status' => 'pending',
-                'meta' => [
-                    'network_code' => $validated['data_network'],
-                    'phone_number' => $validated['phone'],
-                    'plan_id' => $validated['data_plan'],
-                    'plan_type' => $validated['plan_type'] ?? 'Direct Data',
-                ],
-            ]);
-
-            // Mark as processing
-            $transaction->update(['status' => 'processing']);
-
-            // Call API
-            $response = $this->clubKonnect->purchaseData(
-                $validated['data_network'],
-                $validated['data_plan'],
-                $validated['phone'],
-                $transaction->reference
-            );
-            
-            Log::info('Data API Response', [
-                'transaction_id' => $transaction->id,
-                'response' => $response
-            ]);
-            
-            // Check if successful
-            if ($this->clubKonnect->isSuccessResponse($response)) {
-                // Deduct from wallet
-                $this->deductFromWallet($transaction);
-                
-                // Get order reference
-                $orderRef = $response['orderid'] ?? $response['OrderID'] ?? $response['order_id'] ?? null;
-                
-                // Mark as successful
-                $transaction->update([
-                    'status' => 'success',
-                    'payment_status' => 'success',
-                    'api_reference' => $orderRef,
-                    'api_response' => $response,
-                    'completed_at' => now(),
-                ]);
-                
-                DB::commit();
-                
-                return redirect()->route('transaction.success', $transaction->reference)
-                    ->with('success', 'Data bundle purchased successfully! ' . $validated['plan_name'] . ' sent to ' . $validated['phone']);
-            } else {
-                // Transaction failed
-                DB::rollBack();
-                
-                $errorMessage = $this->clubKonnect->getErrorMessage($response);
-                
-                $transaction->update([
-                    'status' => 'failed',
-                    'payment_status' => 'failed',
-                    'failure_reason' => $errorMessage,
-                    'api_response' => $response,
-                    'completed_at' => now(),
-                ]);
-                
-                return redirect()->route('airtime.transaction.failed', $transaction->reference)
-                    ->with('error', $errorMessage);
-            }
-            
-        } catch (\Exception $e) {
-            DB::rollBack();
-            
-            Log::error('Data Purchase Exception', [
-                'error' => $e->getMessage(),
-                'user_id' => $user->id,
-                'trace' => $e->getTraceAsString()
-            ]);
-            
-            if (isset($transaction)) {
-                $transaction->update([
-                    'status' => 'failed',
-                    'failure_reason' => 'System error: ' . $e->getMessage()
-                ]);
-            }
-            
-            return redirect()->back()
-                ->with('error', 'An error occurred. Please try again.')
-                ->withInput();
-        }
+            ],
+            providerParams: [
+                'network' => $validated['data_network'],
+                'plan' => $validated['data_plan'],
+                'phone' => $validated['phone'],
+            ],
+            successMessage: $validated['plan_name'] . ' sent to ' . $validated['phone'] . '.',
+            pin: $validated['pin'],
+            idempotencyKey: $validated['idempotency_key'] ?? null,
+        );
     }
-    
-   /**
- * Create transaction record
- */
-private function createTransaction(array $data): Transactions
-{
-    // Get FRESH wallet balance at creation time
-    $user = User::find($data['user_id']);
-    
-    return Transactions::create(array_merge([
-        'reference' => Transactions::generateReference('TXN'),
-        'balance_before' => $user->wallet_balance, // Current balance
-        'balance_after' => $user->wallet_balance,   // Will be updated later
-        'payment_status' => 'pending',
-    ], $data));
-}
 
-/**
- * Deduct from wallet
- */
-private function deductFromWallet(Transactions $transaction): void
-{
-    $user = $transaction->user;
-    $wallet = $user->wallet;
-    
-    // CRITICAL: Get fresh balance before deduction
-    $user->refresh();
-    $currentBalance = $user->wallet_balance;
-    
-    // Calculate new balance
-    $newBalance = $currentBalance - $transaction->total_amount;
-    
-    // Prevent negative balance
-    if ($newBalance < 0) {
-        throw new \Exception('Insufficient funds. Current balance: ₦' . number_format($currentBalance, 2));
-    }
-    
-    // Update user wallet
-    $user->update(['wallet_balance' => $newBalance]);
-    
-    // Update wallet model
-    if ($wallet) {
-        $wallet->update([
-            'balance' => $newBalance,
-            'total_spent' => $wallet->total_spent + $transaction->total_amount,
-            'transaction_count' => $wallet->transaction_count + 1,
-        ]);
-    }
-    
-    // Update transaction with ACCURATE balances
-    $transaction->update([
-        'balance_before' => $currentBalance,  // Update with fresh balance
-        'balance_after' => $newBalance,
-        'payment_status' => 'success',
-        'paid_at' => now(),
-    ]);
-}
-    
     /**
-     * Get network name
+     * Shared dispatch for airtime and data.
+     *
+     * The price for data comes from the posted `plan_price`, which the
+     * pricelist page supplies from the server-rendered catalogue. Airtime takes
+     * a customer-entered amount. Both are bounded by config('bills.ranges') and
+     * re-checked against the spend limits inside the pipeline.
      */
-    private function getNetworkName(string $code): string
-    {
-        $networks = [
-            '01' => 'MTN',
-            '02' => 'Glo',
-            '03' => '9Mobile',
-            '04' => 'Airtel',
+    private function dispatchPurchase(
+        Request $request,
+        string $product,
+        float $amount,
+        string $recipient,
+        string $providerLabel,
+        string $description,
+        array $meta,
+        array $providerParams,
+        string $successMessage,
+        string $pin,
+        ?string $idempotencyKey,
+    ) {
+        $user = Auth::user();
+
+        // Captured once, here, so every product's security block in the receipt
+        // email has real values rather than blanks. This is the record the
+        // customer checks when they want to know whether a charge was them, so
+        // it is worth the two extra columns of JSON.
+        $meta = $meta + [
+            'request_ip' => $request->ip(),
+            'request_user_agent' => \Illuminate\Support\Str::limit((string) $request->userAgent(), 255, ''),
         ];
-        
-        return $networks[$code] ?? 'Unknown Network';
+
+        $fee = $product === 'airtime'
+            ? round($amount * 0.02, 2)
+            : 50.0;
+
+        try {
+            $result = $this->bills->purchase(
+                user: $user,
+                product: $product,
+                amount: $amount,
+                fee: $fee,
+                recipient: $recipient,
+                providerLabel: $providerLabel,
+                description: $description,
+                meta: $meta,
+                dispatch: fn ($provider, Transactions $transaction) => $provider->purchase(
+                    $product,
+                    $providerParams,
+                    $transaction->reference,
+                ),
+                successMessage: $successMessage,
+                pin: $pin,
+                idempotencyKey: $idempotencyKey,
+            );
+        } catch (Throwable $e) {
+            return back()->withInput()->with('error', $e->getMessage());
+        }
+
+        if (! $result['ok']) {
+            return back()->withInput()->with('error', $result['message']);
+        }
+
+        return redirect()->route('transactions.success', $result['transaction']->reference)
+            ->with('success', $result['message']);
     }
-    
+
+    /* =====================================================================
+     | Outcome pages — ownership enforced
+     |=================================================================== */
+
     public function success(string $reference)
     {
-        $transaction = Transactions::where('reference', $reference)
-            ->where('user_id', Auth::id())
-            ->firstOrFail();
-            
-        return view('transactions.success', compact('transaction'));
+        return view('transactions.success', ['transaction' => $this->ownedTransaction($reference)]);
     }
-    
+
     public function failed(string $reference)
     {
-        $transaction = Transactions::where('reference', $reference)
-            ->where('user_id', Auth::id())
+        return view('transactions.failed', ['transaction' => $this->ownedTransaction($reference)]);
+    }
+
+    private function ownedTransaction(string $reference): Transactions
+    {
+        return Transactions::where('user_id', Auth::id())
+            ->where('reference', $reference)
             ->firstOrFail();
-            
-        return view('transactions.failed', compact('transaction'));
     }
 }

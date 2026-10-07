@@ -1,115 +1,129 @@
 @extends('layouts.app')
-
+@section('title', 'Transaction successful')
 @section('content')
-<main class="min-h-screen bg-gradient-to-br from-gray-50 to-green-50/30 flex items-center justify-center py-12 px-4">
-    <div class="max-w-md w-full">
-        <!-- Success Animation -->
-        <div class="text-center mb-8">
-            <div class="inline-flex items-center justify-center w-24 h-24 bg-green-100 rounded-full mb-4 animate-bounce">
-                <svg class="w-12 h-12 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
-                </svg>
-            </div>
-            <h1 class="text-3xl font-bold text-gray-900 mb-2">Transaction Successful! 🎉</h1>
-            <p class="text-gray-600">Your transaction has been completed successfully</p>
-        </div>
+<main class="min-h-screen bg-surface">
+    <div class="container-page flex justify-center py-10 md:py-16">
+        <div class="w-full max-w-xl">
 
-        <!-- Transaction Details Card -->
-        <div class="bg-white rounded-2xl shadow-lg border border-gray-200/60 overflow-hidden mb-6">
-            <div class="bg-gradient-to-r from-green-500 to-emerald-600 px-6 py-4">
-                <h2 class="text-white font-semibold text-lg">Transaction Details</h2>
-            </div>
-            
-            <div class="p-6 space-y-4">
-                <!-- Transaction Type -->
-                <div class="flex justify-between items-center pb-3 border-b border-gray-100">
-                    <span class="text-gray-600 text-sm">Service Type</span>
-                    <span class="font-semibold text-gray-900">{{ ucfirst($transaction->service_type) }}</span>
-                </div>
+            {{-- Outcome --}}
+            <header class="text-center">
+                <span class="inline-flex h-14 w-14 items-center justify-center rounded-full border border-brand-200 bg-accent text-brand-700">
+                    <x-icon name="check-circle" variant="solid" class="h-7 w-7" />
+                </span>
+                <h1 class="mt-5 text-2xl font-semibold md:text-3xl">Transaction successful</h1>
+                <p class="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+                    We have delivered your order and sent a receipt to your email address.
+                </p>
+            </header>
 
-                <!-- Reference -->
-                <div class="flex justify-between items-center pb-3 border-b border-gray-100">
-                    <span class="text-gray-600 text-sm">Reference</span>
-                    <span class="font-mono text-sm text-gray-900">{{ $transaction->reference }}</span>
-                </div>
-
-                @if($transaction->api_reference)
-                <!-- Order ID -->
-                <div class="flex justify-between items-center pb-3 border-b border-gray-100">
-                    <span class="text-gray-600 text-sm">Order ID</span>
-                    <span class="font-mono text-sm text-gray-900">{{ $transaction->api_reference }}</span>
-                </div>
-                @endif
-
-                <!-- Recipient -->
-                <div class="flex justify-between items-center pb-3 border-b border-gray-100">
-                    <span class="text-gray-600 text-sm">Recipient</span>
-                    <span class="font-semibold text-gray-900">{{ $transaction->recipient }}</span>
-                </div>
-
-                <!-- Provider -->
-                <div class="flex justify-between items-center pb-3 border-b border-gray-100">
-                    <span class="text-gray-600 text-sm">Network</span>
-                    <span class="font-semibold text-gray-900">{{ $transaction->provider }}</span>
-                </div>
-
-                @if($transaction->plan_name)
-                <!-- Plan Name (for data) -->
-                <div class="flex justify-between items-center pb-3 border-b border-gray-100">
-                    <span class="text-gray-600 text-sm">Plan</span>
-                    <span class="font-semibold text-gray-900 text-right">{{ $transaction->plan_name }}</span>
-                </div>
-                @endif
-
-                <!-- Amount -->
-                <div class="flex justify-between items-center pb-3 border-b border-gray-100">
-                    <span class="text-gray-600 text-sm">Amount</span>
-                    <span class="font-semibold text-gray-900">₦{{ number_format($transaction->amount, 2) }}</span>
-                </div>
-
-                <!-- Service Fee -->
-                <div class="flex justify-between items-center pb-3 border-b border-gray-100">
-                    <span class="text-gray-600 text-sm">Service Fee</span>
-                    <span class="font-semibold text-gray-900">₦{{ number_format($transaction->service_fee, 2) }}</span>
-                </div>
-
-                <!-- Total Amount -->
-                <div class="flex justify-between items-center pt-2">
-                    <span class="text-gray-900 font-semibold">Total Paid</span>
-                    <span class="font-bold text-green-600 text-xl">₦{{ number_format($transaction->total_amount, 2) }}</span>
-                </div>
-
-                <!-- New Balance -->
-                <div class="bg-green-50 rounded-xl p-4 mt-4">
-                    <div class="flex justify-between items-center">
-                        <span class="text-green-800 font-medium">New Wallet Balance</span>
-                        <span class="font-bold text-green-700 text-lg">₦{{ number_format($transaction->balance_after, 2) }}</span>
+            {{-- Amount summary --}}
+            <div class="card mt-8">
+                <div class="card-content text-center">
+                    <p class="stat-label">Total paid</p>
+                    <p class="mt-2 text-3xl font-semibold tabular-nums md:text-4xl">
+                        &#8358;{{ number_format((float) $transaction->total_amount, 2) }}
+                    </p>
+                    <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
+                        <span class="badge badge-success">
+                            <x-icon name="check-circle" class="h-3.5 w-3.5" />
+                            Successful
+                        </span>
+                        <span class="badge badge-neutral">{{ ucfirst((string) $transaction->service_type) }}</span>
                     </div>
                 </div>
-
-                <!-- Date & Time -->
-                <div class="text-center text-xs text-gray-500 pt-4 border-t border-gray-100">
-                    {{ $transaction->created_at->format('M d, Y • h:i A') }}
-                </div>
             </div>
-        </div>
 
-        <!-- Action Buttons -->
-        <div class="space-y-3">
-            <a href="{{ route('airtime-data.index') }}" 
-               class="block w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-4 px-6 rounded-xl text-center shadow-lg hover:shadow-xl transition-all duration-200">
-                Make Another Purchase
-            </a>
-            
-            <a href="{{ route('dashboard') }}" 
-               class="block w-full bg-white hover:bg-gray-50 text-gray-700 font-semibold py-4 px-6 rounded-xl text-center border-2 border-gray-200 transition-all duration-200">
-                Back to Dashboard
-            </a>
+            {{-- Receipt --}}
+            <div class="card mt-6 overflow-hidden">
+                <div class="flex items-center gap-3 border-b border-border px-5 py-4">
+                    <x-icon name="document-text" class="h-4 w-4 text-muted-foreground" />
+                    <h2 class="card-title">Transaction details</h2>
+                </div>
 
-            <a href="{{ route('transactions.index') }}" 
-               class="block w-full text-center text-gray-600 hover:text-gray-900 font-medium text-sm py-2 transition-colors duration-200">
-                View Transaction History →
-            </a>
+                <dl class="divide-y divide-border">
+                    <div class="flex items-start justify-between gap-6 px-5 py-3.5">
+                        <dt class="text-sm text-muted-foreground">Service type</dt>
+                        <dd class="text-right text-sm font-medium">{{ ucfirst((string) $transaction->service_type) }}</dd>
+                    </div>
+
+                    <div class="flex items-start justify-between gap-6 px-5 py-3.5">
+                        <dt class="text-sm text-muted-foreground">Reference</dt>
+                        <dd class="break-all text-right font-mono text-xs">{{ $transaction->reference }}</dd>
+                    </div>
+
+                    @if($transaction->api_reference)
+                        <div class="flex items-start justify-between gap-6 px-5 py-3.5">
+                            <dt class="text-sm text-muted-foreground">Order ID</dt>
+                            <dd class="break-all text-right font-mono text-xs">{{ $transaction->api_reference }}</dd>
+                        </div>
+                    @endif
+
+                    <div class="flex items-start justify-between gap-6 px-5 py-3.5">
+                        <dt class="text-sm text-muted-foreground">Recipient</dt>
+                        <dd class="text-right text-sm font-medium">{{ $transaction->recipient ?: '—' }}</dd>
+                    </div>
+
+                    <div class="flex items-start justify-between gap-6 px-5 py-3.5">
+                        <dt class="text-sm text-muted-foreground">Network</dt>
+                        <dd class="text-right text-sm font-medium">{{ $transaction->provider ?: '—' }}</dd>
+                    </div>
+
+                    @if($transaction->plan_name)
+                        <div class="flex items-start justify-between gap-6 px-5 py-3.5">
+                            <dt class="text-sm text-muted-foreground">Plan</dt>
+                            <dd class="text-right text-sm font-medium">{{ $transaction->plan_name }}</dd>
+                        </div>
+                    @endif
+
+                    <div class="flex items-start justify-between gap-6 px-5 py-3.5">
+                        <dt class="text-sm text-muted-foreground">Amount</dt>
+                        <dd class="text-right text-sm font-medium tabular-nums">&#8358;{{ number_format((float) $transaction->amount, 2) }}</dd>
+                    </div>
+
+                    <div class="flex items-start justify-between gap-6 px-5 py-3.5">
+                        <dt class="text-sm text-muted-foreground">Service fee</dt>
+                        <dd class="text-right text-sm font-medium tabular-nums">&#8358;{{ number_format((float) $transaction->service_fee, 2) }}</dd>
+                    </div>
+
+                    <div class="flex items-start justify-between gap-6 px-5 py-3.5">
+                        <dt class="text-sm font-semibold">Total paid</dt>
+                        <dd class="text-right text-base font-semibold tabular-nums text-green-700">
+                            &#8358;{{ number_format((float) $transaction->total_amount, 2) }}
+                        </dd>
+                    </div>
+
+                    <div class="flex items-start justify-between gap-6 px-5 py-3.5">
+                        <dt class="text-sm text-muted-foreground">Wallet balance</dt>
+                        <dd class="text-right text-sm font-medium tabular-nums">
+                            @if(is_null($transaction->balance_after))
+                                —
+                            @else
+                                &#8358;{{ number_format((float) $transaction->balance_after, 2) }}
+                            @endif
+                        </dd>
+                    </div>
+
+                    <div class="flex items-start justify-between gap-6 px-5 py-3.5">
+                        <dt class="text-sm text-muted-foreground">Date</dt>
+                        <dd class="text-right text-sm font-medium">{{ $transaction->created_at->format('M j, Y \a\t g:i A') }}</dd>
+                    </div>
+                </dl>
+            </div>
+
+            {{-- Actions --}}
+            <div class="mt-6 space-y-3">
+                <a href="{{ route('airtime-data.index') }}" class="btn btn-primary btn-lg w-full">
+                    <x-icon name="rocket-launch" class="h-5 w-5" />
+                    Make another purchase
+                </a>
+                <a href="{{ route('dashboard') }}" class="btn btn-outline btn-lg w-full">
+                    Back to dashboard
+                </a>
+                <a href="{{ route('transactions.index') }}" class="btn btn-link w-full justify-center">
+                    View transaction history
+                    <x-icon name="arrow-right" class="h-4 w-4" />
+                </a>
+            </div>
         </div>
     </div>
 </main>

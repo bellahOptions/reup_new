@@ -1,142 +1,70 @@
+{{--
+    Announcement marquee.
+
+    Accepts Eloquent models or plain arrays. Renders nothing when there is
+    nothing to show — the previous version hardcoded five fake offers as a
+    fallback, so visitors saw expired promotions, and inlined a duplicate
+    @keyframes block on every render.
+
+    Icons are icon-component names (`megaphone`), annotated `aria-hidden`
+    because the adjacent text already conveys the meaning. An unknown or absent
+    name falls back to a megaphone rather than rendering nothing, so a title is
+    never left visually unanchored — and never renders a raw emoji, which is
+    what a previous version did.
+--}}
 @props([
-    'type' => 'badge',
     'items' => [],
-    'speed' => 35,
-    'direction' => 'left',
+    'speed' => 30,
     'pauseOnHover' => true,
-    'containerClass' => '',
-    'innerClass' => '',
-    'itemClass' => '',
-    'textColor' => 'text-gray-700',
-    'badgeColor' => 'bg-green-100 text-green-800',
     'compact' => false,
 ])
 
 @php
-    // Use provided items or empty array
-    $items = $items ?? [];
-    
-    // Only show if we have items
-    $hasItems = count($items) > 0;
-    
-    // For compact mode (fits in announcement bar)
-    $paddingClass = $compact ? 'px-3' : 'px-6';
-    $textSize = $compact ? 'text-xs' : 'text-sm';
+    $knownIcons = array_keys(config('announcements.icons', []));
+    $legacyEmoji = config('announcements.legacy_emoji', []);
+
+    $normalised = collect($items)
+        ->map(function ($item) use ($legacyEmoji) {
+            $get = fn ($key) => is_array($item) ? ($item[$key] ?? null) : ($item->{$key} ?? null);
+
+            $type = (string) ($get('type') ?? '');
+            $icon = (string) ($get('icon') ?? '');
+
+            return [
+                // Rows created before icons were stored as names hold emoji.
+                // Translated here, once, instead of in every consumer.
+                'icon' => $legacyEmoji[$icon] ?? $icon,
+                'title' => $get('title') ?: $get('content'),
+                'badge' => $get('badge') ?: (config('announcements.type_badges')[$type] ?? null),
+            ];
+        })
+        ->filter(fn ($item) => filled($item['title']) || filled($item['badge']))
+        ->map(function ($item) use ($knownIcons) {
+            $item['icon'] = in_array($item['icon'], $knownIcons, true) ? $item['icon'] : 'megaphone';
+
+            return $item;
+        })
+        ->values();
 @endphp
 
-@if($hasItems)
-<div class="marquee-wrapper {{ $containerClass }} {{ $pauseOnHover ? 'pause-on-hover' : '' }} w-full overflow-hidden">
-    <div class="relative w-full overflow-hidden">
-        <!-- Single marquee container with duplicated content -->
-        <div class="flex animate-marquee {{ $innerClass }} whitespace-nowrap"
-             style="animation-duration: {{ $speed }}s; animation-direction: {{ $direction === 'right' ? 'reverse' : 'normal' }};">
-            
-            <!-- First pass of items -->
-            @foreach($items as $index => $item)
-                <div class="flex items-center flex-shrink-0 {{ $paddingClass }} py-1 {{ $itemClass }}">
-                    {{-- Badge --}}
-                    @if($type === 'badge' && !empty($item['badge']))
-                        <span class="{{ $item['badgeColor'] ?? $badgeColor }} {{ $textSize }} font-semibold px-2 py-0.5 rounded-full mr-2">
-                            {{ $item['badge'] }}
-                        </span>
-                    @endif
-                    
-                    {{-- Icon --}}
-                    @if(!empty($item['icon']))
-                        <span class="{{ $textSize }} mr-2">{{ $item['icon'] }}</span>
-                    @endif
-                    
-                    {{-- Title/Text --}}
-                    @if(!empty($item['title']) || !empty($item['text']))
-                        <span class="{{ $item['textColor'] ?? $textColor }} {{ $textSize }} font-medium">
-                            {{ $item['title'] ?? $item['text'] }}
-                        </span>
-                    @endif
-                    
-                    {{-- Content --}}
-                    @if(!empty($item['content']) && empty($item['title']) && empty($item['text']))
-                        <span class="{{ $item['textColor'] ?? $textColor }} {{ $textSize }} font-medium">
-                            {{ Str::limit($item['content'], 60) }}
-                        </span>
-                    @endif
-                </div>
-                
-                {{-- Separator --}}
-                @if(!$loop->last)
-                    <div class="flex-shrink-0 px-3 py-1">
-                        <span class="text-gray-300">•</span>
-                    </div>
-                @endif
-            @endforeach
-            
-            <!-- Second pass (duplicate for seamless loop) -->
-            @foreach($items as $index => $item)
-                <div class="flex items-center flex-shrink-0 {{ $paddingClass }} py-1 {{ $itemClass }}">
-                    {{-- Badge --}}
-                    @if($type === 'badge' && !empty($item['badge']))
-                        <span class="{{ $item['badgeColor'] ?? $badgeColor }} {{ $textSize }} font-semibold px-2 py-0.5 rounded-full mr-2">
-                            {{ $item['badge'] }}
-                        </span>
-                    @endif
-                    
-                    {{-- Icon --}}
-                    @if(!empty($item['icon']))
-                        <span class="{{ $textSize }} mr-2">{{ $item['icon'] }}</span>
-                    @endif
-                    
-                    {{-- Title/Text --}}
-                    @if(!empty($item['title']) || !empty($item['text']))
-                        <span class="{{ $item['textColor'] ?? $textColor }} {{ $textSize }} font-medium">
-                            {{ $item['title'] ?? $item['text'] }}
-                        </span>
-                    @endif
-                    
-                    {{-- Content --}}
-                    @if(!empty($item['content']) && empty($item['title']) && empty($item['text']))
-                        <span class="{{ $item['textColor'] ?? $textColor }} {{ $textSize }} font-medium">
-                            {{ Str::limit($item['content'], 60) }}
-                        </span>
-                    @endif
-                </div>
-                
-                {{-- Separator --}}
-                @if(!$loop->last)
-                    <div class="flex-shrink-0 px-3 py-1">
-                        <span class="text-gray-300">•</span>
-                    </div>
-                @endif
-            @endforeach
+@if($normalised->isNotEmpty())
+    <div class="{{ $pauseOnHover ? 'pause-on-hover' : '' }}">
+        <div class="overflow-hidden">
+            <div class="animate-marquee items-center gap-8 whitespace-nowrap {{ $compact ? 'py-1' : 'py-2' }}"
+                 style="animation-duration: {{ (int) $speed }}s;">
+                {{-- Duplicated once so the translateX(-50%) loop is seamless. --}}
+                @foreach($normalised->concat($normalised) as $item)
+                    <span class="flex shrink-0 items-center gap-2.5">
+                        <x-icon :name="$item['icon']" class="h-4 w-4 text-brand-600" />
+
+                        @if($item['badge'])
+                            <span class="badge badge-primary">{{ $item['badge'] }}</span>
+                        @endif
+
+                        <span class="text-sm font-medium text-ink-700">{{ $item['title'] }}</span>
+                    </span>
+                @endforeach
+            </div>
         </div>
     </div>
-</div>
-
-<style>
-    @keyframes marquee {
-        0% {
-            transform: translateX(0);
-        }
-        100% {
-            transform: translateX(-50%);
-        }
-    }
-    
-    .animate-marquee {
-        display: flex;
-        animation: marquee linear infinite;
-        will-change: transform;
-    }
-    
-    .pause-on-hover:hover .animate-marquee {
-        animation-play-state: paused;
-    }
-    
-    /* For mobile responsiveness */
-    @media (max-width: 640px) {
-        .animate-marquee {
-            animation-duration: {{ $speed * 0.7 }}s !important;
-        }
-    }
-</style>
-@else
-<!-- No promotions to display -->
 @endif

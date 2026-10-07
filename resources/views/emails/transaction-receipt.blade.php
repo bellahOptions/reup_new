@@ -1,238 +1,276 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Transaction Receipt</title>
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        .email-container {
-            background: white;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-        .header {
-            background: linear-gradient(135deg, #10b926 0%, #059605 100%);
-            color: white;
-            padding: 30px 20px;
-            text-align: center;
-        }
-        .header h1 {
-            margin: 0;
-            font-size: 28px;
-            font-weight: bold;
-        }
-        .status-badge {
-            display: inline-block;
-            background: rgba(255,255,255,0.2);
-            padding: 8px 16px;
-            border-radius: 20px;
-            margin-top: 10px;
-            font-size: 14px;
-        }
-        .content {
-            padding: 30px 20px;
-        }
-        .success-icon {
-            text-align: center;
-            font-size: 60px;
-            margin-bottom: 20px;
-        }
-        .receipt-title {
-            text-align: center;
-            color: #10b981;
-            font-size: 24px;
-            font-weight: bold;
-            margin-bottom: 10px;
-        }
-        .receipt-subtitle {
-            text-align: center;
-            color: #6b7280;
-            margin-bottom: 30px;
-        }
-        .detail-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 12px;
-            border-bottom: 1px solid #e5e7eb;
-        }
-        .detail-label {
-            color: #6b7280;
-            font-weight: 500;
-        }
-        .detail-value {
-            color: #111827;
-            font-weight: 600;
-            text-align: right;
-        }
-        .total-row {
-            background: #f9fafb;
-            padding: 15px;
-            margin: 20px 0;
-            border-radius: 8px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .total-label {
-            font-size: 18px;
-            font-weight: 600;
-            color: #374151;
-        }
-        .total-value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #10b981;
-        }
-        .reference-box {
-            background: #f3f4f6;
-            border: 2px dashed #d1d5db;
-            padding: 15px;
-            border-radius: 8px;
-            text-align: center;
-            margin: 20px 0;
-        }
-        .reference-label {
-            color: #6b7280;
-            font-size: 12px;
-            margin-bottom: 5px;
-        }
-        .reference-value {
-            font-family: 'Courier New', monospace;
-            font-size: 16px;
-            font-weight: bold;
-            color: #111827;
-        }
-        .footer {
-            background: #f9fafb;
-            padding: 20px;
-            text-align: center;
-            color: #6b7280;
-            font-size: 12px;
-        }
-        .button {
-            display: inline-block;
-            background: #10b981;
-            color: white;
-            padding: 12px 30px;
-            text-decoration: none;
-            border-radius: 8px;
-            font-weight: 600;
-            margin: 20px 0;
-        }
-        .support-box {
-            background: #fef3c7;
-            border-left: 4px solid #f59e0b;
-            padding: 15px;
-            margin: 20px 0;
-            border-radius: 4px;
-        }
-    </style>
-</head>
-<body>
-    <div class="email-container">
-        <!-- Header -->
-        <div class="header">
-            <h1>{{ config('app.name') }}</h1>
-            <div class="status-badge">✓ Transaction Successful</div>
-        </div>
+<x-emails.base
+    :title="'Receipt ' . $transaction->reference"
+    badge="Payment successful"
+    badgeTone="brand"
+    :preheader="'You paid ₦' . number_format((float) $transaction->total_amount, 2) . ' — reference ' . $transaction->reference"
+>
+    @php
+        /*
+         * Everything below is built from the transaction row. Nothing is
+         * recomputed: `balance_before` and `balance_after` are written by
+         * WalletService at the instant the money moved, under a row lock, so
+         * they are a genuine audit trail rather than a number assembled for the
+         * email.
+         *
+         * Money is the one thing customers re-read weeks later — usually while
+         * arguing with support — so the receipt is deliberately dense: full
+         * identifiers, both balances, the exact moment, and where it came from.
+         */
+        $money = fn ($value) => '₦' . number_format((float) $value, 2);
 
-        <!-- Content -->
-        <div class="content">
-            <div class="success-icon">🎉</div>
-            
-            <h2 class="receipt-title">Payment Receipt</h2>
-            <p class="receipt-subtitle">Thank you for your purchase!</p>
+        $charged = (float) $transaction->total_amount;
+        $balanceBefore = is_null($transaction->balance_before) ? null : (float) $transaction->balance_before;
+        $balanceAfter = is_null($transaction->balance_after) ? null : (float) $transaction->balance_after;
 
-            <!-- Transaction Details -->
-            <div class="detail-row">
-                <span class="detail-label">Service Type:</span>
-                <span class="detail-value">{{ ucfirst($transaction->service_type) }}</span>
-            </div>
+        $meta = $transaction->meta ?? [];
+        $requestIp = $meta['request_ip'] ?? null;
+        $userAgent = $meta['request_user_agent'] ?? null;
 
-            <div class="detail-row">
-                <span class="detail-label">Recipient:</span>
-                <span class="detail-value">{{ $transaction->recipient }}</span>
-            </div>
+        // "Chrome on Windows" reads far better in a security block than the raw
+        // UA string, which is mostly noise. The full string is not discarded —
+        // it remains available to support from the admin console.
+        $device = (function () use ($userAgent) {
+            if (! $userAgent) {
+                return null;
+            }
 
-            <div class="detail-row">
-                <span class="detail-label">Network Provider:</span>
-                <span class="detail-value">{{ $transaction->provider }}</span>
-            </div>
+            $os = match (true) {
+                stripos($userAgent, 'windows') !== false => 'Windows',
+                stripos($userAgent, 'android') !== false => 'Android',
+                stripos($userAgent, 'iphone') !== false => 'iOS',
+                stripos($userAgent, 'ipad') !== false => 'iOS',
+                stripos($userAgent, 'mac os') !== false => 'macOS',
+                stripos($userAgent, 'linux') !== false => 'Linux',
+                default => null,
+            };
 
-            @if($transaction->plan_name)
-            <div class="detail-row">
-                <span class="detail-label">Data Plan:</span>
-                <span class="detail-value">{{ $transaction->plan_name }}</span>
-            </div>
-            @endif
+            $browser = match (true) {
+                stripos($userAgent, 'edg/') !== false => 'Edge',
+                stripos($userAgent, 'opr/') !== false => 'Opera',
+                stripos($userAgent, 'opera') !== false => 'Opera',
+                stripos($userAgent, 'chrome') !== false => 'Chrome',
+                stripos($userAgent, 'safari') !== false => 'Safari',
+                stripos($userAgent, 'firefox') !== false => 'Firefox',
+                default => null,
+            };
 
-            @if($transaction->api_reference)
-            <div class="detail-row">
-                <span class="detail-label">Order ID:</span>
-                <span class="detail-value">{{ $transaction->api_reference }}</span>
-            </div>
-            @endif
+            if ($browser && $os) {
+                return $browser . ' on ' . $os;
+            }
 
-            <div class="detail-row">
-                <span class="detail-label">Amount:</span>
-                <span class="detail-value">₦{{ number_format($transaction->amount, 2) }}</span>
-            </div>
+            return $browser ?? $os;
+        })();
 
-            <div class="detail-row">
-                <span class="detail-label">Service Fee:</span>
-                <span class="detail-value">₦{{ number_format($transaction->service_fee, 2) }}</span>
-            </div>
+        $rowStyle = 'padding:9px 0;border-bottom:1px solid #eef0ee;';
+        $labelStyle = $rowStyle . 'color:#6f7a6f;';
+        $valueStyle = $rowStyle . 'text-align:right;font-weight:600;color:#1b1f1b;word-break:break-word;';
 
-            <!-- Total -->
-            <div class="total-row">
-                <span class="total-label">Total Paid:</span>
-                <span class="total-value">₦{{ number_format($transaction->total_amount, 2) }}</span>
-            </div>
+        $lineItems = array_filter([
+            'Service' => ucfirst(str_replace('-', ' ', (string) $transaction->service_type)),
+            'Recipient' => $transaction->recipient,
+            'Network / provider' => $transaction->provider,
+            'Plan' => $transaction->plan_name,
+            'Plan type' => $transaction->plan_type,
+        ], fn ($value) => filled($value));
 
-            <!-- Reference Number -->
-            <div class="reference-box">
-                <div class="reference-label">TRANSACTION REFERENCE:</div>
-                <div class="reference-value">{{ $transaction->reference }}</div>
-            </div>
+        $auditRows = array_filter([
+            'Date' => optional($transaction->created_at)->format('D, j M Y'),
+            'Time' => optional($transaction->created_at)->format('g:i:s A') . ' (WAT)',
+            'Payment method' => ucwords(str_replace('_', ' ', (string) $transaction->payment_method)),
+            'Channel' => filled($meta['channel'] ?? null) ? ucwords(str_replace('_', ' ', (string) $meta['channel'])) : null,
+            'Initiated from' => $requestIp,
+            'Device' => $device,
+            'Status' => ucfirst((string) $transaction->status),
+        ], fn ($value) => filled($value));
+    @endphp
 
-            <!-- New Balance -->
-            <div class="detail-row" style="border-bottom: none;">
-                <span class="detail-label">New Wallet Balance:</span>
-                <span class="detail-value" style="color: #10b981;">₦{{ number_format($transaction->balance_after, 2) }}</span>
-            </div>
+    <h1 style="margin:16px 0 4px;font-size:22px;font-weight:600;letter-spacing:-0.02em;color:#0d100d;">
+        Your receipt
+    </h1>
+    <p style="margin:0 0 20px;font-size:14px;color:#6f7a6f;">
+        {{ $transaction->description }}
+    </p>
 
-            <!-- Transaction Date -->
-            <p style="text-align: center; color: #6b7280; font-size: 14px; margin-top: 20px;">
-                {{ $transaction->created_at->format('F d, Y • h:i A') }}
-            </p>
+    {{-- Headline amount: the number the customer came for. --}}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 22px;background-color:#f1fce9;border:1px solid #c1f0a1;border-radius:10px;">
+        <tr>
+            <td align="center" style="padding:20px 16px;">
+                <p style="margin:0 0 6px;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#1b720c;">
+                    Total paid
+                </p>
+                <p style="margin:0;font-size:32px;font-weight:700;letter-spacing:-0.02em;color:#1b720c;">
+                    {{ $money($charged) }}
+                </p>
+                @if((float) $transaction->service_fee > 0)
+                    <p style="margin:6px 0 0;font-size:13px;color:#1b720c;">
+                        {{ $money($transaction->amount) }} + {{ $money($transaction->service_fee) }} service fee
+                    </p>
+                @endif
+            </td>
+        </tr>
+    </table>
 
-            <!-- CTA Button -->
-            <div style="text-align: center;">
-                <a href="{{ url('/dashboard') }}" class="button">View Dashboard</a>
-            </div>
+    {{-- What was bought --}}
+    <h2 style="margin:0 0 4px;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#98a298;">
+        What you paid for
+    </h2>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:14px;border-top:1px solid #dfe3df;">
+        @foreach($lineItems as $label => $value)
+            <tr>
+                <td style="{{ $labelStyle }}">{{ $label }}</td>
+                <td style="{{ $valueStyle }}">{{ $value }}</td>
+            </tr>
+        @endforeach
+        <tr>
+            <td style="{{ $labelStyle }}">Amount</td>
+            <td style="{{ $valueStyle }}">{{ $money($transaction->amount) }}</td>
+        </tr>
+        <tr>
+            <td style="{{ $labelStyle }}">Service fee</td>
+            <td style="{{ $valueStyle }}">{{ $money($transaction->service_fee) }}</td>
+        </tr>
+        <tr>
+            <td style="padding:12px 0;font-size:15px;font-weight:700;color:#1b1f1b;">Total charged</td>
+            <td style="padding:12px 0;text-align:right;font-size:17px;font-weight:700;color:#1b720c;">{{ $money($charged) }}</td>
+        </tr>
+    </table>
 
-            <!-- Support Box -->
-            <div class="support-box">
-                <strong>Need Help?</strong><br>
-                If you have any questions about this transaction, please contact our support team.
-            </div>
-        </div>
+    {{--
+        Before → after. This is the part that makes the receipt verifiable: the
+        customer can check both figures against their own memory of the wallet,
+        so any discrepancy is immediately visible rather than something they
+        would have to work out.
+    --}}
+    @if(! is_null($balanceBefore) && ! is_null($balanceAfter))
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:14px 0 0;background-color:#f7f8f7;border:1px solid #dfe3df;border-radius:10px;">
+            <tr>
+                <td align="center" style="padding:16px;">
+                    <p style="margin:0 0 10px;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#98a298;">
+                        Wallet balance
+                    </p>
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
+                        <tr>
+                            <td style="padding:0 10px;text-align:center;">
+                                <p style="margin:0;font-size:11px;color:#98a298;">Before</p>
+                                <p style="margin:2px 0 0;font-size:16px;font-weight:600;color:#6f7a6f;">{{ $money($balanceBefore) }}</p>
+                            </td>
+                            <td style="padding:0 6px;font-size:18px;color:#98a298;">&rarr;</td>
+                            <td style="padding:0 10px;text-align:center;">
+                                <p style="margin:0;font-size:11px;color:#98a298;">After</p>
+                                <p style="margin:2px 0 0;font-size:18px;font-weight:700;color:#1b1f1b;">{{ $money($balanceAfter) }}</p>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    @elseif(! is_null($balanceAfter))
+        <p style="margin:14px 0 0;font-size:14px;color:#6f7a6f;">
+            Wallet balance after this transaction:
+            <strong style="color:#1b1f1b;">{{ $money($balanceAfter) }}</strong>
+        </p>
+    @endif
 
-        <!-- Footer -->
-        <div class="footer">
-            <p>This is an automated email from {{ config('app.name') }}.</p>
-            <p>© {{ date('Y') }} {{ config('app.name') }}. All rights reserved.</p>
-        </div>
-    </div>
-</body>
-</html>
+    {{-- Identifiers, for support and for the customer's own records. --}}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:18px 0 0;background-color:#f7f8f7;border:1px dashed #dfe3df;border-radius:8px;">
+        <tr>
+            <td style="padding:14px;">
+                <p style="margin:0 0 4px;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#98a298;">
+                    Your reference
+                </p>
+                <p style="margin:0 0 10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:15px;font-weight:700;color:#1b1f1b;word-break:break-all;">
+                    {{ $transaction->reference }}
+                </p>
+                @if($transaction->uuid)
+                    <p style="margin:0 0 4px;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#98a298;">
+                        Gateway reference
+                    </p>
+                    <p style="margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;color:#6f7a6f;word-break:break-all;">
+                        {{ $transaction->uuid }}
+                    </p>
+                @endif
+            </td>
+        </tr>
+    </table>
+
+    {{-- Security block --}}
+    <h2 style="margin:24px 0 4px;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#98a298;">
+        Security details
+    </h2>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:14px;border-top:1px solid #dfe3df;">
+        @foreach($auditRows as $label => $value)
+            <tr>
+                <td style="{{ $labelStyle }}">{{ $label }}</td>
+                <td style="{{ $valueStyle }}">{{ $value }}</td>
+            </tr>
+        @endforeach
+    </table>
+
+    {{-- The "was this you?" panel. This is the single most useful thing a
+         transaction email can do: it is read at the moment of doubt. --}}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:18px 0 0;background-color:#fffbeb;border:1px solid #fde68a;border-radius:10px;">
+        <tr>
+            <td style="padding:16px;">
+                <p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#b45309;">
+                    Wasn't you? Act now.
+                </p>
+                <p style="margin:0 0 10px;font-size:13px;line-height:1.65;color:#1b1f1b;">
+                    This transaction was authorised with your ReUp transaction PIN@if($device), from the
+                    {{ $device }} shown above@endif. If you did not make it, your PIN may
+                    have been seen by someone else. Do all three of these immediately:
+                </p>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:13px;color:#1b1f1b;">
+                    <tr>
+                        <td style="padding:3px 0;vertical-align:top;width:18px;font-weight:700;color:#b45309;">1.</td>
+                        <td style="padding:3px 0;line-height:1.6;">Change your ReUp password.</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:3px 0;vertical-align:top;width:18px;font-weight:700;color:#b45309;">2.</td>
+                        <td style="padding:3px 0;line-height:1.6;">Change your transaction PIN in Profile &rarr; Security.</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:3px 0;vertical-align:top;width:18px;font-weight:700;color:#b45309;">3.</td>
+                        <td style="padding:3px 0;line-height:1.6;">
+                            Contact us with reference
+                            <strong style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;">{{ $transaction->reference }}</strong>.
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:14px 0 0;background-color:#f7f8f7;border-radius:10px;">
+        <tr>
+            <td style="padding:14px;">
+                <p style="margin:0 0 8px;font-size:12px;font-weight:700;color:#464e46;">
+                    ReUp will never ask you for:
+                </p>
+                <p style="margin:0;font-size:12px;line-height:1.7;color:#6f7a6f;">
+                    your password &middot; your transaction PIN &middot; a code sent to your phone
+                    or email &middot; your card number or CVV &middot; a transfer to "verify" your
+                    account. Anyone who asks for any of these is attempting fraud, no matter how
+                    official they sound. We do not phone customers to request them, and we never
+                    ask you to install an app to receive a refund.
+                </p>
+            </td>
+        </tr>
+    </table>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0 0;">
+        <tr>
+            <td style="background-color:#2AB70D;border-radius:8px;">
+                <a href="{{ route('wallet.history') }}"
+                   style="display:inline-block;padding:12px 22px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;">
+                    View in your dashboard
+                </a>
+            </td>
+        </tr>
+    </table>
+
+    <p style="margin:16px 0 0;font-size:12px;color:#98a298;line-height:1.6;">
+        Keep this email. It is your proof of purchase and contains the reference we will
+        ask for if you need to raise a dispute. Please do not forward it — it contains
+        details about your account.
+    </p>
+</x-emails.base>

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class Transactions extends Model
 {
@@ -14,6 +15,7 @@ class Transactions extends Model
     protected $fillable = [
         'user_id',
         'reference',
+        'uuid',
         'type',
         'service_type',
         'description',
@@ -57,6 +59,40 @@ class Transactions extends Model
         'status_badge',
     ];
 
+    /**
+     * Every transaction gets a UUID, and a display reference if the caller did
+     * not supply one.
+     *
+     * Doing this in a `creating` hook rather than at each of the four call sites
+     * means a transaction created by any future code path — including a console
+     * command or a test — is still addressable by the reconciler. A null uuid
+     * would silently drop that row out of every Paystack poll.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (self $transaction) {
+            if (empty($transaction->uuid)) {
+                $transaction->uuid = (string) Str::uuid();
+            }
+
+            if (empty($transaction->reference)) {
+                $transaction->reference = self::generateReference();
+            }
+        });
+    }
+
+    /**
+     * The identifier handed to the payment gateway.
+     *
+     * Falls back to `reference` for rows created before `uuid` existed, so the
+     * callback path keeps working for any in-flight transaction across the
+     * deploy.
+     */
+    public function gatewayReference(): string
+    {
+        return (string) ($this->uuid ?: $this->reference);
+    }
+
     // Relationships
     public function user()
     {
@@ -74,32 +110,43 @@ class Transactions extends Model
         return '₦' . number_format($this->total_amount, 2);
     }
 
-    public function getServiceTypeBadgeAttribute()
+    /**
+     * Badge classes for the service type.
+     *
+     * Returns design-system badge variants rather than raw Tailwind shades, so
+     * the badges follow the brand palette and stay consistent with every other
+     * status chip in the product. Views render these as `badge {{ ... }}`.
+     */
+    public function getServiceTypeBadgeAttribute(): string
     {
-        $badges = [
-            'airtime' => 'bg-blue-100 text-blue-800',
-            'data' => 'bg-purple-100 text-purple-800',
-            'funding' => 'bg-green-100 text-green-800',
-            'cable-tv' => 'bg-red-100 text-red-800',
-            'electricity' => 'bg-yellow-100 text-yellow-800',
-            'exam' => 'bg-indigo-100 text-indigo-800',
-            'transfer' => 'bg-gray-100 text-gray-800',
-        ];
-
-        return $badges[$this->service_type] ?? 'bg-gray-100 text-gray-800';
+        return match ($this->service_type) {
+            'airtime' => 'badge-primary',
+            'data' => 'badge-info',
+            'funding' => 'badge-success',
+            'cable-tv' => 'badge-warning',
+            'electricity' => 'badge-warning',
+            'exam' => 'badge-neutral',
+            'refund' => 'badge-success',
+            'transfer' => 'badge-neutral',
+            'manual_adjustment' => 'badge-neutral',
+            default => 'badge-neutral',
+        };
     }
 
-    public function getStatusBadgeAttribute()
+    /**
+     * Badge classes for the transaction status.
+     */
+    public function getStatusBadgeAttribute(): string
     {
-        $badges = [
-            'pending' => 'bg-yellow-100 text-yellow-800',
-            'processing' => 'bg-blue-100 text-blue-800',
-            'success' => 'bg-green-100 text-green-800',
-            'failed' => 'bg-red-100 text-red-800',
-            'cancelled' => 'bg-gray-100 text-gray-800',
-        ];
-
-        return $badges[$this->status] ?? 'bg-gray-100 text-gray-800';
+        return match ($this->status) {
+            'success' => 'badge-success',
+            'processing' => 'badge-info',
+            'pending' => 'badge-warning',
+            'verifying' => 'badge-warning',
+            'failed' => 'badge-destructive',
+            'cancelled' => 'badge-neutral',
+            default => 'badge-neutral',
+        };
     }
 
     // Methods - Make this STATIC
@@ -145,11 +192,17 @@ class Transactions extends Model
         ]);
     }
 
-    // Generate unique transaction reference - STATIC
+    /**
+     * Unique display reference.
+     *
+     * Kept on the model so the `creating` hook has no dependency on
+     * WalletService, which would create a circular service dependency for any
+     * caller that builds a transaction before a wallet service is available.
+     */
     public static function generateReference($prefix = 'TXN')
     {
         do {
-            $reference = $prefix . '-' . strtoupper(uniqid());
+            $reference = $prefix . '-' . now()->format('ymd') . '-' . strtoupper(Str::random(12));
         } while (self::where('reference', $reference)->exists());
 
         return $reference;
@@ -159,6 +212,33 @@ class Transactions extends Model
     public function scopeSuccessful($query)
     {
         return $query->where('status', 'success');
+    }
+
+    /**
+     * Match a transaction by any of its identifiers.
+     *
+     * Three columns can legitimately hold "the reference" depending on where the
+     * value came from: `reference` (what the customer sees), `uuid` (what the
+     * gateway was given), and `api_reference` (what the gateway echoed back).
+     * Callbacks, webhooks and status polls all arrive holding one of the three,
+     * and which one depends on the code path that produced it.
+     *
+     * Centralised here because scattering the three-way OR across a dozen call
+     * sites is exactly how one of them ends up missing a column — which is what
+     * happened when `uuid` was introduced, and would have silently broken the
+     * funding callback.
+     */
+    public function scopeWhereReference($query, ?string $reference)
+    {
+        if (blank($reference)) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->where(function ($q) use ($reference) {
+            $q->where('reference', $reference)
+                ->orWhere('uuid', $reference)
+                ->orWhere('api_reference', $reference);
+        });
     }
 
     public function scopePending($query)

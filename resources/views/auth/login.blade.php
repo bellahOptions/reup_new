@@ -1,113 +1,98 @@
 <x-guest-layout>
-    @section('title', 'Login to Your ReUp Account - Secure Sign In')
-    <div class="min-h-screen flex">
-        <!-- Left Side - Form -->
-        <div class="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8 bg-white">
-            <div class="w-full max-w-md space-y-8">
-                <!-- Logo & Header -->
-                <div class="text-center">
-                    <a href="{{route('home')}}">
-                        <img src="{{ asset('images/reup-03.svg') }}" alt="ReUp Logo" class="h-12 mx-auto mb-8">
-                    </a>
-                    <h2 class="text-3xl md:text-4xl font-bold text-gray-900 mb-2">
-                        Welcome back! 👋
-                    </h2>
-                    <p class="text-gray-600 text-sm md:text-base">
-                        Sign in to continue to your account
-                    </p>
+    @section('title', 'Sign in')
+
+    <div class="card">
+        <div class="card-content sm:p-7">
+            <div class="mb-6">
+                <h1 class="text-2xl font-semibold tracking-tight">Welcome back</h1>
+                <p class="mt-1.5 text-sm text-muted-foreground">
+                    Sign in to fund your wallet and pay bills.
+                </p>
+            </div>
+
+            @if(session('status'))
+                <div class="mb-5 flex items-start gap-2.5 rounded-lg border border-brand-200 bg-accent px-3.5 py-3">
+                    <x-icon name="information-circle" variant="solid" class="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
+                    <p class="text-sm text-accent-foreground">{{ session('status') }}</p>
+                </div>
+            @endif
+
+            <form method="POST" action="{{ route('login') }}" class="space-y-5">
+                @csrf
+
+                <div>
+                    <label for="email" class="label">Email address</label>
+                    <input
+                        id="email"
+                        name="email"
+                        type="email"
+                        value="{{ old('email') }}"
+                        required
+                        autofocus
+                        autocomplete="username"
+                        placeholder="you@example.com"
+                        class="input mt-1.5 @error('email') input-error @enderror">
+                    @error('email')
+                        <p class="field-error">{{ $message }}</p>
+                    @enderror
                 </div>
 
-                <!-- Session Status -->
-                <x-auth-session-status class="mb-4" :status="session('status')" />
-
-                <form method="POST" action="{{ route('login') }}" class="space-y-6">
-                    @csrf
-
-                    <!-- Email Address -->
-                    <div>
-                        <x-label for="email" :value="__('Email')" class="text-gray-700 font-semibold mb-2" />
-                        <x-input 
-                            id="email" 
-                            class="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200" 
-                            type="email" 
-                            name="email" 
-                            :value="old('email')" 
-                            required 
-                            autofocus 
-                            autocomplete="username"
-                            placeholder="your@email.com" />
-                        <x-input-error :messages="$errors->get('email')" class="mt-2" />
-                    </div> 
-
-                    <!-- Password -->
-                    <div>
-                        <div class="flex items-center justify-between mb-2">
-                            <x-label for="password" :value="__('Password')" class="text-gray-700 font-semibold" />
-                            @if (Route::has('password.request'))
-                                <a class="text-sm text-green-600 hover:text-green-700 font-medium transition-colors duration-200" href="{{ route('password.request') }}">
-                                    {{ __('Forgot?') }}
-                                </a>
-                            @endif
-                        </div>
-                        <x-input 
-                            id="password" 
-                            class="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                            type="password"
-                            name="password"
-                            required 
-                            autocomplete="current-password" 
-                            placeholder="Enter your password" />
-                        <x-input-error :messages="$errors->get('password')" class="mt-2" />
+                <div>
+                    <div class="flex items-center justify-between">
+                        <label for="password" class="label">Password</label>
+                        @if(Route::has('password.request'))
+                            <a href="{{ route('password.request') }}" class="link text-xs font-medium">Forgot password?</a>
+                        @endif
                     </div>
+                    <input
+                        id="password"
+                        name="password"
+                        type="password"
+                        required
+                        autocomplete="current-password"
+                        placeholder="••••••••"
+                        class="input mt-1.5 @error('password') input-error @enderror">
+                    @error('password')
+                        <p class="field-error">{{ $message }}</p>
+                    @enderror
+                </div>
 
-                    <!-- Remember Me -->
-                    <div class="flex items-center">
-                        <input 
-                            id="remember_me" 
-                            type="checkbox" 
-                            class="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500 transition-all duration-200" 
-                            name="remember">
-                        <label for="remember_me" class="ml-2 block text-sm text-gray-700">
-                            {{ __('Remember me') }}
-                        </label>
-                    </div>
+                <label for="remember_me" class="flex cursor-pointer items-center gap-2.5">
+                    <input id="remember_me" name="remember" type="checkbox" class="checkbox">
+                    <span class="text-sm text-muted-foreground">Keep me signed in on this device</span>
+                </label>
 
-                    <!-- Submit Button -->
-                    <div>
-                        <x-button class="w-full justify-center bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded-xl shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all duration-200">
-                            {{ __('Sign in') }} 🚀
-                        </x-button>
-                    </div>
+                <button type="submit" class="btn btn-primary w-full">
+                    Sign in
+                    <x-icon name="arrow-right" class="h-4 w-4" />
+                </button>
+            </form>
 
-                    <!-- Divider -->
-                    <div class="relative">
-                        <div class="absolute inset-0 flex items-center">
-                            <div class="w-full border-t border-gray-300"></div>
-                        </div>
-                        <div class="relative flex justify-center text-sm">
-                            <span class="px-2 bg-white text-gray-500">Or</span>
-                        </div>
-                    </div>
+            @if(Route::has('login.code'))
+                <div class="my-5 flex items-center gap-3">
+                    <span class="h-px flex-1 bg-border"></span>
+                    <span class="text-xs uppercase tracking-wide text-muted-foreground">or</span>
+                    <span class="h-px flex-1 bg-border"></span>
+                </div>
 
-                    <!-- Sign Up Link -->
-                    <div class="text-center">
-                        <p class="text-sm text-gray-600">
-                            Don't have an account?
-                            <a href="{{ route('register') }}" class="font-semibold text-green-600 hover:text-green-700 transition-colors duration-200">
-                                Sign up for free
-                            </a>
-                        </p>
-                    </div>
-                </form>
-            </div>
+                <a href="{{ route('login.code') }}" class="btn btn-outline w-full">
+                    <x-icon name="envelope" class="h-4 w-4" />
+                    Sign in with a one-time code
+                </a>
+            @endif
         </div>
 
-        <!-- Right Side - Image/Brand (Hidden on mobile) -->
-        <div class="hidden lg:flex lg:flex-1 bg-gradient-to-br from-green-500 to-green-800 relative overflow-hidden">            
-            <div class="relative z-10 flex flex-col items-center justify-center text-center p-12">
-                <img src="{{ asset('images/appcard.png')}}" alt="Reup Logo" class="h-auto mb-6">
-                </div>
-            </div>
+        <div class="card-footer justify-center">
+            <p class="text-sm text-muted-foreground">
+                New to ReUp?
+                <a href="{{ route('register') }}" class="link font-medium">Create an account</a>
+            </p>
         </div>
     </div>
+
+    <p class="mt-6 text-center text-xs text-muted-foreground">
+        By signing in you agree to our
+        <a href="{{ route('terms-of-service') }}" class="link">terms</a> and
+        <a href="{{ route('privacy-policy') }}" class="link">privacy policy</a>.
+    </p>
 </x-guest-layout>

@@ -20,8 +20,9 @@ use App\Services\ClubKonnectService;
 
 class DashboardController extends Controller
 {
-      protected $clubKonnectService;
-    
+    protected PaystackController $paystackController;
+    protected ClubKonnectService $clubKonnectService;
+
     public function __construct(PaystackController $paystackController, ClubKonnectService $clubKonnectService)
     {
         $this->paystackController = $paystackController;
@@ -38,31 +39,41 @@ class DashboardController extends Controller
         // Get chart data
         $chartData = $this->getChartData();
     
+        /*
+         * Gateway figures come from PaystackService, not PaystackController.
+         *
+         * The controller actions return JsonResponse (they serve the AJAX
+         * endpoints), so treating them as arrays threw
+         * "Cannot use object of type Illuminate\Http\JsonResponse as array" and
+         * the whole admin dashboard was a 500. The service returns plain arrays
+         * and also caches, so the dashboard no longer makes a gateway call per
+         * page load.
+         */
         try {
-             $paystackBalance = $this->paystackController->getBalance();
-            
-            // Get Paystack transaction stats
-            $paystackStats = $this->paystackController->getTransactionStats('today');
-        
-        Log::info('Paystack data fetched for dashboard', [
-            'balance_success' => $paystackBalance['success'] ?? false,
-            'stats_success' => $paystackStats['success'] ?? false
-        ]);
-            
-        } catch (\Exception $e) {
+            $paystack = app(\App\Services\PaystackService::class);
+
+            $paystackBalance = $paystack->isConfigured()
+                ? $paystack->balance()
+                : ['success' => false, 'amount' => 0, 'currency' => 'NGN', 'message' => 'Not configured'];
+
+            $paystackStats = $paystack->isConfigured()
+                ? $paystack->transactionTotals('today')
+                : ['success' => false, 'total_transactions' => 0, 'total_volume' => 0, 'pending_transfers' => 0];
+        } catch (\Throwable $e) {
             Log::error('Failed to fetch Paystack data for dashboard: ' . $e->getMessage());
+
             $paystackBalance = [
                 'amount' => 0,
                 'currency' => 'NGN',
                 'success' => false,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ];
             $paystackStats = [
                 'success' => false,
                 'total_transactions' => 0,
                 'total_volume' => 0,
                 'pending_transfers' => 0,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ];
         }
         
@@ -132,6 +143,14 @@ class DashboardController extends Controller
         'clubkonnect_phone' => $clubKonnectBalance['phone'] ?? null,
         ]);
         
+        // Recent activity feed
+        $recentLogs = \App\Models\AdminLog::with('user')->latest()->limit(8)->get();
+
+        // Upstream floats for every configured provider. A shortfall here is the
+        // single most likely cause of failed vends, so it belongs on the
+        // dashboard rather than buried in a log.
+        $providerBalances = app(\App\Services\BillPaymentService::class)->providerBalances();
+
         return view('admin.dashboard.index', compact(
             'stats', 
             'recentTransactions', 
@@ -141,8 +160,32 @@ class DashboardController extends Controller
             'contactStats',
             'userStats',
             'onlineUsers',
-            'recentChats'
+            'recentChats',
+            'recentLogs',
+            'providerBalances'
         ));
+    }
+
+    /**
+     * Badge counts rendered in the admin sidebar.
+     *
+     * The layout has always read `$pendingTransfers` but no controller ever
+     * shared it, so the bank-transfer badge never appeared. Registered as a
+     * view composer from AppServiceProvider instead of being duplicated in
+     * every controller.
+     */
+    public static function sidebarCounts(): array
+    {
+        return Cache::remember('admin.sidebar_counts', 30, function () {
+            return [
+                'pendingTransfers' => Transactions::where('service_type', 'funding')
+                    ->where('payment_method', 'bank_transfer')
+                    ->whereIn('status', ['pending', 'verifying'])
+                    ->count(),
+                'unreadContacts' => ContactMessage::where('is_read', false)->count(),
+                'pendingChats' => ChatSession::where('status', 'pending')->count(),
+            ];
+        });
     }
 
     // Get dashboard statistics
@@ -153,19 +196,13 @@ class DashboardController extends Controller
         $thisMonth = Carbon::now()->startOfMonth();
 
         return [
-            'online_admins' => User::where(function($q) {
-                $q->where('is_admin', true)->orWhere('is_super_admin', true);
-            })->where('is_online', true)->count(),
-
-            'admin_permissions' => auth()->user()->hasPermission('chat') ? 'Chat Access: ✅' : 'Chat Access: ❌',
+            'online_admins' => User::admins()->where('is_online', true)->count(),
 
             // User Stats
-            'total_users' => User::where('is_admin', false)->where('is_super_admin', false)->count(),
-            'new_users_today' => User::where('is_admin', false)->where('is_super_admin', false)
-                ->whereDate('created_at', $today)->count(),
-            'active_users' => User::where('is_admin', false)->where('is_super_admin', false)
-                ->where('last_login_at', '>=', $today->subDays(30))->count(),
-            'total_admins' => User::where('is_admin', true)->orWhere('is_super_admin', true)->count(),
+            'total_users' => User::regularUsers()->count(),
+            'new_users_today' => User::regularUsers()->whereDate('created_at', $today)->count(),
+            'active_users' => User::regularUsers()->where('last_login_at', '>=', $today->copy()->subDays(30))->count(),
+            'total_admins' => User::admins()->count(),
 
             // Transaction Stats
             'total_transactions' => Transactions::count(),
@@ -310,6 +347,69 @@ class DashboardController extends Controller
 
    
     
+    /**
+     * Transaction counts grouped by service type.
+     *
+     * Registered at admin.stats.transactions-by-type but the method did not
+     * exist, so the endpoint 500'd.
+     */
+    public function transactionsByType(Request $request)
+    {
+        $days = (int) $request->input('days', 30);
+        $days = max(1, min($days, 365));
+
+        $rows = Transactions::select('service_type', DB::raw('COUNT(*) as count'), DB::raw('SUM(amount) as volume'))
+            ->where('created_at', '>=', now()->subDays($days))
+            ->groupBy('service_type')
+            ->orderByDesc('count')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'period_days' => $days,
+            'labels' => $rows->map(fn ($row) => ucfirst(str_replace('-', ' ', (string) $row->service_type))),
+            'counts' => $rows->pluck('count')->map(fn ($v) => (int) $v),
+            'volumes' => $rows->pluck('volume')->map(fn ($v) => (float) $v),
+            'total' => (int) $rows->sum('count'),
+        ]);
+    }
+
+    /**
+     * Transaction counts grouped by status.
+     */
+    public function transactionsByStatus(Request $request)
+    {
+        $days = (int) $request->input('days', 30);
+        $days = max(1, min($days, 365));
+
+        $rows = Transactions::select('status', DB::raw('COUNT(*) as count'))
+            ->where('created_at', '>=', now()->subDays($days))
+            ->groupBy('status')
+            ->get();
+
+        $counts = [
+            'success' => 0,
+            'pending' => 0,
+            'processing' => 0,
+            'failed' => 0,
+            'cancelled' => 0,
+        ];
+
+        foreach ($rows as $row) {
+            $counts[(string) $row->status] = (int) $row->count;
+        }
+
+        $total = array_sum($counts);
+
+        return response()->json([
+            'success' => true,
+            'period_days' => $days,
+            'statuses' => $counts,
+            'total' => $total,
+            'success_rate' => $total > 0 ? round(($counts['success'] / $total) * 100, 1) : 0.0,
+        ]);
+    }
+
     /**
      * Get online users for AJAX
      */

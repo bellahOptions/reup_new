@@ -21,8 +21,23 @@
         <server name="APP_ENV" value="testing"/>
         <server name="BCRYPT_ROUNDS" value="4"/>
         <server name="CACHE_DRIVER" value="array"/>
-        <!-- <server name="DB_CONNECTION" value="sqlite"/> -->
-        <!-- <server name="DB_DATABASE" value=":memory:"/> -->
+        <!--
+            Test database isolation. These MUST stay uncommented.
+
+            With no DB_* override here, the suite runs against whatever .env
+            points at — which for this project is the development database. Tests
+            use RefreshDatabase, i.e. migrate:fresh, so a plain `php artisan test`
+            silently wipes the developer's data. That is exactly what happened
+            once; the database below is a throwaway.
+
+            MySQL rather than sqlite: the migrations are not engine-portable
+            (2026_02_10_000001 uses `UPDATE ... LEFT JOIN`, which SQLite rejects),
+            so running the suite on MySQL keeps it honest about what production
+            will do. Create it once with:
+                CREATE DATABASE reup_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+        -->
+        <server name="DB_CONNECTION" value="mysql"/>
+        <server name="DB_DATABASE" value="reup_test"/>
         <server name="MAIL_MAILER" value="array"/>
         <server name="QUEUE_CONNECTION" value="sync"/>
         <server name="SESSION_DRIVER" value="array"/>

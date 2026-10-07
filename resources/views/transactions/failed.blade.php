@@ -1,133 +1,156 @@
 @extends('layouts.app')
-
+@section('title', 'Transaction failed')
 @section('content')
-<main class="min-h-screen bg-gradient-to-br from-gray-50 to-red-50/30 flex items-center justify-center py-12 px-4">
-    <div class="max-w-md w-full">
-        <!-- Failed Animation -->
-        <div class="text-center mb-8">
-            <div class="inline-flex items-center justify-center w-24 h-24 bg-red-100 rounded-full mb-4">
-                <svg class="w-12 h-12 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"></path>
-                </svg>
-            </div>
-            <h1 class="text-3xl font-bold text-gray-900 mb-2">Transaction Failed</h1>
-            <p class="text-gray-600">We couldn't complete your transaction</p>
-        </div>
+<main class="min-h-screen bg-surface">
+    <div class="container-page flex justify-center py-10 md:py-16">
+        <div class="w-full max-w-xl">
 
-        <!-- Error Message -->
-        @if($transaction->failure_reason)
-        <div class="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-r-xl">
-            <div class="flex">
-                <div class="flex-shrink-0">
-                    <span class="text-red-500 text-xl">⚠️</span>
-                </div>
-                <div class="ml-3">
-                    <h3 class="text-sm font-semibold text-red-800 mb-1">Error Details:</h3>
-                    <p class="text-sm text-red-700">{{ $transaction->failure_reason }}</p>
-                </div>
-            </div>
-        </div>
-        @endif
+            {{-- Outcome --}}
+            <header class="text-center">
+                <span class="inline-flex h-14 w-14 items-center justify-center rounded-full border border-red-200 bg-red-50 text-red-600">
+                    <x-icon name="x-mark" variant="solid" class="h-7 w-7" />
+                </span>
+                <p class="mt-5 text-xs font-semibold uppercase tracking-[0.14em] text-red-700">Not completed</p>
+                <h1 class="mt-2 text-2xl font-semibold md:text-3xl">Transaction failed</h1>
+                <p class="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+                    No money left your wallet. You can review the details below and try again.
+                </p>
+            </header>
 
-        <!-- Transaction Details Card -->
-        <div class="bg-white rounded-2xl shadow-lg border border-gray-200/60 overflow-hidden mb-6">
-            <div class="bg-gradient-to-r from-red-500 to-red-600 px-6 py-4">
-                <h2 class="text-white font-semibold text-lg">Transaction Details</h2>
-            </div>
-            
-            <div class="p-6 space-y-4">
-                <!-- Status -->
-                <div class="flex justify-between items-center pb-3 border-b border-gray-100">
-                    <span class="text-gray-600 text-sm">Status</span>
-                    <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
-                        Failed
-                    </span>
-                </div>
-
-                <!-- Reference -->
-                <div class="flex justify-between items-center pb-3 border-b border-gray-100">
-                    <span class="text-gray-600 text-sm">Reference</span>
-                    <span class="font-mono text-sm text-gray-900">{{ $transaction->reference }}</span>
-                </div>
-
-                <!-- Service Type -->
-                <div class="flex justify-between items-center pb-3 border-b border-gray-100">
-                    <span class="text-gray-600 text-sm">Service Type</span>
-                    <span class="font-semibold text-gray-900">{{ ucfirst($transaction->service_type) }}</span>
-                </div>
-
-                <!-- Recipient -->
-                <div class="flex justify-between items-center pb-3 border-b border-gray-100">
-                    <span class="text-gray-600 text-sm">Recipient</span>
-                    <span class="font-semibold text-gray-900">{{ $transaction->recipient }}</span>
-                </div>
-
-                <!-- Network -->
-                <div class="flex justify-between items-center pb-3 border-b border-gray-100">
-                    <span class="text-gray-600 text-sm">Network</span>
-                    <span class="font-semibold text-gray-900">{{ $transaction->provider }}</span>
-                </div>
-
-                @if($transaction->plan_name)
-                <!-- Plan Name -->
-                <div class="flex justify-between items-center pb-3 border-b border-gray-100">
-                    <span class="text-gray-600 text-sm">Plan</span>
-                    <span class="font-semibold text-gray-900 text-right">{{ $transaction->plan_name }}</span>
-                </div>
-                @endif
-
-                <!-- Attempted Amount -->
-                <div class="flex justify-between items-center pt-2">
-                    <span class="text-gray-900 font-semibold">Attempted Amount</span>
-                    <span class="font-bold text-gray-900 text-xl">₦{{ number_format($transaction->total_amount, 2) }}</span>
-                </div>
-
-                <!-- Balance Info -->
-                <div class="bg-blue-50 rounded-xl p-4 mt-4">
-                    <div class="flex justify-between items-center">
-                        <span class="text-blue-800 font-medium">Your Wallet Balance</span>
-                        <span class="font-bold text-blue-700 text-lg">₦{{ number_format(auth()->user()->wallet_balance, 2) }}</span>
+            {{-- Reason --}}
+            @if($transaction->failure_reason ?? $transaction->status_message)
+                <div class="mt-8 rounded-xl border border-red-200 bg-red-50 p-4">
+                    <div class="flex items-start gap-2.5">
+                        <x-icon name="exclamation-triangle" class="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+                        <div>
+                            <p class="text-sm font-semibold text-red-800">What went wrong</p>
+                            <p class="mt-1 text-sm text-red-700">
+                                {{ $transaction->failure_reason ?? $transaction->status_message }}
+                            </p>
+                        </div>
                     </div>
-                    <p class="text-xs text-blue-600 mt-2">No amount was deducted from your wallet</p>
                 </div>
+            @endif
 
-                <!-- Date & Time -->
-                <div class="text-center text-xs text-gray-500 pt-4 border-t border-gray-100">
-                    {{ $transaction->created_at->format('M d, Y • h:i A') }}
+            {{-- Attempted amount --}}
+            <div class="card mt-6">
+                <div class="card-content text-center">
+                    <p class="stat-label">Attempted amount</p>
+                    <p class="mt-2 text-3xl font-semibold tabular-nums md:text-4xl">
+                        &#8358;{{ number_format((float) $transaction->total_amount, 2) }}
+                    </p>
+                    <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
+                        <span class="badge badge-destructive">
+                            <x-icon name="x-mark" class="h-3.5 w-3.5" />
+                            {{ ucfirst((string) $transaction->status) }}
+                        </span>
+                        <span class="badge badge-neutral">{{ ucfirst((string) $transaction->service_type) }}</span>
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <!-- Common Issues -->
-        <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-6">
-            <h3 class="font-semibold text-yellow-900 mb-2 flex items-center">
-                <span class="text-lg mr-2">💡</span>
-                Common Issues:
-            </h3>
-            <ul class="text-sm text-yellow-800 space-y-1">
-                <li>• Check if the phone number is correct</li>
-                <li>• Ensure sufficient wallet balance</li>
-                <li>• Verify network selection matches phone number</li>
-                <li>• Try again in a few moments</li>
-            </ul>
-        </div>
+            {{-- Details --}}
+            <div class="card mt-6 overflow-hidden">
+                <div class="flex items-center gap-3 border-b border-border px-5 py-4">
+                    <x-icon name="document-text" class="h-4 w-4 text-muted-foreground" />
+                    <h2 class="card-title">Transaction details</h2>
+                </div>
 
-        <!-- Action Buttons -->
-        <div class="space-y-3">
-            <a href="{{ route('airtime-data.index') }}" 
-               class="block w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-4 px-6 rounded-xl text-center shadow-lg hover:shadow-xl transition-all duration-200">
-                Try Again
-            </a>
-            
-            <a href="{{ route('dashboard') }}" 
-               class="block w-full bg-white hover:bg-gray-50 text-gray-700 font-semibold py-4 px-6 rounded-xl text-center border-2 border-gray-200 transition-all duration-200">
-                Back to Dashboard
-            </a>
+                <dl class="divide-y divide-border">
+                    <div class="flex items-start justify-between gap-6 px-5 py-3.5">
+                        <dt class="text-sm text-muted-foreground">Status</dt>
+                        <dd class="text-right text-sm font-medium">{{ ucfirst((string) $transaction->status) }}</dd>
+                    </div>
 
-            <a href="#" 
-               class="block w-full text-center text-gray-600 hover:text-gray-900 font-medium text-sm py-2 transition-colors duration-200">
-                Contact Support →
-            </a>
+                    <div class="flex items-start justify-between gap-6 px-5 py-3.5">
+                        <dt class="text-sm text-muted-foreground">Reference</dt>
+                        <dd class="break-all text-right font-mono text-xs">{{ $transaction->reference }}</dd>
+                    </div>
+
+                    @if($transaction->api_reference)
+                        <div class="flex items-start justify-between gap-6 px-5 py-3.5">
+                            <dt class="text-sm text-muted-foreground">Order ID</dt>
+                            <dd class="break-all text-right font-mono text-xs">{{ $transaction->api_reference }}</dd>
+                        </div>
+                    @endif
+
+                    <div class="flex items-start justify-between gap-6 px-5 py-3.5">
+                        <dt class="text-sm text-muted-foreground">Service type</dt>
+                        <dd class="text-right text-sm font-medium">{{ ucfirst((string) $transaction->service_type) }}</dd>
+                    </div>
+
+                    <div class="flex items-start justify-between gap-6 px-5 py-3.5">
+                        <dt class="text-sm text-muted-foreground">Recipient</dt>
+                        <dd class="text-right text-sm font-medium">{{ $transaction->recipient ?: '—' }}</dd>
+                    </div>
+
+                    <div class="flex items-start justify-between gap-6 px-5 py-3.5">
+                        <dt class="text-sm text-muted-foreground">Network</dt>
+                        <dd class="text-right text-sm font-medium">{{ $transaction->provider ?: '—' }}</dd>
+                    </div>
+
+                    @if($transaction->plan_name)
+                        <div class="flex items-start justify-between gap-6 px-5 py-3.5">
+                            <dt class="text-sm text-muted-foreground">Plan</dt>
+                            <dd class="text-right text-sm font-medium">{{ $transaction->plan_name }}</dd>
+                        </div>
+                    @endif
+
+                    <div class="flex items-start justify-between gap-6 px-5 py-3.5">
+                        <dt class="text-sm text-muted-foreground">Date</dt>
+                        <dd class="text-right text-sm font-medium">{{ $transaction->created_at->format('M j, Y \a\t g:i A') }}</dd>
+                    </div>
+                </dl>
+
+                <div class="border-t border-border bg-surface px-5 py-4">
+                    <div class="flex items-start justify-between gap-6">
+                        <span class="text-sm text-muted-foreground">Your wallet balance</span>
+                        <span class="text-right text-sm font-semibold tabular-nums">
+                            &#8358;{{ number_format((float) auth()->user()->wallet_balance, 2) }}
+                        </span>
+                    </div>
+                    <p class="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <x-icon name="information-circle" class="h-3.5 w-3.5" />
+                        No amount was deducted from your wallet.
+                    </p>
+                </div>
+            </div>
+
+            {{-- Common causes --}}
+            <div class="card mt-6">
+                <div class="flex items-center gap-3 border-b border-border px-5 py-4">
+                    <x-icon name="light-bulb" class="h-4 w-4 text-muted-foreground" />
+                    <h2 class="card-title">Common causes</h2>
+                </div>
+                <div class="card-content space-y-3">
+                    @foreach([
+                        'The phone number was entered incorrectly.',
+                        'The wallet balance was below the total amount.',
+                        'The selected network did not match the phone number.',
+                        'The provider was briefly unavailable.',
+                    ] as $cause)
+                        <p class="flex items-start gap-2.5 text-sm text-muted-foreground">
+                            <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-ink-300"></span>
+                            {{ $cause }}
+                        </p>
+                    @endforeach
+                </div>
+            </div>
+
+            {{-- Actions --}}
+            <div class="mt-6 space-y-3">
+                <a href="{{ route('airtime-data.index') }}" class="btn btn-primary btn-lg w-full">
+                    <x-icon name="arrow-path" class="h-5 w-5" />
+                    Try again
+                </a>
+                <a href="{{ route('dashboard') }}" class="btn btn-outline btn-lg w-full">
+                    Back to dashboard
+                </a>
+                <a href="{{ route('contact') }}" class="btn btn-link w-full justify-center">
+                    Contact support
+                    <x-icon name="arrow-right" class="h-4 w-4" />
+                </a>
+            </div>
         </div>
     </div>
 </main>

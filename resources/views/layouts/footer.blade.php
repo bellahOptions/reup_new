@@ -1,127 +1,104 @@
-<footer id="footer" class="relative bg-gradient-to-br from-green-600 to-green-800 text-white overflow-hidden">
-    <!-- Decorative Background Elements -->
-    <div class="absolute inset-0 overflow-hidden pointer-events-none">
-        <div class="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded-full blur-3xl"></div>
-        <div class="absolute bottom-0 left-0 w-80 h-80 bg-white/5 rounded-full blur-3xl"></div>
-    </div>
+@php
+    $year = date('Y');
+    $supportEmail = config('services.support.email', 'support@reup.com.ng');
+    $supportPhone = config('services.support.phone', '+234 907 601 7916');
 
-    <!-- Main Footer Content -->
-    <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 md:py-16">
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 md:gap-12 mb-12">
-            <!-- About Section -->
-            <div class="lg:col-span-2">
-                <img src="{{ asset('images/reup-04.svg')}}" alt="Reup Logo" class="h-8 md:h-10 mb-6 brightness-0 invert">
-                <h3 class="text-xl md:text-2xl font-bold mb-4">About ReUp</h3>
-                <p class="text-sm md:text-base text-green-100 leading-relaxed max-w-md">
-                    ReUp is your go-to platform for buying airtime, data, and paying bills instantly. We prioritize speed, security, and convenience to make your transactions hassle-free. 🚀
+    $columns = [
+        'Services' => [
+            ['Airtime & Data', route('airtime-data.index')],
+            ['Cable TV', route('cable-tv.index')],
+            ['Electricity', route('electricity.index')],
+            ['WAEC e-PIN', route('waec-pin.index')],
+            ['JAMB e-PIN', route('jamb-pin.index')],
+        ],
+        'Company' => [
+            ['Pricelist', route('pricelist')],
+            ['FAQs', route('faq')],
+            ['Contact us', route('contact')],
+            ['Terms of service', route('terms-of-service')],
+            ['Privacy policy', route('privacy-policy')],
+        ],
+    ];
+
+    $socials = [
+        ['Facebook', 'https://web.facebook.com/reupByBellah/', 'M22 12.06C22 6.5 17.52 2 12 2S2 6.5 2 12.06c0 5.02 3.66 9.18 8.44 9.94v-7.03H7.9v-2.91h2.54V9.85c0-2.52 1.49-3.91 3.77-3.91 1.09 0 2.24.2 2.24.2v2.46h-1.26c-1.24 0-1.63.78-1.63 1.57v1.89h2.78l-.45 2.91h-2.33V22c4.78-.76 8.44-4.92 8.44-9.94Z'],
+        ['X', 'https://x.com/ReupNG', 'M18.24 2.25h3.31l-7.23 8.26 8.5 11.24h-6.65l-5.21-6.82-5.96 6.82H1.68l7.73-8.84L1.25 2.25h6.82l4.71 6.23 5.46-6.23Zm-1.16 17.52h1.83L7.08 4.13H5.11l11.97 15.64Z'],
+        ['Instagram', 'https://www.instagram.com/reup.ng/', 'M12 2.16c3.2 0 3.58.01 4.85.07 1.17.05 1.8.25 2.23.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.06.41 2.23.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.25 1.8-.41 2.23-.22.56-.48.96-.9 1.38-.42.42-.82.68-1.38.9-.42.16-1.06.36-2.23.41-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.8-.25-2.23-.41a3.8 3.8 0 0 1-1.38-.9 3.8 3.8 0 0 1-.9-1.38c-.16-.42-.36-1.06-.41-2.23C2.17 15.58 2.16 15.2 2.16 12s.01-3.58.07-4.85c.05-1.17.25-1.8.41-2.23.22-.56.48-.96.9-1.38.42-.42.82-.68 1.38-.9.42-.16 1.06-.36 2.23-.41C8.42 2.17 8.8 2.16 12 2.16Zm0 5.68a4.16 4.16 0 1 0 0 8.32 4.16 4.16 0 0 0 0-8.32Zm0 6.86a2.7 2.7 0 1 1 0-5.4 2.7 2.7 0 0 1 0 5.4Zm5.3-7.03a.97.97 0 1 1-1.94 0 .97.97 0 0 1 1.94 0Z'],
+    ];
+@endphp
+
+<footer class="mt-auto border-t border-ink-800 bg-ink-950 text-ink-300">
+    <div class="container-page py-14">
+        <div class="grid gap-10 lg:grid-cols-12">
+
+            {{-- Brand + contact --}}
+            <div class="lg:col-span-5">
+                <img src="{{ asset('images/reup-04.svg') }}" alt="ReUp" class="h-7 w-auto brightness-0 invert">
+
+                <p class="mt-4 max-w-sm text-sm leading-relaxed text-ink-400">
+                    ReUp is a Nigerian bill-payment platform for airtime, data, cable TV,
+                    electricity tokens and exam PINs — with wallet funding that settles in seconds.
                 </p>
-                
-                <div class="flex items-center space-x-4 mt-6">
-                    <a href="https://web.facebook.com/reupByBellah/" class="w-10 h-10 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-110">
-                        <span class="text-xl"><i class="fa-brands fa-facebook-f"></i></span>
+
+                <div class="mt-6 space-y-3 text-sm">
+                    <a href="mailto:{{ $supportEmail }}" class="flex items-center gap-2.5 text-ink-300 transition-colors hover:text-white">
+                        <x-icon name="envelope" class="h-4 w-4 text-brand-400" />
+                        {{ $supportEmail }}
                     </a>
-                    <a href="https://x.com/ReupNG" class="w-10 h-10 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-110">
-                        <span class="text-xl"><i class="fa-brands fa-x-twitter"></i></span>
+                    <a href="tel:{{ preg_replace('/\s+/', '', $supportPhone) }}" class="flex items-center gap-2.5 text-ink-300 transition-colors hover:text-white">
+                        <x-icon name="phone" class="h-4 w-4 text-brand-400" />
+                        {{ $supportPhone }}
                     </a>
-                    <a href="https://www.instagram.com/reup.ng/" class="w-10 h-10 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-110">
-                        <span class="text-xl"><i class="fa-brands fa-instagram"></i></span>
-                    </a>
+                </div>
+
+                <div class="mt-6 flex items-center gap-2">
+                    @foreach($socials as [$label, $url, $path])
+                        <a href="{{ $url }}" target="_blank" rel="noopener noreferrer"
+                           aria-label="{{ $label }}"
+                           class="flex h-9 w-9 items-center justify-center rounded-lg bg-white/5 text-ink-300 transition-colors hover:bg-white/10 hover:text-white">
+                            <svg viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4" aria-hidden="true">
+                                <path d="{{ $path }}" />
+                            </svg>
+                        </a>
+                    @endforeach
                 </div>
             </div>
 
-            <!-- Quick Links -->
-            <div>
-                <h3 class="text-lg md:text-xl font-bold mb-6">Quick Links</h3>
-                <ul class="space-y-3">
-                    <li>
-                        <a href="#" class="text-sm md:text-base text-green-100 hover:text-white hover:translate-x-1 inline-block transition-all duration-300">
-                            → Home
-                        </a>
-                    </li>
-                    <li>
-                        <a href="#" class="text-sm md:text-base text-green-100 hover:text-white hover:translate-x-1 inline-block transition-all duration-300">
-                            → Buy Airtime
-                        </a>
-                    </li>
-                    <li>
-                        <a href="#" class="text-sm md:text-base text-green-100 hover:text-white hover:translate-x-1 inline-block transition-all duration-300">
-                            → Buy Data
-                        </a>
-                    </li>
-                    <li>
-                        <a href="#" class="text-sm md:text-base text-green-100 hover:text-white hover:translate-x-1 inline-block transition-all duration-300">
-                            → Pay Bills
-                        </a>
-                    </li>
-                    <li>
-                        <a href="#" class="text-sm md:text-base text-green-100 hover:text-white hover:translate-x-1 inline-block transition-all duration-300">
-                            → Contact
-                        </a>
-                    </li>
-                </ul>
-            </div>
+            {{-- Link columns --}}
+            @foreach($columns as $heading => $links)
+                <div class="lg:col-span-2">
+                    <h3 class="text-xs font-semibold uppercase tracking-[0.14em] text-ink-500">{{ $heading }}</h3>
+                    <ul class="mt-4 space-y-2.5">
+                        @foreach($links as [$label, $href])
+                            <li>
+                                <a href="{{ $href }}" class="text-sm text-ink-400 transition-colors hover:text-white">{{ $label }}</a>
+                            </li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endforeach
 
-            <!-- Contact Section -->
-            <div>
-                <h3 class="text-lg md:text-xl font-bold mb-6">Contact Us</h3>
-                <p class="text-sm md:text-base text-green-100 leading-relaxed mb-4">
-                    Have questions or need assistance? Reach out to our support team:
+            {{-- Trust --}}
+            <div class="lg:col-span-3">
+                <h3 class="text-xs font-semibold uppercase tracking-[0.14em] text-ink-500">Payments</h3>
+                <p class="mt-4 text-sm text-ink-400">
+                    Fund your wallet by card or direct bank transfer. All connections are
+                    encrypted end to end.
                 </p>
-                
-                <div class="space-y-3">
-                    <div class="flex items-start space-x-3">
-                        <span class="text-lg mt-0.5">📧</span>
-                        <div>
-                            <p class="text-xs text-green-200 mb-1">Email</p>
-                            <a href="mailto:support@reup.com.ng" class="text-sm md:text-base text-white hover:text-green-200 transition-colors duration-300 font-medium">
-                                support@reup.com.ng
-                            </a>
-                        </div>
-                    </div>
-                    
-                    <div class="flex items-start space-x-3">
-                        <span class="text-lg mt-0.5">📱</span>
-                        <div>
-                            <p class="text-xs text-green-200 mb-1">Phone</p>
-                            <a href="tel:+2341234567890" class="text-sm md:text-base text-white hover:text-green-200 transition-colors duration-300 font-medium">
-                                +234 907 601 7916
-                            </a>
-                        </div>
-                    </div>
+                <div class="mt-4 inline-flex items-center gap-2 rounded-lg bg-white/5 px-3 py-2 text-xs text-ink-300">
+                    <x-icon name="shield-check" variant="solid" class="h-4 w-4 text-brand-400" />
+                    PCI-DSS compliant gateway
                 </div>
             </div>
         </div>
 
-        <!-- Bottom Bar -->
-        <div class="border-t border-white/20 pt-8">
-            <div class="flex flex-col md:flex-row items-center justify-between space-y-4 md:space-y-0">
-                <div class="text-center md:text-left">
-                    <p class="text-sm md:text-base text-green-100">
-                        &copy; {{ date('Y') }} ReUp. All rights reserved.
-                    </p>
-                </div>
-                
-                <div class="text-center md:text-right">
-                    <p class="text-sm text-green-100">
-                        Created, Maintained and managed by 
-                        <a href="https://www.bellahoptions.com" target="_blank" rel="noopener noreferrer" class="text-white hover:text-green-200 transition-colors duration-300 font-semibold inline-flex items-center">
-                            Bellah Options
-                            <svg class="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
-                            </svg>
-                        </a>
-                    </p>
-                </div>
-            </div>
-
-            <!-- Additional Links (Optional) -->
-            <div class="flex flex-wrap items-center justify-center gap-4 md:gap-6 mt-6 text-xs md:text-sm text-green-200">
-                <a href="{{ route('privacy-policy') }}" class="hover:text-white transition-colors duration-300">Privacy Policy</a>
-                <span class="text-green-300">•</span>
-                <a href="{{ route('terms-of-service') }}" class="hover:text-white transition-colors duration-300">Terms of Service</a>
-                <span class="text-green-300">•</span>
-                <a href="{{ route('faq') }}" class="hover:text-white transition-colors duration-300">FAQ</a>
-            </div>
+        <div class="mt-12 flex flex-col items-center justify-between gap-4 border-t border-ink-800 pt-6 sm:flex-row">
+            <p class="text-xs text-ink-500">&copy; {{ $year }} ReUp. All rights reserved.</p>
+            <p class="text-xs text-ink-500">
+                Built and operated by
+                <a href="https://www.bellahoptions.com" target="_blank" rel="noopener noreferrer"
+                   class="font-medium text-ink-300 transition-colors hover:text-white">Bellah Options</a>
+            </p>
         </div>
     </div>
 </footer>

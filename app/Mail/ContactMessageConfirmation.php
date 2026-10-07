@@ -11,19 +11,14 @@ class ContactMessageConfirmation extends Mailable
 {
     use Queueable, SerializesModels;
 
-    public $contactMessage;
-
-    public function __construct(ContactMessage $contactMessage)
+    public function __construct(public ContactMessage $contactMessage)
     {
-        $this->contactMessage = $contactMessage;
     }
 
     public function build()
     {
-        return $this->subject('✅ Message Received - ' . config('app.name'))
-                    ->view('emails.contact.confirmation')
-                    ->with([
-                        'contact' => $this->contactMessage
-                    ]);
+        return $this->subject('We received your message — ' . config('app.name'))
+            ->view('emails.contact.confirmation')
+            ->with(['contact' => $this->contactMessage]);
     }
 }

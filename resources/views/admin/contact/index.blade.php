@@ -1,163 +1,162 @@
 @extends('admin.layouts.app')
 
 @section('title', 'Contact Messages')
+@section('page-title', 'Messages')
+@section('page-description', 'Customer enquiries submitted through the contact form.')
 
 @section('content')
-<div class="py-6">
-    <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
-        <!-- Page Header -->
-        <div class="mb-8">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-3">
-                    <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg">
-                        <span class="text-2xl">📧</span>
-                    </div>
-                    <div>
-                        <h1 class="text-3xl font-bold text-gray-900">Contact Messages</h1>
-                        <p class="text-gray-600 mt-1">Manage customer inquiries and support requests</p>
-                    </div>
+<div class="space-y-6">
+
+    {{-- ============================ Metrics ============================ --}}
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="card">
+            <div class="card-content">
+                <div class="flex items-start justify-between gap-3">
+                    <span class="stat-label">Total messages</span>
+                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+                        <x-icon name="envelope" class="h-4 w-4" />
+                    </span>
                 </div>
+                <p class="stat-value mt-2">{{ number_format($stats['total'] ?? 0) }}</p>
             </div>
         </div>
 
-        <!-- Stats Cards -->
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                <div class="flex items-center justify-between mb-2">
-                    <span class="text-sm font-medium text-gray-600">Total Messages</span>
-                    <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                        <span class="text-xl">📬</span>
-                    </div>
+        <div class="card">
+            <div class="card-content">
+                <div class="flex items-start justify-between gap-3">
+                    <span class="stat-label">Unread</span>
+                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-700">
+                        <x-icon name="inbox" class="h-4 w-4" />
+                    </span>
                 </div>
-                <h3 class="text-2xl font-bold text-gray-900">{{ $stats['total'] ?? 0 }}</h3>
-            </div>
-
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                <div class="flex items-center justify-between mb-2">
-                    <span class="text-sm font-medium text-gray-600">Unread</span>
-                    <div class="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center">
-                        <span class="text-xl">📩</span>
-                    </div>
-                </div>
-                <h3 class="text-2xl font-bold text-yellow-600">{{ $stats['unread'] ?? 0 }}</h3>
-            </div>
-
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                <div class="flex items-center justify-between mb-2">
-                    <span class="text-sm font-medium text-gray-600">Pending Response</span>
-                    <div class="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-                        <span class="text-xl">⏳</span>
-                    </div>
-                </div>
-                <h3 class="text-2xl font-bold text-red-600">{{ $stats['pending'] ?? 0 }}</h3>
-            </div>
-
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                <div class="flex items-center justify-between mb-2">
-                    <span class="text-sm font-medium text-gray-600">Today</span>
-                    <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                        <span class="text-xl">📨</span>
-                    </div>
-                </div>
-                <h3 class="text-2xl font-bold text-green-600">{{ $stats['today'] ?? 0 }}</h3>
+                <p class="stat-value mt-2">{{ number_format($stats['unread'] ?? 0) }}</p>
             </div>
         </div>
 
-        <!-- Messages List -->
-        <div class="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+        <div class="card">
+            <div class="card-content">
+                <div class="flex items-start justify-between gap-3">
+                    <span class="stat-label">Awaiting response</span>
+                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-700">
+                        <x-icon name="clock" variant="solid" class="h-4 w-4" />
+                    </span>
+                </div>
+                <p class="stat-value mt-2">{{ number_format($stats['pending'] ?? 0) }}</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-content">
+                <div class="flex items-start justify-between gap-3">
+                    <span class="stat-label">Received today</span>
+                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-green-50 text-green-700">
+                        <x-icon name="inbox-stack" class="h-4 w-4" />
+                    </span>
+                </div>
+                <p class="stat-value mt-2">{{ number_format($stats['today'] ?? 0) }}</p>
+            </div>
+        </div>
+    </div>
+
+    {{-- ============================ Inbox ============================= --}}
+    <div class="card">
+        <div class="card-header flex-row flex-wrap items-center justify-between gap-2">
+            <div>
+                <h2 class="card-title">All messages</h2>
+                <p class="card-description tabular-nums">
+                    Showing {{ $messages->firstItem() ?? 0 }}&ndash;{{ $messages->lastItem() ?? 0 }} of {{ number_format($messages->total()) }}
+                </p>
+            </div>
+        </div>
+
+        @if($messages->count())
             <div class="overflow-x-auto">
-                <table class="w-full">
-                    <thead class="bg-gray-50 border-b border-gray-200">
+                <table class="table">
+                    <thead>
                         <tr>
-                            <th class="text-left py-4 px-6 text-xs font-semibold text-gray-600 uppercase">Sender</th>
-                            <th class="text-left py-4 px-6 text-xs font-semibold text-gray-600 uppercase">Subject</th>
-                            <th class="text-left py-4 px-6 text-xs font-semibold text-gray-600 uppercase">Message Preview</th>
-                            <th class="text-left py-4 px-6 text-xs font-semibold text-gray-600 uppercase">Status</th>
-                            <th class="text-left py-4 px-6 text-xs font-semibold text-gray-600 uppercase">Date</th>
-                            <th class="text-left py-4 px-6 text-xs font-semibold text-gray-600 uppercase">Actions</th>
+                            <th>Sender</th>
+                            <th>Subject</th>
+                            <th>Message</th>
+                            <th>Status</th>
+                            <th>Received</th>
+                            <th class="text-right">Actions</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-200">
-                        @forelse($messages as $message)
-                        <tr class="hover:bg-gray-50 transition-colors {{ !$message->is_read ? 'bg-blue-50' : '' }}">
-                            <td class="py-4 px-6">
-                                <div class="flex items-center">
-                                    <div class="w-10 h-10 bg-gradient-to-br from-blue-400 to-blue-500 rounded-full flex items-center justify-center text-white font-bold mr-3">
-                                        {{ substr($message->name, 0, 1) }}
+                    <tbody>
+                        @foreach($messages as $message)
+                            <tr>
+                                <td>
+                                    <div class="flex items-center gap-2.5">
+                                        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-700">
+                                            {{ strtoupper(substr($message->name ?? 'U', 0, 1)) }}
+                                        </span>
+                                        <div class="min-w-0">
+                                            <p class="truncate font-medium">
+                                                {{ $message->name }}
+                                                @unless($message->is_read)
+                                                    <span class="sr-only">(unread)</span>
+                                                @endunless
+                                            </p>
+                                            <p class="truncate text-xs text-muted-foreground">{{ $message->email }}</p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <p class="font-semibold text-gray-900">{{ $message->name }}</p>
-                                        <p class="text-xs text-gray-600">{{ $message->email }}</p>
+                                </td>
+                                <td class="font-medium">{{ $message->subject }}</td>
+                                <td class="max-w-md">
+                                    <p class="truncate text-sm text-muted-foreground">{{ Str::limit($message->message, 60) }}</p>
+                                </td>
+                                <td>
+                                    <div class="flex flex-wrap items-center gap-1">
+                                        @if(!$message->is_read)
+                                            <span class="badge badge-warning">
+                                                <x-icon name="envelope" class="h-3 w-3" />
+                                                Unread
+                                            </span>
+                                        @else
+                                            <span class="badge badge-info">
+                                                <x-icon name="check" class="h-3 w-3" />
+                                                Read
+                                            </span>
+                                        @endif
+
+                                        @if($message->is_responded)
+                                            <span class="badge badge-success">
+                                                <x-icon name="paper-airplane" class="h-3 w-3" />
+                                                Responded
+                                            </span>
+                                        @endif
                                     </div>
-                                </div>
-                            </td>
-                            <td class="py-4 px-6">
-                                <span class="font-medium text-gray-900">{{ $message->subject }}</span>
-                            </td>
-                            <td class="py-4 px-6">
-                                <p class="text-sm text-gray-600 truncate max-w-md">
-                                    {{ Str::limit($message->message, 60) }}
-                                </p>
-                            </td>
-                            <td class="py-4 px-6">
-                                <div class="space-y-1">
-                                    @if(!$message->is_read)
-                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
-                                            📩 Unread
-                                        </span>
-                                    @else
-                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                                            ✅ Read
-                                        </span>
-                                    @endif
-                                    
-                                    @if($message->is_responded)
-                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
-                                            ✉️ Responded
-                                        </span>
-                                    @endif
-                                </div>
-                            </td>
-                            <td class="py-4 px-6 text-sm text-gray-600">
-                                {{ $message->created_at->format('M d, Y') }}<br>
-                                <span class="text-xs text-gray-500">{{ $message->created_at->format('h:i A') }}</span>
-                            </td>
-                            <td class="py-4 px-6">
-                                <div class="flex items-center space-x-2">
-                                    <a href="{{ route('admin.contact.show', $message->id) }}" 
-                                       class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors">
-                                        View
-                                    </a>
-                                </div>
-                            </td>
-                        </tr>
-                        @empty
-                        <tr>
-                            <td colspan="6" class="py-12 text-center">
-                                <div class="flex flex-col items-center">
-                                    <span class="text-4xl mb-4">📧</span>
-                                    <p class="text-gray-600 font-medium">No contact messages yet</p>
-                                </div>
-                            </td>
-                        </tr>
-                        @endforelse
+                                </td>
+                                <td class="text-sm text-muted-foreground">
+                                    <span class="tabular-nums">{{ $message->created_at->format('M d, Y') }}</span><br>
+                                    <span class="text-xs tabular-nums">{{ $message->created_at->format('h:i A') }}</span>
+                                </td>
+                                <td>
+                                    <div class="flex items-center justify-end">
+                                        <a href="{{ route('admin.contact.show', $message->id) }}" class="btn btn-outline btn-sm">
+                                            <x-icon name="eye" class="h-4 w-4" />
+                                            View
+                                        </a>
+                                    </div>
+                                </td>
+                            </tr>
+                        @endforeach
                     </tbody>
                 </table>
             </div>
 
             @if($messages->hasPages())
-            <div class="p-6 border-t border-gray-200">
-                {{ $messages->links() }}
-            </div>
+                <div class="border-t border-border p-4">
+                    {{ $messages->withQueryString()->links() }}
+                </div>
             @endif
-        </div>
+        @else
+            <div class="empty-state">
+                <x-icon name="envelope" class="h-10 w-10 text-ink-300" />
+                <p class="mt-3 font-medium">No contact messages yet</p>
+                <p class="mt-1 text-sm text-muted-foreground">Enquiries from the contact form will appear here.</p>
+            </div>
+        @endif
     </div>
 </div>
-
-<script>
-// Auto-refresh every 30 seconds
-setInterval(() => {
-    location.reload();
-}, 30000);
-</script>
 @endsection

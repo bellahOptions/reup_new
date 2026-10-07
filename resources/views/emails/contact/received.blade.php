@@ -1,100 +1,49 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>New Contact Message</title>
-    <style>
-        body {
-            font-family: 'DM Sans', Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .header {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            color: white;
-            padding: 30px;
-            border-radius: 12px;
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        .content {
-            background: #ffffff;
-            padding: 25px;
-            border-radius: 8px;
-            border: 1px solid #e5e7eb;
-        }
-        .info-box {
-            background: #f9fafb;
-            padding: 15px;
-            border-radius: 6px;
-            border-left: 4px solid #10b981;
-            margin: 20px 0;
-        }
-        .message-box {
-            background: #f0f9ff;
-            padding: 20px;
-            border-radius: 6px;
-            border: 1px solid #e0f2fe;
-            white-space: pre-wrap;
-            line-height: 1.8;
-        }
-        .btn {
-            display: inline-block;
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            color: white;
-            padding: 12px 24px;
-            text-decoration: none;
-            border-radius: 8px;
-            font-weight: 600;
-            margin-top: 20px;
-        }
-        .footer {
-            margin-top: 30px;
-            padding-top: 20px;
-            border-top: 1px solid #e5e7eb;
-            color: #6b7280;
-            font-size: 14px;
-        }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1 style="margin: 0; font-size: 24px;">📨 New Contact Message</h1>
-        <p style="margin: 10px 0 0; opacity: 0.9;">A user ( {{ $contact->name }} ) has submitted a contact form</p>
-    </div>
+<x-emails.base
+    title="New contact message"
+    badge="Action required"
+    badgeTone="warning"
+    :preheader="'From ' . $contact->name . ' — ' . $contact->subject"
+>
+    <h1 style="margin:16px 0 4px;font-size:21px;font-weight:600;letter-spacing:-0.02em;color:#0d100d;">
+        New contact message
+    </h1>
+    <p style="margin:0 0 22px;font-size:14px;color:#6f7a6f;">
+        Submitted through the public contact form.
+    </p>
 
-    <div class="content">
-        <div class="info-box">
-            <h3 style="margin: 0 0 10px; color: #111827;">Sender Information</h3>
-            <p style="margin: 5px 0;"><strong>👤 Name:</strong> {{ $contact->name }}</p>
-            <p style="margin: 5px 0;"><strong>📧 Email:</strong> {{ $contact->email }}</p>
-            <p style="margin: 5px 0;"><strong>📋 Subject:</strong> {{ $contact->subject }}</p>
-            @if($contact->user)
-                <p style="margin: 5px 0;"><strong>👤 User ID:</strong> #{{ str_pad($contact->user_id, 6, '0', STR_PAD_LEFT) }}</p>
-            @endif
-            <p style="margin: 5px 0;"><strong>🕒 Time:</strong> {{ $contact->created_at->format('F j, Y \a\t g:i A') }}</p>
-        </div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:14px;border-top:1px solid #dfe3df;">
+        @foreach(array_filter([
+            'Reference' => '#' . str_pad((string) $contact->id, 6, '0', STR_PAD_LEFT),
+            'Name' => $contact->name,
+            'Email' => $contact->email,
+            'Subject' => $contact->subject,
+            'Received' => optional($contact->created_at)->format('F j, Y \a\t g:i A'),
+            'Account' => $contact->user?->email,
+        ], fn ($v) => filled($v)) as $label => $value)
+            <tr>
+                <td style="padding:9px 0;border-bottom:1px solid #eef0ee;color:#6f7a6f;width:32%;">{{ $label }}</td>
+                <td style="padding:9px 0;border-bottom:1px solid #eef0ee;font-weight:600;color:#1b1f1b;">{{ $value }}</td>
+            </tr>
+        @endforeach
+    </table>
 
-        <h3 style="color: #111827; margin-top: 25px;">Message Content</h3>
-        <div class="message-box">
-            {{ $contact
-            ->message }}
-        </div>
+    <p style="margin:22px 0 6px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#98a298;">
+        Message
+    </p>
+    <div style="padding:14px;background-color:#f7f8f7;border:1px solid #dfe3df;border-radius:8px;font-size:14px;color:#1b1f1b;white-space:pre-wrap;">{{ $contact->message }}</div>
 
-        <div style="margin-top: 30px; text-align: center;">
-            <a href="{{ url('/admin/contact/' . $contact->id) }}" class="btn">
-                View in Admin Panel →
-            </a>
-        </div>
-    </div>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:22px 0 0;">
+        <tr>
+            <td style="background-color:#2AB70D;border-radius:8px;">
+                <a href="{{ route('admin.contact.show', $contact->id) }}"
+                   style="display:inline-block;padding:12px 22px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;">
+                    Reply in the admin console
+                </a>
+            </td>
+        </tr>
+    </table>
 
-    <div class="footer">
-        <p style="margin: 5px 0;">This is an automated notification from {{ config('app.name') }}</p>
-        <p style="margin: 5px 0; font-size: 12px;">Message ID: #{{ str_pad($message->id, 6, '0', STR_PAD_LEFT) }}</p>
-    </div>
-</body>
-</html>
+    <p style="margin:18px 0 0;font-size:13px;color:#6f7a6f;">
+        Replying to this address reaches the customer directly.
+    </p>
+</x-emails.base>

@@ -11,19 +11,16 @@ class ContactMessageReceived extends Mailable
 {
     use Queueable, SerializesModels;
 
-    public $contactMessage;
-
-    public function __construct(ContactMessage $contactMessage)
+    public function __construct(public ContactMessage $contactMessage)
     {
-        $this->contactMessage = $contactMessage;
     }
 
     public function build()
     {
-        return $this->subject('📨 New Contact Message: ' . $this->contactMessage->subject)
-                    ->view('emails.contact.recieved')
-                    ->with([
-                        'contact' => $this->contactMessage
-                    ]);
+        // No emoji in a subject line: many clients render them as tofu and they
+        // break inbox filtering.
+        return $this->subject('New contact message: ' . $this->contactMessage->subject)
+            ->view('emails.contact.received')
+            ->with(['contact' => $this->contactMessage]);
     }
 }

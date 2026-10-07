@@ -14,47 +14,67 @@ use Illuminate\Support\Facades\Validator;
 
 class NotificationController extends Controller
 {
-    // Get unread notifications (Contact Messages only)
+    // Get unread notifications
 public function getUnreadNotifications()
 {
-    // Get unread contact messages count
+    $admin = Auth::user();
+
     $unreadContacts = ContactMessage::where('is_read', false)->count();
-    
-    // Format notifications
+
+    // Chats awaiting an agent, or addressed to this admin.
+    $unreadChats = ChatMessage::whereHas('session', function ($query) use ($admin) {
+            $query->where('admin_id', $admin->id)->orWhereNull('admin_id');
+        })
+        ->where('sender_type', 'user')
+        ->where('is_read', false)
+        ->count();
+
     $notifications = [];
-    
-    // Recent contact notifications
-    $recentContacts = ContactMessage::where('is_read', false)
-        ->with('user')
-        ->latest()
-        ->limit(10)
-        ->get();
-    
-    foreach ($recentContacts as $contact) {
+
+    // `id` is the raw primary key. It was previously prefixed with the type
+    // ('contact_12'), which markAsRead() then passed to findOrFail() — so
+    // marking a single notification read always 404'd.
+    foreach (ContactMessage::where('is_read', false)->latest()->limit(10)->get() as $contact) {
         $notifications[] = [
-            'id' => 'contact_' . $contact->id,
+            'id' => $contact->id,
             'type' => 'contact',
-            'title' => $contact->subject ?: 'New Contact Message',
-            'message' => 'From ' . ($contact->user ? $contact->user->name : ($contact->name ?: 'Anonymous')),
-            'email' => $contact->email,
-            'icon' => '📧',
+            'title' => $contact->subject ?: 'New contact message',
+            'message' => 'From ' . ($contact->name ?: 'Anonymous'),
+            'icon' => 'envelope',
             'url' => route('admin.contact.show', $contact->id),
             'is_read' => false,
             'time' => $contact->created_at->diffForHumans(),
-            'timestamp' => $contact->created_at->timestamp
+            'timestamp' => $contact->created_at->timestamp,
         ];
     }
-    
-    // Sort by timestamp (newest first)
-    usort($notifications, function($a, $b) {
-        return $b['timestamp'] - $a['timestamp'];
-    });
-    
+
+    foreach (ChatSession::whereIn('status', ['pending', 'active'])
+        ->where('updated_at', '>=', now()->subDays(2))
+        ->latest('last_message_at')
+        ->limit(10)
+        ->get() as $session) {
+        $notifications[] = [
+            'id' => $session->id,
+            'type' => 'chat',
+            'title' => 'Live chat — ' . ($session->subject ?: 'General enquiry'),
+            'message' => $session->user?->name
+                ? 'Waiting on ' . $session->user->name
+                : 'A customer is waiting for a reply',
+            'icon' => 'chat-bubble-left-right',
+            'url' => route('admin.chat.index'),
+            'is_read' => false,
+            'time' => optional($session->last_message_at ?? $session->updated_at)->diffForHumans(),
+            'timestamp' => ($session->last_message_at ?? $session->updated_at)->timestamp,
+        ];
+    }
+
+    usort($notifications, fn ($a, $b) => $b['timestamp'] - $a['timestamp']);
+
     return response()->json([
         'notifications' => array_slice($notifications, 0, 10),
-        'total_unread' => $unreadContacts,
+        'total_unread' => $unreadContacts + $unreadChats,
         'unread_contacts' => $unreadContacts,
-        'new_notifications' => count($notifications)
+        'unread_chats' => $unreadChats,
     ]);
 }
     
@@ -62,30 +82,36 @@ public function getUnreadNotifications()
     public function markAsRead(Request $request)
     {
         $admin = Auth::user();
-        
-        if ($request->has('type') && $request->has('id')) {
-            // Mark specific notification as read
-            if ($request->type === 'chat') {
-                $message = ChatMessage::findOrFail($request->id);
-                $message->markAsRead();
-            } elseif ($request->type === 'contact') {
-                $contact = ContactMessage::findOrFail($request->id);
-                $contact->markAsRead();
+
+        $request->validate([
+            'type' => 'nullable|in:chat,contact',
+            'id' => 'nullable|integer',
+        ]);
+
+        if ($request->filled('type') && $request->filled('id')) {
+            // Tolerate the legacy 'contact_12' id shape from cached clients.
+            $id = (int) preg_replace('/\D/', '', (string) $request->input('id'));
+
+            if ($request->input('type') === 'chat') {
+                $message = ChatMessage::whereKey($id)->first();
+
+                if ($message && $message->sender_type === 'user') {
+                    $message->markAsRead();
+                }
+            } else {
+                ContactMessage::whereKey($id)->update(['is_read' => true]);
             }
         } else {
-            // Mark all as read
-            ChatMessage::whereHas('session', function($query) use ($admin) {
-                $query->where('admin_id', $admin->id)
-                      ->orWhereNull('admin_id');
+            ChatMessage::whereHas('session', function ($query) use ($admin) {
+                $query->where('admin_id', $admin->id)->orWhereNull('admin_id');
             })
-            ->where('sender_type', 'user')
-            ->where('is_read', false)
-            ->update(['is_read' => true, 'read_at' => now()]);
-            
-            ContactMessage::where('is_read', false)
-                ->update(['is_read' => true]);
+                ->where('sender_type', 'user')
+                ->where('is_read', false)
+                ->update(['is_read' => true, 'read_at' => now()]);
+
+            ContactMessage::where('is_read', false)->update(['is_read' => true]);
         }
-        
+
         return response()->json(['success' => true]);
     }
     
@@ -113,6 +139,63 @@ public function getUnreadNotifications()
         ]);
     }
 
+    /**
+     * Validation rules shared by store and update.
+     *
+     * `badge_color` is validated as a hex colour because the form renders a
+     * colour picker and the value is written straight into a `style` attribute.
+     * It previously accepted any string, and seeded rows contain Tailwind class
+     * names, which produce `background-color: bg-purple-100 text-purple-800` —
+     * invalid CSS the browser silently discards.
+     *
+     * `icon` is constrained to names the icon component actually has, so a
+     * typo cannot produce a blank glyph in the marquee.
+     *
+     * @return array<string,mixed>
+     */
+    private function rules(): array
+    {
+        return [
+            'type' => 'required|in:promotion,notification,news',
+            'title' => 'required|string|max:255',
+            'content' => 'required|string|max:2000',
+            'badge' => 'nullable|string|max:50',
+            'badge_color' => ['nullable', 'string', 'regex:/^#[0-9a-fA-F]{6}$/'],
+            'text_color' => ['nullable', 'string', 'regex:/^#[0-9a-fA-F]{6}$/'],
+            'icon' => ['nullable', 'string', 'in:' . implode(',', array_keys(config('announcements.icons', [])))],
+            'is_active' => 'boolean',
+            'starts_at' => 'nullable|date',
+            'ends_at' => 'nullable|date|after_or_equal:starts_at',
+        ];
+    }
+
+    /**
+     * The columns an announcement form is allowed to write.
+     *
+     * Passed to the model explicitly rather than `$request->all()`, which
+     * bypassed the model's `$fillable` entirely (the model defines no `$guarded`
+     * boundary, so any request key became a mass-assignment candidate).
+     *
+     * @return array<string,mixed>
+     */
+    private function attributes(Request $request): array
+    {
+        $data = $request->only([
+            'type', 'title', 'content', 'badge', 'badge_color', 'text_color',
+            'icon', 'starts_at', 'ends_at',
+        ]);
+
+        /*
+         * An unchecked checkbox submits nothing, so `is_active` would be absent
+         * and the column's DEFAULT 1 would quietly make the announcement live —
+         * the opposite of what the admin asked for. Normalise it to a real
+         * boolean in both directions.
+         */
+        $data['is_active'] = $request->boolean('is_active');
+
+        return $data;
+    }
+
    /**
      * Display all announcements
      */
@@ -135,18 +218,7 @@ public function getUnreadNotifications()
      */
     public function store(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'type' => 'required|in:promotion,notification,news',
-            'title' => 'required|string|max:255',
-            'content' => 'required|string',
-            'badge' => 'nullable|string|max:50',
-            'badge_color' => 'nullable|string|max:20',
-            'text_color' => 'nullable|string|max:20',
-            'icon' => 'nullable|string|max:50',
-            'is_active' => 'boolean',
-            'starts_at' => 'nullable|date',
-            'ends_at' => 'nullable|date|after_or_equal:starts_at',
-        ]);
+        $validator = Validator::make($request->all(), $this->rules());
 
         if ($validator->fails()) {
             return redirect()->back()
@@ -154,7 +226,7 @@ public function getUnreadNotifications()
                 ->withInput();
         }
 
-        PromotionNotification::create($request->all());
+        PromotionNotification::create($this->attributes($request));
 
         return redirect()->route('admin.announcement.index')
             ->with('success', 'Announcement created successfully!');
@@ -174,18 +246,7 @@ public function getUnreadNotifications()
      */
     public function update(Request $request, $id)
     {
-        $validator = Validator::make($request->all(), [
-            'type' => 'required|in:promotion,notification,news',
-            'title' => 'required|string|max:255',
-            'content' => 'required|string',
-            'badge' => 'nullable|string|max:50',
-            'badge_color' => 'nullable|string|max:20',
-            'text_color' => 'nullable|string|max:20',
-            'icon' => 'nullable|string|max:50',
-            'is_active' => 'boolean',
-            'starts_at' => 'nullable|date',
-            'ends_at' => 'nullable|date|after_or_equal:starts_at',
-        ]);
+        $validator = Validator::make($request->all(), $this->rules());
 
         if ($validator->fails()) {
             return redirect()->back()
@@ -194,7 +255,7 @@ public function getUnreadNotifications()
         }
 
         $announcement = PromotionNotification::findOrFail($id);
-        $announcement->update($request->all());
+        $announcement->update($this->attributes($request));
 
         return redirect()->route('admin.announcement.index')
             ->with('success', 'Announcement updated successfully!');

@@ -1,672 +1,462 @@
 <!doctype html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="csrf-token" content="{{ csrf_token() }}">
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-        <!--Icon Links-->
-    <link rel="shortcut icon" href="{{ asset('images/reup-icon-06.jpg')}}" type="image/x-icon">
-    <link rel="apple-touch-icon" sizes="57x57" href="{{ asset('images/apple-icon-57x57.png')}}">
-<link rel="apple-touch-icon" sizes="60x60" href="{{ asset('images/apple-icon-60x60.png')}}">
-<link rel="apple-touch-icon" sizes="72x72" href="{{ asset('images/apple-icon-72x72.png')}}">
-<link rel="apple-touch-icon" sizes="76x76" href="{{ asset('images/apple-icon-76x76.png')}}">
-<link rel="apple-touch-icon" sizes="114x114" href="{{ asset('images/apple-icon-114x114.png')}}">
-<link rel="apple-touch-icon" sizes="120x120" href="{{ asset('images/apple-icon-120x120.png')}}">
-<link rel="apple-touch-icon" sizes="144x144" href="{{ asset('images/apple-icon-144x144.png')}}">
-<link rel="apple-touch-icon" sizes="152x152" href="{{ asset('images/apple-icon-152x152.png')}}">
-<link rel="apple-touch-icon" sizes="180x180" href="{{ asset('images/apple-icon-180x180.png')}}">
-<link rel="icon" type="image/png" sizes="192x192"  href="{{ asset('images/android-icon-192x192.png')}}">
-<link rel="icon" type="image/png" sizes="32x32" href="{{ asset('images/favicon-32x32.png')}}">
-<link rel="icon" type="image/png" sizes="96x96" href="{{ asset('images/favicon-96x96.png')}}">
-<link rel="icon" type="image/png" sizes="16x16" href="{{ asset('images/favicon-16x16.png')}}">
-<link rel="manifest" href="/images/manifest.json">
-<meta name="msapplication-TileColor" content="#2AB70D">
-<meta name="msapplication-TileImage" content="{{ asset('images/ms-icon-144x144.png')}}">
-<meta name="theme-color" content="#2AB70D">
-<!--End Icon Links-->  
-    <title>Reup | Buy airtime, data, and pay bills instantly with ReUp. Fast, secure, and stress-free — anytime, anywhere.</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet">
-    <style type="text/tailwindcss">
-      @theme {
-        --color-clifford: #da373d;
-      }
-      *{        
-        font-family: "DM Sans", sans-serif;
-      }
-    </style>
-    
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js" integrity="sha512-v2CJ7UaYy4JwqLDIrZUI/4hqeoQieOmAZNXBeQyjo21dadnwR+8ZaIJVT8EE2iyI61OV8e6M8PP2/4hpQINQ/g==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    <title>@yield('title') - Admin | {{ config('app.name') }}</title>
-    
-    <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=inter:400,500,600,700,800" rel="stylesheet" />
-    
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    
-    <style>
-        .sidebar {
-            width: 260px;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        .sidebar.collapsed {
-            width: 80px;
-        }
-        .main-content {
-            margin-left: 260px;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        .main-content.expanded {
-            margin-left: 80px;
-        }
-        @media (max-width: 768px) {
-            .sidebar {
-                position: fixed;
-                left: -260px;
-                z-index: 50;
-                height: 100vh;
-            }
-            .sidebar.open {
-                left: 0;
-            }
-            .main-content {
-                margin-left: 0;
-            }
-        }
-        .menu-item {
-            transition: all 0.2s;
-        }
-        .menu-item:hover {
-            transform: translateX(4px);
-        }
-    </style>
+    @include('partials.head')
+
+    @hasSection('title')
+        <title>@yield('title') — Admin · {{ config('app.name', 'ReUp') }}</title>
+    @else
+        <title>Admin · {{ config('app.name', 'ReUp') }}</title>
+    @endif
+
+    {{-- Admin console is never indexable. --}}
+    <meta name="robots" content="noindex, nofollow">
+
     @stack('styles')
 </head>
-<body class="font-sans antialiased bg-gray-50">
-    <div class="min-h-screen flex" x-data="{ sidebarOpen: false, sidebarCollapsed: false }">
-        <!-- Sidebar -->
-        <aside 
-            id="sidebar" 
-            class="sidebar bg-gradient-to-b from-green-900 to-green-800 text-white fixed h-screen overflow-y-auto shadow-2xl"
-            :class="{ 'collapsed': sidebarCollapsed, 'open': sidebarOpen }">
-            <!-- Logo -->
-            <div class="p-6 border-b border-gray-700/50">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center space-x-3">
-                        <div class="w-10 h-10 bg-gradient-to-br from-green-400 to-emerald-500 rounded-xl flex items-center justify-center shadow-lg">
-                            <span class="text-xl">⚡</span>
-                        </div>
-                        <div x-show="!sidebarCollapsed" class="transition-all duration-300">
-                            <h1 class="text-xl font-bold">{{ config('app.name') }}</h1>
-                            <p class="text-xs text-gray-400">Admin Portal</p>
-                        </div>
-                    </div>
+<body class="min-h-screen bg-surface"
+      x-data="{
+          sidebarOpen: false,
+          collapsed: JSON.parse(localStorage.getItem('admin.sidebar.collapsed') ?? 'false'),
+          toggleCollapsed() {
+              this.collapsed = !this.collapsed;
+              localStorage.setItem('admin.sidebar.collapsed', JSON.stringify(this.collapsed));
+          }
+      }"
+      @keydown.escape.window="sidebarOpen = false">
+
+    @php
+        $admin = auth()->user();
+
+        // Grouped navigation. `permission` mirroring the route middleware keeps
+        // the menu honest: an item only renders if the route would accept it.
+        $navGroups = [
+            [
+                'label' => null,
+                'items' => [
+                    ['Dashboard', 'admin.dashboard', 'admin.dashboard', 'gauge', null, null],
+                    ['Transactions', 'admin.transactions.index', 'admin.transactions.*', 'queue-list', 'view_transactions', null],
+                ],
+            ],
+            [
+                'label' => 'Money',
+                'items' => [
+                    ['Bank transfers', 'admin.bank-transfers.index', 'admin.bank-transfers.*', 'building-library', 'manage_wallets',
+                        $pendingTransfers ?? 0],
+                    ['Customers', 'admin.users.index', 'admin.users.*', 'users', 'manage_users', null],
+                ],
+            ],
+            [
+                'label' => 'Support',
+                'items' => [
+                    ['Live chat', 'admin.chat.index', 'admin.chat.*', 'chat-bubble-left-right', 'chat', $pendingChats ?? 0],
+                    ['Messages', 'admin.contact.index', 'admin.contact.*', 'envelope', 'view_contacts', $unreadContacts ?? 0],
+                ],
+            ],
+            [
+                'label' => 'Content',
+                'items' => [
+                    ['Announcements', 'admin.announcement.index', 'admin.announcement.*', 'megaphone', 'manage_settings', null],
+                    ['Legal documents', 'admin.terms.index', 'admin.terms.*', 'document-text', 'manage_settings', null],
+                    ['Settings', 'admin.settings.index', 'admin.settings.*', 'cog-6-tooth', 'manage_settings', null],
+                ],
+            ],
+            [
+                'label' => 'Administration',
+                'items' => [
+                    ['Administrators', 'admin.admins.index', 'admin.admins.*', 'shield-check', 'manage_admins', null],
+                ],
+            ],
+        ];
+
+        // Every row carries six slots. Destructuring a five-element row threw
+        // "Undefined array key 5" on any admin page, because only the rows with
+        // a badge count were written with a trailing element.
+        $navGroups = array_map(function (array $group) {
+            $group['items'] = array_map(
+                fn (array $item) => array_pad($item, 6, null),
+                $group['items']
+            );
+
+            return $group;
+        }, $navGroups);
+    @endphp
+
+    <div class="flex min-h-screen">
+
+        {{-- ============================ Sidebar ============================ --}}
+        <aside
+            id="admin-sidebar"
+            class="fixed inset-y-0 left-0 z-50 flex flex-col border-r border-border bg-white transition-[width,transform] duration-200 ease-out"
+            :class="[
+                collapsed ? 'lg:w-[68px]' : 'lg:w-64',
+                'w-64',
+                sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+            ]">
+
+            {{-- Brand --}}
+            <div class="flex h-16 shrink-0 items-center gap-2.5 border-b border-border px-4">
+                <img src="{{ asset('images/reup-03.svg') }}" alt="ReUp" class="h-6 w-auto shrink-0">
+                <div x-show="!collapsed" x-cloak class="min-w-0 flex-1">
+                    <p class="truncate text-sm font-semibold leading-tight">{{ config('app.name', 'ReUp') }}</p>
+                    <p class="truncate text-xs text-muted-foreground">Admin console</p>
                 </div>
             </div>
 
-            <!-- Navigation -->
-<nav class="p-4 space-y-2">
-    <!-- Dashboard -->
-    <a href="{{ route('admin.dashboard') }}" class="menu-item flex items-center space-x-3 px-4 py-3 rounded-xl {{ request()->routeIs('admin.dashboard') ? 'bg-green-500 text-white shadow-lg' : 'text-gray-300 hover:bg-gray-700/50' }}">
-        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
-        </svg>
-        <span x-show="!sidebarCollapsed" class="font-medium">Dashboard</span>
-    </a>
+            {{-- Navigation --}}
+            <nav class="scrollbar-slim flex-1 overflow-y-auto px-3 py-4" aria-label="Admin">
+                @foreach($navGroups as $group)
+                    @php
+                        $visible = array_values(array_filter(
+                            $group['items'],
+                            fn ($item) => $item[4] === null || $admin->hasPermission($item[4])
+                        ));
+                    @endphp
 
-    <!-- Bank Transfers -->
-    <a href="{{ route('admin.bank-transfers.index') }}" class="menu-item flex items-center space-x-3 px-4 py-3 rounded-xl {{ request()->routeIs('admin.bank-transfers.index*') ? 'bg-green-500 text-white shadow-lg' : 'text-gray-300 hover:bg-gray-700/50' }}">
-        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
-        </svg>
-        <span x-show="!sidebarCollapsed" class="font-medium">Bank Transfers</span>
-        @if(isset($pendingTransfers) && $pendingTransfers > 0)
-            <span x-show="!sidebarCollapsed" class="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">{{ $pendingTransfers }}</span>
-        @endif
-    </a>
+                    @if(count($visible))
+                        <div class="mb-5 last:mb-0">
+                            @if($group['label'])
+                                <p x-show="!collapsed" x-cloak
+                                   class="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">
+                                    {{ $group['label'] }}
+                                </p>
+                                <div x-show="collapsed" x-cloak class="mx-3 mb-2 h-px bg-border"></div>
+                            @endif
 
-    <!-- Transactions -->
-    <a href="{{ route('admin.transactions.index') }}" class="menu-item flex items-center space-x-3 px-4 py-3 rounded-xl {{ request()->routeIs('admin.transactions*') ? 'bg-green-500 text-white shadow-lg' : 'text-gray-300 hover:bg-gray-700/50' }}">
-        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
-        </svg>
-        <span x-show="!sidebarCollapsed" class="font-medium">Transactions</span>
-    </a>
+                            <ul class="space-y-0.5">
+                                @foreach($visible as [$label, $route, $pattern, $icon, $permission, $badge])
+                                    @php $active = request()->routeIs($pattern); @endphp
+                                    <li>
+                                        <a href="{{ route($route) }}"
+                                           @if($active) aria-current="page" @endif
+                                           title="{{ $label }}"
+                                           class="sidebar-link {{ $active ? 'sidebar-link-active' : '' }}"
+                                           :class="collapsed && 'lg:justify-center lg:px-0'">
+                                            <x-icon :name="$icon" class="h-[18px] w-[18px] shrink-0" />
+                                            <span x-show="!collapsed" x-cloak class="flex-1 truncate">{{ $label }}</span>
+                                            @if($badge)
+                                                <span x-show="!collapsed" x-cloak
+                                                      class="ml-auto rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold leading-4 text-white tabular-nums">
+                                                    {{ $badge > 99 ? '99+' : $badge }}
+                                                </span>
+                                            @endif
+                                        </a>
+                                    </li>
+                                @endforeach
+                            </ul>
+                        </div>
+                    @endif
+                @endforeach
+            </nav>
 
-    <!-- Users -->
-    <a href="{{ route('admin.users.index') }}" class="menu-item flex items-center space-x-3 px-4 py-3 rounded-xl {{ request()->routeIs('admin.users*') ? 'bg-green-500 text-white shadow-lg' : 'text-gray-300 hover:bg-gray-700/50' }}">
-        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
-        </svg>
-        <span x-show="!sidebarCollapsed" class="font-medium">Users</span>
-    </a>
-
-     <!-- Announce -->
-    <a href="{{ route('admin.announcement.index') }}" class="menu-item flex items-center space-x-3 px-4 py-3 rounded-xl {{ request()->routeIs('admin.announcements*') ? 'bg-green-500 text-white shadow-lg' : 'text-gray-300 hover:bg-gray-700/50' }}">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-  <path stroke-linecap="round" stroke-linejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 1 1 0-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 0 1-1.44-4.282m3.102.069a18.03 18.03 0 0 1-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 0 1 8.835 2.535M10.34 6.66a23.847 23.847 0 0 0 8.835-2.535m0 0A23.74 23.74 0 0 0 18.795 3m.38 1.125a23.91 23.91 0 0 1 1.014 5.395m-1.014 8.855c-.118.38-.245.754-.38 1.125m.38-1.125a23.91 23.91 0 0 0 1.014-5.395m0-3.46c.495.413.811 1.035.811 1.73 0 .695-.316 1.317-.811 1.73m0-3.46a24.347 24.347 0 0 1 0 3.46" />
-</svg>
-
-        <span x-show="!sidebarCollapsed" class="font-medium">Announcements</span>
-    </a>
-
-    <!-- Admins (Only for Super Admin) -->
-    @if(auth()->user()->is_super_admin)
-    <a href="{{ route('admin.admins.index') }}" class="menu-item flex items-center space-x-3 px-4 py-3 rounded-xl {{ request()->routeIs('admin.admins*') ? 'bg-green-500 text-white shadow-lg' : 'text-gray-300 hover:bg-gray-700/50' }}">
-        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-        </svg>
-        <span x-show="!sidebarCollapsed" class="font-medium">Admins</span>
-    </a>
-    @endif
-
-    <!-- Live Chat -->
-    @if(auth()->user()->hasPermission('chat'))
-    <a href="{{ route('admin.chat.index') }}" class="menu-item flex items-center space-x-3 px-4 py-3 rounded-xl {{ request()->routeIs('admin.chat*') ? 'bg-green-500 text-white shadow-lg' : 'text-gray-300 hover:bg-gray-700/50' }}">
-        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-        </svg>
-        <span x-show="!sidebarCollapsed" class="font-medium">Live Chat</span>
-        <span id="unreadChatCount" class="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full hidden"></span>
-    </a>
-    @endif
-
-    <!-- Contact Messages -->
-    <a href="{{ route('admin.contact.index') }}" class="menu-item flex items-center space-x-3 px-4 py-3 rounded-xl {{ request()->routeIs('admin.contact*') ? 'bg-green-500 text-white shadow-lg' : 'text-gray-300 hover:bg-gray-700/50' }}">
-        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-        </svg>
-        <span x-show="!sidebarCollapsed" class="font-medium">Contact</span>
-        <span id="unreadContactCount" class="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full hidden"></span>
-    </a>
-
-    <!-- Reports -->
-    <a href="{{ route('terms.index') }}" class="menu-item flex items-center space-x-3 px-4 py-3 rounded-xl {{ request()->routeIs('admin.legal*') ? 'bg-green-500 text-white shadow-lg' : 'text-gray-300 hover:bg-gray-700/50' }}">
-        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-        </svg>
-        <span x-show="!sidebarCollapsed" class="font-medium">Edit Legal</span>
-    </a>
-
-    <!-- Settings -->
-    <a href="{{ route('admin.settings.index') }}" class="menu-item flex items-center space-x-3 px-4 py-3 rounded-xl {{ request()->routeIs('admin.settings*') ? 'bg-green-500 text-white shadow-lg' : 'text-gray-300 hover:bg-gray-700/50' }}">
-        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-        </svg>
-        <span x-show="!sidebarCollapsed" class="font-medium">Settings</span>
-    </a>
-</nav>
-
-            <!-- Admin Info -->
-            <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-700/50 bg-gray-900/50">
-                <div class="flex items-center space-x-3 px-2">
-                    <div class="w-10 h-10 bg-gradient-to-br from-green-400 to-emerald-500 rounded-full flex items-center justify-center text-white font-bold">
-                        {{ substr(auth()->user()->name, 0, 1) }}
-                    </div>
-                    <div x-show="!sidebarCollapsed" class="flex-1 min-w-0">
-                        <p class="text-sm font-semibold truncate">{{ auth()->user()->name }}</p>
-                        <p class="text-xs text-gray-400 truncate">Administrator</p>
+            {{-- Account --}}
+            <div class="shrink-0 border-t border-border p-3">
+                <div class="flex items-center gap-2.5 rounded-lg px-2 py-1.5"
+                     :class="collapsed && 'lg:justify-center lg:px-0'">
+                    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-500 text-xs font-semibold text-white">
+                        {{ strtoupper(substr($admin->name ?? 'A', 0, 1)) }}
+                    </span>
+                    <div x-show="!collapsed" x-cloak class="min-w-0 flex-1">
+                        <p class="truncate text-sm font-medium leading-tight">{{ $admin->name }}</p>
+                        <p class="truncate text-xs text-muted-foreground">{{ $admin->admin_role }}</p>
                     </div>
                 </div>
+
+                <form method="POST" action="{{ route('admin.logout') }}" class="mt-1">
+                    @csrf
+                    <button type="submit"
+                            class="sidebar-link w-full text-red-600 hover:bg-red-50 hover:text-red-700"
+                            :class="collapsed && 'lg:justify-center lg:px-0'"
+                            title="Sign out">
+                        <x-icon name="arrow-right-on-rectangle" class="h-[18px] w-[18px] shrink-0" />
+                        <span x-show="!collapsed" x-cloak>Sign out</span>
+                    </button>
+                </form>
             </div>
         </aside>
 
-        <!-- Main Content -->
-        <div id="main-content" class="main-content flex-1 flex flex-col min-h-screen" :class="{ 'expanded': sidebarCollapsed }">
-            <!-- Top Navigation -->
-            <header class="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm">
-                <div class="flex items-center justify-between px-6 py-4">
-                    <div class="flex items-center space-x-4">
-                        <!-- Mobile Menu Button -->
-                        <button @click="sidebarOpen = !sidebarOpen" class="lg:hidden text-gray-600 hover:text-gray-900">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
-                            </svg>
-                        </button>
+        {{-- Mobile scrim --}}
+        <div x-show="sidebarOpen" x-cloak @click="sidebarOpen = false"
+             x-transition.opacity
+             class="fixed inset-0 z-40 bg-ink-950/40 lg:hidden"></div>
 
-                        <!-- Desktop Toggle -->
-                        <button @click="sidebarCollapsed = !sidebarCollapsed" class="hidden lg:block text-gray-600 hover:text-gray-900">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
-                            </svg>
-                        </button>
+        {{-- ============================ Main ============================== --}}
+        <div class="flex min-w-0 flex-1 flex-col transition-[margin] duration-200 ease-out"
+             :class="collapsed ? 'lg:ml-[68px]' : 'lg:ml-64'">
 
-                        <!-- Page Title -->
-                        <h1 class="text-2xl font-bold text-gray-900">@yield('page-title', 'Dashboard')</h1>
+            <header class="sticky top-0 z-30 border-b border-border bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+                <div class="flex h-16 items-center gap-3 px-4 sm:px-6">
+                    <button type="button" @click="sidebarOpen = true"
+                            class="btn btn-ghost btn-icon lg:hidden" aria-label="Open navigation">
+                        <x-icon name="bars-3" class="h-5 w-5" />
+                    </button>
+
+                    <button type="button" @click="toggleCollapsed()"
+                            class="btn btn-ghost btn-icon hidden lg:inline-flex"
+                            :aria-label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'">
+                        <x-icon name="bars-3-bottom-left" class="h-5 w-5" />
+                    </button>
+
+                    <div class="min-w-0 flex-1">
+                        <h1 class="truncate text-base font-semibold tracking-tight">
+                            @yield('page-title', 'Dashboard')
+                        </h1>
+                        @hasSection('page-description')
+                            <p class="truncate text-xs text-muted-foreground">@yield('page-description')</p>
+                        @endif
                     </div>
 
-                    <div class="flex items-center space-x-4">
-                        <!-- Notifications -->
-                        <!-- Notifications -->
-<div class="relative" id="notificationContainer">
-    <button type="button" 
-            id="notificationBell"
-            class="relative p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
-        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                  d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
-        </svg>
-        
-        {{-- Notification Badge --}}
-        <span id="notificationBadge" 
-              class="absolute top-0 right-0 hidden bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-            0
-        </span>
-    </button>
-    
-    {{-- Notification Dropdown --}}
-    <div id="notificationDropdown" 
-         class="hidden absolute right-0 mt-2 w-96 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 max-h-[32rem] overflow-hidden">
-        
-        {{-- Dropdown Header --}}
-        <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-green-50 to-green-50">
-            <h3 class="font-bold text-gray-900 flex items-center">
-                <span class="text-xl mr-2">🔔</span>
-                Notifications
-            </h3>
-            <button onclick="markAllAsRead()" 
-                    class="text-xs text-green-600 hover:text-green-800 font-semibold">
-                Mark all read
-            </button>
-        </div>
-        
-        {{-- Quick Stats --}}
-        <div class="px-4 py-2 bg-gray-50 border-b border-gray-200 grid grid-cols-2 gap-4 text-xs">
-            <div class="flex items-center justify-between">
-                <span class="text-gray-600">💬 Chats</span>
-                <span id="chatCount" class="font-bold text-green-600">0</span>
-            </div>
-            <div class="flex items-center justify-between">
-                <span class="text-gray-600">📧 Contacts</span>
-                <span id="contactCount" class="font-bold text-green-600">0</span>
-            </div>
-        </div>
-        
-        {{-- Notification List --}}
-        <div id="notificationList" class="overflow-y-auto max-h-96">
-            {{-- Notifications will be loaded here dynamically --}}
-            <div class="p-8 text-center">
-                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
-                <p class="text-gray-600 mt-2 text-sm">Loading notifications...</p>
-            </div>
-        </div>
-        
-        {{-- Dropdown Footer --}}
-        <div class="px-4 py-3 border-t border-gray-200 bg-gray-50 flex justify-between items-center">
-            <a href="{{ route('admin.chat.index') }}" 
-               class="text-xs text-green-600 hover:text-green-800 font-semibold flex items-center">
-                <span class="mr-1">💬</span>
-                View All Chats
-            </a>
-            <a href="{{ route('admin.contact.index') }}" 
-               class="text-xs text-green-600 hover:text-green-800 font-semibold flex items-center">
-                <span class="mr-1">📧</span>
-                View All Messages
-            </a>
-        </div>
-    </div>
-</div>
+                    <div class="flex items-center gap-1.5">
+                        @hasSection('page-actions')
+                            <div class="hidden items-center gap-2 sm:flex">@yield('page-actions')</div>
+                        @endif
 
-                        <!-- Profile Dropdown -->
-                        <div x-data="{ open: false }" class="relative">
-                            <button @click="open = !open" class="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-100 transition-colors">
-                                <div class="w-9 h-9 bg-gradient-to-br from-green-400 to-emerald-500 rounded-full flex items-center justify-center text-white font-bold">
-                                    {{ substr(auth()->user()->name, 0, 1) }}
-                                </div>
-                                <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                                </svg>
+                        {{-- Notifications --}}
+                        <div class="relative" x-data="{ open: false }">
+                            <button type="button" @click="open = !open" @click.outside="open = false"
+                                    class="btn btn-ghost btn-icon relative"
+                                    :aria-expanded="open ? 'true' : 'false'"
+                                    aria-label="Notifications">
+                                <x-icon name="bell" class="h-5 w-5" />
+                                <span id="notificationBadge"
+                                      class="absolute right-1.5 top-1.5 hidden h-2 w-2 rounded-full bg-red-500 ring-2 ring-white"></span>
                             </button>
 
-                            <div x-show="open" @click.away="open = false" class="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-200 py-2">
-                                <a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                                    Profile Settings
-                                </a>
-                                <form method="POST" action="{{ route('admin.logout') }}">
-                                    @csrf
-                                    <button type="submit" class="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50">
-                                        Logout
+                            <div x-show="open" x-cloak x-transition.origin.top.right
+                                 class="absolute right-0 mt-2 w-[22rem] overflow-hidden rounded-xl border border-border bg-white shadow-overlay">
+                                <div class="flex items-center justify-between border-b px-4 py-2.5">
+                                    <p class="text-sm font-semibold">Notifications</p>
+                                    <button type="button" onclick="markAllAsRead()"
+                                            class="text-xs font-medium text-brand-600 hover:text-brand-700">
+                                        Mark all read
                                     </button>
-                                </form>
+                                </div>
+
+                                <div class="grid grid-cols-2 divide-x border-b bg-surface text-xs">
+                                    <div class="flex items-center justify-between px-4 py-2">
+                                        <span class="flex items-center gap-1.5 text-muted-foreground">
+                                            <x-icon name="chat-bubble-left-right" class="h-3.5 w-3.5" /> Chats
+                                        </span>
+                                        <span id="chatCount" class="font-semibold tabular-nums">0</span>
+                                    </div>
+                                    <div class="flex items-center justify-between px-4 py-2">
+                                        <span class="flex items-center gap-1.5 text-muted-foreground">
+                                            <x-icon name="envelope" class="h-3.5 w-3.5" /> Messages
+                                        </span>
+                                        <span id="contactCount" class="font-semibold tabular-nums">0</span>
+                                    </div>
+                                </div>
+
+                                <div id="notificationList" class="scrollbar-slim max-h-80 overflow-y-auto"></div>
+
+                                <div class="flex items-center justify-between border-t bg-surface px-4 py-2.5">
+                                    <a href="{{ route('admin.chat.index') }}" class="link text-xs font-medium">All chats</a>
+                                    <a href="{{ route('admin.contact.index') }}" class="link text-xs font-medium">All messages</a>
+                                </div>
+                            </div>
+                        </div>
+
+                        {{-- Account --}}
+                        <div class="relative" x-data="{ open: false }">
+                            <button type="button" @click="open = !open" @click.outside="open = false"
+                                    class="flex h-9 w-9 items-center justify-center rounded-full bg-ink-900 text-xs font-semibold text-white"
+                                    :aria-expanded="open ? 'true' : 'false'"
+                                    aria-label="Account menu">
+                                {{ strtoupper(substr($admin->name ?? 'A', 0, 1)) }}
+                            </button>
+
+                            <div x-show="open" x-cloak x-transition.origin.top.right
+                                 class="absolute right-0 mt-2 w-56 overflow-hidden rounded-xl border border-border bg-white shadow-overlay">
+                                <div class="border-b px-3 py-2.5">
+                                    <p class="truncate text-sm font-medium">{{ $admin->name }}</p>
+                                    <p class="truncate text-xs text-muted-foreground">{{ $admin->email }}</p>
+                                </div>
+                                <div class="p-1.5">
+                                    <a href="{{ route('dashboard') }}"
+                                       class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-700 hover:bg-ink-100">
+                                        <x-icon name="arrow-left-on-rectangle" class="h-4 w-4 text-ink-500" />
+                                        Customer site
+                                    </a>
+                                    @if($admin->hasPermission('manage_settings'))
+                                        <a href="{{ route('admin.settings.index') }}"
+                                           class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-700 hover:bg-ink-100">
+                                            <x-icon name="cog-6-tooth" class="h-4 w-4 text-ink-500" />
+                                            Settings
+                                        </a>
+                                    @endif
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </header>
 
-            <!-- Page Content -->
-            <main class="flex-1 p-6">
-                <!-- Alerts -->
-                @if(session('success'))
-                    <div class="mb-6 bg-green-50 border-l-4 border-green-500 rounded-lg p-4 alert-dismissible">
-                        <div class="flex items-start">
-                            <svg class="w-5 h-5 text-green-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-                            </svg>
-                            <p class="ml-3 text-sm font-medium text-green-800">{{ session('success') }}</p>
-                        </div>
-                    </div>
-                @endif
-
-                @if(session('error'))
-                    <div class="mb-6 bg-red-50 border-l-4 border-red-500 rounded-lg p-4 alert-dismissible">
-                        <div class="flex items-start">
-                            <svg class="w-5 h-5 text-red-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
-                            </svg>
-                            <p class="ml-3 text-sm font-medium text-red-800">{{ session('error') }}</p>
-                        </div>
-                    </div>
-                @endif
-
+            <main class="flex-1 px-4 py-6 sm:px-6">
+                @include('partials.flash')
                 @yield('content')
             </main>
 
-            <!-- Footer -->
-            <footer class="bg-white border-t border-gray-200 py-4 px-6">
-                <div class="flex flex-col md:flex-row justify-between items-center text-sm text-gray-600">
-                    <p>© {{ date('Y') }} {{ config('app.name') }}. All rights reserved.</p>
-                    <p>Admin Dashboard v1.0 - by Bellah Options BN3668420</p>
+            <footer class="border-t border-border px-4 py-4 text-xs text-muted-foreground sm:px-6">
+                <div class="flex flex-col items-center justify-between gap-1 sm:flex-row">
+                    <p>&copy; {{ date('Y') }} {{ config('app.name', 'ReUp') }}. All rights reserved.</p>
+                    <p>Operated by Bellah Options BN3668420</p>
                 </div>
             </footer>
         </div>
     </div>
 
-    <!-- Mobile Sidebar Overlay -->
-    <div 
-        x-show="sidebarOpen" 
-        @click="sidebarOpen = false" 
-        class="fixed  lg:hidden"
-        x-transition:enter="transition-opacity ease-linear duration-300"
-        x-transition:enter-start="opacity-0"
-        x-transition:enter-end="opacity-100"
-        x-transition:leave="transition-opacity ease-linear duration-300"
-        x-transition:leave-start="opacity-100"
-        x-transition:leave-end="opacity-0"
-    ></div>
-
-    <script>
-        // Auto-dismiss alerts
-        document.addEventListener('DOMContentLoaded', function() {
-            const alerts = document.querySelectorAll('.alert-dismissible');
-            alerts.forEach(alert => {
-                setTimeout(() => {
-                    alert.style.transition = 'opacity 0.3s';
-                    alert.style.opacity = '0';
-                    setTimeout(() => alert.remove(), 300);
-                }, 5000);
-            });
-        });
-    </script>
-    
     @stack('scripts')
+
     <script>
-        class NotificationSystem {
-    constructor() {
-        this.pollInterval = null;
-        this.notificationBell = document.getElementById('notificationBell');
-        this.notificationBadge = document.getElementById('notificationBadge');
-        this.notificationDropdown = document.getElementById('notificationDropdown');
-        this.notificationList = document.getElementById('notificationList');
-        this.lastCheck = Date.now();
-        this.soundEnabled = localStorage.getItem('notificationSound') !== 'false';
-        
-        this.init();
-    }
-    
-    init() {
-        // Start polling for notifications
-        this.startPolling();
-        
-        // Set up click handlers
-        if (this.notificationBell) {
-            this.notificationBell.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.toggleDropdown();
-            });
-        }
-        
-        // Close dropdown when clicking outside
-        document.addEventListener('click', (e) => {
-            if (this.notificationDropdown && !this.notificationDropdown.contains(e.target)) {
-                this.notificationDropdown.classList.add('hidden');
+        // ---------------------------------------------------------------
+        // Notification polling
+        // ---------------------------------------------------------------
+        // Rewritten from the previous inline class:
+        //   - the dropdown is now Alpine-driven, so this only fetches data;
+        //   - the "new notification" tone used to fire on every poll because
+        //     it only checked `total_unread > 0` rather than a change, which
+        //     made the console beep every five seconds;
+        //   - XSS: notification title/message were interpolated into innerHTML
+        //     unescaped, so a chat message containing markup executed in the
+        //     admin's session.
+        (function () {
+            const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
+            const list = document.getElementById('notificationList');
+            const badge = document.getElementById('notificationBadge');
+            const chatCount = document.getElementById('chatCount');
+            const contactCount = document.getElementById('contactCount');
+
+            let lastSeenTotal = null;
+            let audioCtx = null;
+
+            const escapeHtml = (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+
+            function beep() {
+                try {
+                    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.frequency.value = 720;
+                    osc.type = 'sine';
+                    gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.15, audioCtx.currentTime + 0.02);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.35);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.36);
+                } catch (e) { /* audio is a nicety, never fatal */ }
             }
-        });
-        
-        // Initial load
-        this.loadNotifications();
-    }
-    
-    startPolling() {
-        // Poll every 5 seconds
-        this.pollInterval = setInterval(() => {
-            this.loadNotifications();
-        }, 5000);
-    }
-    
-    stopPolling() {
-        if (this.pollInterval) {
-            clearInterval(this.pollInterval);
-        }
-    }
-    
-    async loadNotifications() {
-        try {
-            const response = await fetch('/admin/notifications/unread', {
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest',
-                    'Accept': 'application/json'
+
+            function render(notifications) {
+                if (!list) return;
+
+                if (!notifications.length) {
+                    list.innerHTML = `
+                        <div class="empty-state py-10">
+                            <svg class="h-8 w-8 text-ink-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/>
+                            </svg>
+                            <p class="mt-2 text-sm text-muted-foreground">You're all caught up.</p>
+                        </div>`;
+                    return;
                 }
+
+                list.innerHTML = notifications.map((n) => {
+                    const url = escapeHtml(n.url || '#');
+                    return `
+                        <a href="${url}"
+                           class="flex items-start gap-3 border-b border-ink-100 px-4 py-3 transition-colors last:border-0 hover:bg-ink-50"
+                           data-mark-read="${escapeHtml(n.type)}" data-id="${escapeHtml(n.id)}">
+                            <span class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24">
+                                    <circle cx="12" cy="12" r="9"/>
+                                </svg>
+                            </span>
+                            <span class="min-w-0 flex-1">
+                                <span class="block truncate text-sm font-medium text-ink-900">${escapeHtml(n.title)}</span>
+                                <span class="mt-0.5 block text-xs text-muted-foreground">${escapeHtml(n.message)}</span>
+                                <span class="mt-1 block text-[11px] text-ink-400">${escapeHtml(n.time)}</span>
+                            </span>
+                        </a>`;
+                }).join('');
+
+                list.querySelectorAll('[data-mark-read]').forEach((link) => {
+                    link.addEventListener('click', () => {
+                        markAsRead(link.dataset.markRead, link.dataset.id);
+                    });
+                });
+            }
+
+            function updateCounts(data) {
+                if (chatCount && data.unread_chats !== undefined) chatCount.textContent = data.unread_chats;
+                if (contactCount && data.unread_contacts !== undefined) contactCount.textContent = data.unread_contacts;
+
+                const total = data.total_unread ?? 0;
+
+                if (badge) badge.classList.toggle('hidden', total === 0);
+
+                // Only alert when the number actually rises.
+                if (lastSeenTotal !== null && total > lastSeenTotal) beep();
+                lastSeenTotal = total;
+            }
+
+            async function load() {
+                try {
+                    const res = await fetch('{{ route('admin.notifications.unread') }}', {
+                        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                        credentials: 'same-origin',
+                    });
+                    if (!res.ok) return;
+
+                    const data = await res.json();
+                    render(data.notifications || []);
+                    updateCounts(data);
+                } catch (e) { /* transient network failure — retry on next tick */ }
+            }
+
+            window.markAsRead = async function (type, id) {
+                try {
+                    await fetch('{{ route('admin.notifications.mark-read') }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': csrf,
+                        },
+                        credentials: 'same-origin',
+                        body: JSON.stringify({ type, id }),
+                    });
+                    load();
+                } catch (e) { /* ignore */ }
+            };
+
+            window.markAllAsRead = async function () {
+                try {
+                    await fetch('{{ route('admin.notifications.mark-read') }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': csrf,
+                        },
+                        credentials: 'same-origin',
+                    });
+                    load();
+                } catch (e) { /* ignore */ }
+            };
+
+            load();
+            const timer = setInterval(load, 30000);
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) clearInterval(timer);
             });
-            
-            if (!response.ok) throw new Error('Failed to load notifications');
-            
-            const data = await response.json();
-            this.updateUI(data);
-            
-            // Play sound if there are new notifications
-            if (data.total_unread > 0 && this.shouldPlaySound(data)) {
-                this.playNotificationSound();
-            }
-            
-        } catch (error) {
-            console.error('Error loading notifications:', error);
-        }
-    }
-    
-    updateUI(data) {
-        // Update badge count
-        if (this.notificationBadge) {
-            if (data.total_unread > 0) {
-                this.notificationBadge.textContent = data.total_unread > 99 ? '99+' : data.total_unread;
-                this.notificationBadge.classList.remove('hidden');
-                
-                // Pulse animation for new notifications
-                this.notificationBell?.classList.add('animate-pulse');
-                setTimeout(() => {
-                    this.notificationBell?.classList.remove('animate-pulse');
-                }, 2000);
-            } else {
-                this.notificationBadge.classList.add('hidden');
-            }
-        }
-        
-        // Update notification list
-        if (this.notificationList && data.notifications) {
-            this.renderNotifications(data.notifications);
-        }
-    }
-    
-    renderNotifications(notifications) {
-        if (notifications.length === 0) {
-            this.notificationList.innerHTML = `
-                <div class="p-8 text-center">
-                    <span class="text-4xl mb-2 block">🔔</span>
-                    <p class="text-gray-600 text-sm">No new notifications</p>
-                </div>
-            `;
-            return;
-        }
-        
-        this.notificationList.innerHTML = notifications.map(notification => `
-            <a href="${notification.url}" 
-               class="block px-4 py-3 hover:bg-gray-50 transition-colors border-b border-gray-100"
-               onclick="markAsRead('${notification.type}', '${notification.id}')">
-                <div class="flex items-start space-x-3">
-                    <div class="flex-shrink-0 w-10 h-10 bg-gradient-to-br ${this.getGradientColor(notification.type)} rounded-lg flex items-center justify-center">
-                        <span class="text-lg">${notification.icon}</span>
-                    </div>
-                    <div class="flex-1 min-w-0">
-                        <p class="text-sm font-semibold text-gray-900 truncate">
-                            ${notification.title}
-                        </p>
-                        <p class="text-xs text-gray-600 mt-1 line-clamp-2">
-                            ${notification.message}
-                        </p>
-                        <p class="text-xs text-gray-500 mt-1">
-                            ${notification.time}
-                        </p>
-                    </div>
-                </div>
-            </a>
-        `).join('');
-    }
-    
-    getGradientColor(type) {
-        switch(type) {
-            case 'chat':
-                return 'from-green-400 to-green-500';
-            case 'contact':
-                return 'from-green-400 to-green-500';
-            default:
-                return 'from-gray-400 to-gray-500';
-        }
-    }
-    
-    toggleDropdown() {
-        if (this.notificationDropdown) {
-            this.notificationDropdown.classList.toggle('hidden');
-        }
-    }
-    
-    shouldPlaySound(data) {
-        // Only play sound if sound is enabled and there are new notifications
-        // since last check
-        return this.soundEnabled && data.total_unread > 0;
-    }
-    
-    playNotificationSound() {
-        // Create a simple notification sound using Web Audio API
-        try {
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-            
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-            
-            oscillator.frequency.value = 800;
-            oscillator.type = 'sine';
-            
-            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-            
-            oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 0.5);
-        } catch (error) {
-            console.error('Error playing notification sound:', error);
-        }
-    }
-}
-
-// Mark notification as read
-async function markAsRead(type, id) {
-    try {
-        await fetch('/admin/notifications/mark-read', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            body: JSON.stringify({ type, id })
-        });
-    } catch (error) {
-        console.error('Error marking notification as read:', error);
-    }
-}
-
-// Mark all notifications as read
-async function markAllAsRead() {
-    try {
-        const response = await fetch('/admin/notifications/mark-read', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                'X-Requested-With': 'XMLHttpRequest'
-            }
-        });
-        
-        if (response.ok) {
-            // Reload notifications
-            window.notificationSystem?.loadNotifications();
-        }
-    } catch (error) {
-        console.error('Error marking all as read:', error);
-    }
-}
-
-// Initialize notification system when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
-    window.notificationSystem = new NotificationSystem();
-});
-
-// Clean up on page unload
-window.addEventListener('beforeunload', () => {
-    if (window.notificationSystem) {
-        window.notificationSystem.stopPolling();
-    }
-});
+        })();
     </script>
-
-    @push('scripts')
-<script src="{{ asset('js/notifications.js') }}"></script>
-<script>
-// Update notification counts in the dropdown
-function updateNotificationCounts(data) {
-    if (data.unread_chats !== undefined) {
-        document.getElementById('chatCount').textContent = data.unread_chats;
-    }
-    if (data.unread_contacts !== undefined) {
-        document.getElementById('contactCount').textContent = data.unread_contacts;
-    }
-}
-
-// Override the updateUI method to include counts
-if (window.notificationSystem) {
-    const originalUpdateUI = window.notificationSystem.updateUI;
-    window.notificationSystem.updateUI = function(data) {
-        originalUpdateUI.call(this, data);
-        updateNotificationCounts(data);
-    };
-}
-
-// Update admin activity every minute
-setInterval(() => {
-    fetch('/admin/update-activity', {
-        method: 'POST',
-        headers: {
-            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-            'X-Requested-With': 'XMLHttpRequest'
-        }
-    });
-}, 60000);
-</script>
-@endpush
 </body>
 </html>

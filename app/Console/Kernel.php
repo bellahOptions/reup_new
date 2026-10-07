@@ -15,7 +15,24 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule)
     {
-        // $schedule->command('inspire')->hourly();
+        /*
+         * Resolve pending Paystack payments.
+         *
+         * Runs every minute so a payment is picked up within ~10 minutes of
+         * being made (the command only polls rows older than 10 minutes, which
+         * gives the webhook its chance first — this is the fallback, not the
+         * primary path). Overlapping is prevented so a slow gateway cannot cause
+         * two runs to poll the same rows.
+         *
+         * REQUIRES a scheduler runner: `php artisan schedule:run` every minute
+         * from cron/Task Scheduler, or `php artisan schedule:work` in
+         * development. Without one this never executes and pending payments
+         * stay pending — see docs/RUNNING.md.
+         */
+        $schedule->command('payments:reconcile')
+            ->everyMinute()
+            ->withoutOverlapping()
+            ->runInBackground();
     }
 
     /**

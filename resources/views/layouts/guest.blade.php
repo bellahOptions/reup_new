@@ -1,59 +1,44 @@
 <!doctype html>
-<html>
-  <head>
-<meta name="csrf-token" content="{{ csrf_token() }}">
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-        <!--Icon Links-->
-    <link rel="shortcut icon" href="{{ asset('images/reup-icon-06.jpg')}}" type="image/x-icon">
-    <link rel="apple-touch-icon" sizes="57x57" href="{{ asset('images/apple-icon-57x57.png')}}">
-<link rel="apple-touch-icon" sizes="60x60" href="{{ asset('images/apple-icon-60x60.png')}}">
-<link rel="apple-touch-icon" sizes="72x72" href="{{ asset('images/apple-icon-72x72.png')}}">
-<link rel="apple-touch-icon" sizes="76x76" href="{{ asset('images/apple-icon-76x76.png')}}">
-<link rel="apple-touch-icon" sizes="114x114" href="{{ asset('images/apple-icon-114x114.png')}}">
-<link rel="apple-touch-icon" sizes="120x120" href="{{ asset('images/apple-icon-120x120.png')}}">
-<link rel="apple-touch-icon" sizes="144x144" href="{{ asset('images/apple-icon-144x144.png')}}">
-<link rel="apple-touch-icon" sizes="152x152" href="{{ asset('images/apple-icon-152x152.png')}}">
-<link rel="apple-touch-icon" sizes="180x180" href="{{ asset('images/apple-icon-180x180.png')}}">
-<link rel="icon" type="image/png" sizes="192x192"  href="{{ asset('images/android-icon-192x192.png')}}">
-<link rel="icon" type="image/png" sizes="32x32" href="{{ asset('images/favicon-32x32.png')}}">
-<link rel="icon" type="image/png" sizes="96x96" href="{{ asset('images/favicon-96x96.png')}}">
-<link rel="icon" type="image/png" sizes="16x16" href="{{ asset('images/favicon-16x16.png')}}">
-<link rel="manifest" href="/images/manifest.json">
-<meta name="msapplication-TileColor" content="#2AB70D">
-<meta name="msapplication-TileImage" content="{{ asset('images/ms-icon-144x144.png')}}">
-<meta name="theme-color" content="#2AB70D">
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-F119BZ9T43"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<head>
+    @include('partials.head')
+    <title>@yield('title', 'ReUp') | {{ config('app.name', 'ReUp') }}</title>
+    @stack('styles')
+</head>
+<body class="min-h-screen bg-surface">
+    <div class="flex min-h-screen flex-col">
+        <header class="border-b bg-white">
+            <div class="container-page flex h-16 items-center justify-between">
+                <a href="{{ route('home') }}" class="flex items-center gap-2">
+                    <img src="{{ asset('images/reup-03.svg') }}" alt="ReUp" class="h-7 w-auto">
+                </a>
+                <a href="{{ route('home') }}" class="btn btn-ghost btn-sm text-muted-foreground">
+                    <x-icon name="arrow-left" class="h-4 w-4" />
+                    Back to home
+                </a>
+            </div>
+        </header>
 
-  gtag('config', 'G-F119BZ9T43');
-</script>
-<!--End Icon Links-->   
-    <title>@yield('title')</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet">
-    <style type="text/tailwindcss">
-      @theme {
-        --color-clifford: #da373d;
-      }
-      *{        
-        font-family: "DM Sans", sans-serif;
-      }
-    </style>
-  </head>
-  <!-- Elfsight WhatsApp Chat | ReuP -->
-<script src="https://elfsightcdn.com/platform.js" async></script>
-<div class="elfsight-app-b32271e7-82bd-46f3-80c8-f7de88dca9b0" data-elfsight-app-lazy></div>
+        <main class="flex flex-1 items-center justify-center px-4 py-10 sm:py-16">
+            <div class="w-full max-w-md">
+                {{ $slot }}
+            </div>
+        </main>
 
-    <body>
-        <div class="font-sans text-gray-900 antialiased">
-            {{ $slot }}
-        </div>
-    </body>
+        <footer class="border-t bg-white">
+            <div class="container-page flex flex-col items-center justify-between gap-2 py-5 text-sm text-muted-foreground sm:flex-row">
+                <p>&copy; {{ date('Y') }} {{ config('app.name', 'ReUp') }}</p>
+                <div class="flex items-center gap-4">
+                    <a href="{{ route('privacy-policy') }}" class="link">Privacy</a>
+                    <a href="{{ route('terms-of-service') }}" class="link">Terms</a>
+                    <a href="{{ route('faq') }}" class="link">FAQ</a>
+                </div>
+            </div>
+        </footer>
+    </div>
+    {{-- Guests have no dashboard and no contact link on these screens, so the
+         WhatsApp bubble is their only route to a human. --}}
+    @include('partials.support-widget')
+    @stack('scripts')
+</body>
 </html>

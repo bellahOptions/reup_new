@@ -85,15 +85,38 @@ return [
     | Global "From" Address
     |--------------------------------------------------------------------------
     |
-    | You may wish for all e-mails sent by your application to be sent from
-    | the same address. Here, you may specify a name and address that is
-    | used globally for all e-mails that are sent by your application.
+    | Every email the application sends is from this name and address.
+    |
+    | ## Why this does not simply read APP_NAME
+    |
+    | It was previously `MAIL_FROM_NAME="${APP_NAME}"`. Dotenv resolves `${...}`
+    | against the *process* environment before it reads .env, and Laravel's own
+    | default export is APP_NAME=Laravel — so a shell that had it exported
+    | branded every customer email from "Laravel". On this machine
+    | MAIL_FROM_NAME is itself exported as the literal `${APP_NAME}`, which
+    | reached customers verbatim.
+    |
+    | APP_NAME is not used as the fallback either, because it carries the same
+    | shell override. The literal below is the actual wordmark; override it with
+    | MAIL_FROM_NAME when a different sender name is genuinely wanted. An
+    | unexpanded `${...}` placeholder is treated as "not set" so a leftover shell
+    | variable can never put a template token in a customer's inbox.
     |
     */
 
     'from' => [
-        'address' => env('MAIL_FROM_ADDRESS', 'bellahoptions@gmail.com'),
-        'name' => env('MAIL_FROM_NAME', 'ReUp by Bellah Options'),
+        'address' => trim((string) env('MAIL_FROM_ADDRESS', '')) ?: 'no-reply@reup.com.ng',
+        'name' => (function () {
+            $configured = trim((string) env('MAIL_FROM_NAME', ''));
+
+            // Reject unexpanded ${VAR} / $VAR, and the literal string "null"
+            // that a shell writes when a variable is unset.
+            if ($configured === '' || str_contains($configured, '${') || strcasecmp($configured, 'null') === 0) {
+                return 'ReUp';
+            }
+
+            return $configured;
+        })(),
     ],
 
     /*

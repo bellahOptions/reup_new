@@ -1,87 +1,114 @@
 <?php
 
-namespace App\Http\Controllers; 
+namespace App\Http\Controllers;
 
-use App\Models\User;
-use App\Models\Transactions;
 use App\Models\ChatSession;
-use App\Models\ContactMessage;
 use App\Models\PromotionNotification;
+use App\Models\Transactions;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        // Get the authenticated user
         $user = Auth::user();
-        
-       $announcements = PromotionNotification::where('is_active', true)
-    ->orderBy('created_at', 'desc')
-    ->limit(6) 
-    ->get();
 
-        // User-specific statistics
-        $userStats = [
-            'balance' => $user->balance ?? 0,
-            'total_transactions' => Transactions::where('user_id', $user->id)->count(),
-            'completed_transactions' => Transactions::where('user_id', $user->id)
-                ->where('status', 'completed')
-                ->count(),
-            'pending_transactions' => Transactions::where('user_id', $user->id)
-                ->where('status', 'pending')
-                ->count(),
-        ];
+        // Filters the view's GET form actually submits.
+        $filters = $request->validate([
+            'type' => 'nullable|in:credit,debit',
+            'status' => 'nullable|in:pending,processing,success,failed,cancelled,verifying',
+            'date' => 'nullable|date',
+        ]);
 
-        // User's recent transactions
-        $recentTransactions = Transactions::where('user_id', $user->id)
+        // `live()` is the shared active-and-in-window predicate; this query
+        // previously reimplemented it inline and could drift from the others.
+        $announcements = PromotionNotification::query()
+            ->live()
             ->latest()
-            ->limit(5)
+            ->limit(6)
             ->get();
 
-        // User's chat sessions
+        $recentTransactions = Transactions::forUser($user->id)
+            ->when(! empty($filters['type']), fn ($q) => $q->where('type', $filters['type']))
+            ->when(! empty($filters['status']), fn ($q) => $q->where('status', $filters['status']))
+            ->when(! empty($filters['date']), fn ($q) => $q->whereDate('created_at', $filters['date']))
+            ->latest()
+            ->limit(10)
+            ->get();
+
+        $monthStart = now()->startOfMonth();
+
+        $userStats = [
+            // `balance` and `status` were read from the users table by the old
+            // controller (`$user->balance`, `$user->status`); balance lives on
+            // the wallets table and the accessor resolves it.
+            'balance' => (float) $user->wallet_balance,
+            'total_transactions' => Transactions::forUser($user->id)->count(),
+            'successful_transactions' => Transactions::forUser($user->id)->where('status', 'success')->count(),
+            'pending_transactions' => Transactions::forUser($user->id)->where('status', 'pending')->count(),
+            'spent_this_month' => (float) Transactions::forUser($user->id)
+                ->where('type', 'debit')->where('status', 'success')
+                ->where('created_at', '>=', $monthStart)->sum('amount'),
+            'funded_this_month' => (float) Transactions::forUser($user->id)
+                ->where('type', 'credit')->where('status', 'success')
+                ->where('created_at', '>=', $monthStart)->sum('amount'),
+        ];
+
         $userChats = ChatSession::where('user_id', $user->id)
-            ->with(['messages' => function($query) {
-                $query->latest()->limit(1);
-            }])
+            ->with(['messages' => fn ($q) => $q->latest()->limit(1)])
             ->latest('last_message_at')
             ->limit(5)
             ->get();
 
-        // User's recent activity
         $recentActivity = [
             'last_login' => $user->last_login_at,
             'account_created' => $user->created_at,
             'status' => $user->status,
         ];
 
-        // If user has transactions, get some stats
-        $transactionStats = null;
-        if ($recentTransactions->count() > 0) {
-            $transactionStats = [
-                'total_spent' => Transactions::where('user_id', $user->id)
-                    ->where('status', 'completed')
-                    ->sum('amount'),
-                'average_transaction' => Transactions::where('user_id', $user->id)
-                    ->where('status', 'completed')
-                    ->avg('amount'),
-                'last_transaction_date' => Transactions::where('user_id', $user->id)
-                    ->latest()
-                    ->first()
-                    ->created_at ?? null,
+        $transactionStats = [
+            'total_spent' => (float) Transactions::forUser($user->id)
+                ->where('type', 'debit')->where('status', 'success')->sum('amount'),
+            'average_transaction' => (float) (Transactions::forUser($user->id)
+                ->where('status', 'success')->avg('amount') ?? 0),
+            'last_transaction_date' => Transactions::forUser($user->id)->latest()->value('created_at'),
+        ];
+
+        // Quick actions point at routes that actually exist. The old array
+        // referenced payments.create / chats.create / profile.edit, none of
+        // which are registered, so every link 500'd.
+        $quickActions = [
+            ['title' => 'Buy airtime', 'route' => 'airtime-data.index', 'icon' => 'device-phone-mobile'],
+            ['title' => 'Buy data', 'route' => 'airtime-data.index', 'icon' => 'signal'],
+            ['title' => 'Cable TV', 'route' => 'cable-tv.index', 'icon' => 'tv'],
+            ['title' => 'Electricity', 'route' => 'electricity.index', 'icon' => 'bolt'],
+            ['title' => 'Fund wallet', 'route' => 'wallet.fund', 'icon' => 'wallet'],
+            ['title' => 'Transaction history', 'route' => 'transactions.index', 'icon' => 'queue-list'],
+            ['title' => 'Profile', 'route' => 'profile.index', 'icon' => 'user'],
+        ];
+
+        // Support is a WhatsApp deep link, not a route. Appended only when a
+        // number is configured, so the tile never renders as a dead link.
+        if ($whatsappUrl = config('services.support.whatsapp_url')) {
+            $quickActions[] = [
+                'title' => 'Support on WhatsApp',
+                'url' => $whatsappUrl,
+                'icon' => 'whatsapp',
             ];
         }
 
-        // Quick actions/links for the user
-        $quickActions = [
-            ['title' => 'Make a Payment', 'route' => 'payments.create', 'icon' => 'credit-card'],
-            ['title' => 'Start Chat', 'route' => 'chats.create', 'icon' => 'message-square'],
-            ['title' => 'View Transactions', 'route' => 'transactions.index', 'icon' => 'list'],
-            ['title' => 'Profile Settings', 'route' => 'profile.edit', 'icon' => 'user'],
-        ];
+        /*
+         * First sign-in introduction. Shown until the user finishes or skips it.
+         *
+         * Driven off `tips_seen_at` rather than session state so it follows the
+         * account across devices — a session flag would re-introduce the app on
+         * every new browser, which is exactly the nagging the tips are meant to
+         * avoid.
+         */
+        $showTips = $user->tips_seen_at === null;
 
-        // Return USER dashboard view (not admin)
         return view('dashboard', compact(
             'user',
             'userStats',
@@ -90,33 +117,20 @@ class DashboardController extends Controller
             'recentActivity',
             'transactionStats',
             'quickActions',
-            'announcements'
+            'announcements',
+            'showTips',
         ));
     }
 
     public function getRealtimeStats()
     {
         $user = Auth::user();
-        
+
         return response()->json([
-            'user_balance' => $user->balance ?? 0,
-            'unread_messages' => DB::table('chat_messages')
-                ->where('chat_session_id', function($query) use ($user) {
-                    $query->select('id')
-                        ->from('chat_sessions')
-                        ->where('user_id', $user->id)
-                        ->where('status', 'active')
-                        ->limit(1);
-                })
-                ->where('is_read', false)
-                ->where('sender_type', '!=', 'user') // Messages not from the user
-                ->count(),
-            'pending_transactions' => Transactions::where('user_id', $user->id)
-                ->where('status', 'pending')
-                ->count(),
-            'active_chats' => ChatSession::where('user_id', $user->id)
-                ->where('status', 'active')
-                ->count(),
+            'balance' => (float) $user->wallet_balance,
+            'unread_messages' => $user->unread_chats_count,
+            'pending_transactions' => Transactions::forUser($user->id)->where('status', 'pending')->count(),
+            'active_chats' => ChatSession::where('user_id', $user->id)->where('status', 'active')->count(),
         ]);
     }
 }

@@ -5,52 +5,95 @@ use App\Http\Controllers\Auth\ConfirmablePasswordController;
 use App\Http\Controllers\Auth\EmailVerificationNotificationController;
 use App\Http\Controllers\Auth\EmailVerificationPromptController;
 use App\Http\Controllers\Auth\NewPasswordController;
+use App\Http\Controllers\Auth\OtpLoginController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\Auth\VerifyEmailController;
 use Illuminate\Support\Facades\Route;
 
+/*
+| Authentication routes.
+|
+| Throttles were absent entirely, so both credential endpoints and the
+| verification-resend endpoint could be hammered. Limits now mirror the admin
+| sign-in (5 per minute per email+IP) and are enforced by Laravel's default
+| key, which includes the client IP.
+*/
 Route::middleware('guest')->group(function () {
-    Route::get('register', [RegisteredUserController::class, 'create'])
-                ->name('register');
+    Route::get('register', [RegisteredUserController::class, 'create'])->name('register');
+    Route::post('register', [RegisteredUserController::class, 'store'])
+        ->middleware('throttle:5,1');
 
-    Route::post('register', [RegisteredUserController::class, 'store']);
+    Route::get('login', [AuthenticatedSessionController::class, 'create'])->name('login');
+    Route::post('login', [AuthenticatedSessionController::class, 'store'])
+        ->middleware('throttle:10,1');
 
-    Route::get('login', [AuthenticatedSessionController::class, 'create'])
-                ->name('login');
+    /*
+    | Password-alternative sign-in by one-time email code.
+    |
+    | Registered BEFORE nothing in particular competes for these paths, and all
+    | under `guest` so an authenticated visitor is bounced away rather than
+    | starting a second sign-in. Throttles here are coarse per-IP limits; the
+    | per-account limits live in OtpLoginService, because Laravel's default
+    | throttle key cannot see the submitted email.
+    |
+    | `login/code` is listed before `login/code/verify` for readability only —
+    | the paths do not overlap, so ordering is not load-bearing.
+    */
+    Route::get('login/code', [OtpLoginController::class, 'showRequestForm'])
+        ->name('login.code');
 
-    Route::post('login', [AuthenticatedSessionController::class, 'store']);
+    Route::post('login/code', [OtpLoginController::class, 'sendCode'])
+        ->middleware('throttle:10,1')
+        ->name('login.code.send');
+
+    Route::get('login/code/verify', [OtpLoginController::class, 'showVerifyForm'])
+        ->name('login.code.verify');
+
+    Route::post('login/code/verify', [OtpLoginController::class, 'verify'])
+        ->middleware('throttle:15,1')
+        ->name('login.code.verify.post');
+
+    Route::post('login/code/resend', [OtpLoginController::class, 'resend'])
+        ->middleware('throttle:5,1')
+        ->name('login.code.resend');
 
     Route::get('forgot-password', [PasswordResetLinkController::class, 'create'])
-                ->name('password.request');
+        ->middleware('throttle:10,1')
+        ->name('password.request');
 
     Route::post('forgot-password', [PasswordResetLinkController::class, 'store'])
-                ->name('password.email');
+        ->middleware('throttle:5,1')
+        ->name('password.email');
 
     Route::get('reset-password/{token}', [NewPasswordController::class, 'create'])
-                ->name('password.reset');
+        ->name('password.reset');
 
     Route::post('reset-password', [NewPasswordController::class, 'store'])
-                ->name('password.update');
+        ->middleware('throttle:5,1')
+        ->name('password.update');
 });
 
 Route::middleware('auth')->group(function () {
     Route::get('verify-email', [EmailVerificationPromptController::class, '__invoke'])
-                ->name('verification.notice');
+        ->name('verification.notice');
 
     Route::get('verify-email/{id}/{hash}', [VerifyEmailController::class, '__invoke'])
-                ->middleware(['signed', 'throttle:6,1'])
-                ->name('verification.verify');
+        ->middleware(['signed', 'throttle:6,1'])
+        ->name('verification.verify');
 
     Route::post('email/verification-notification', [EmailVerificationNotificationController::class, 'store'])
-                ->middleware('throttle:6,1')
-                ->name('verification.send');
+        ->middleware('throttle:6,1')
+        ->name('verification.send');
 
     Route::get('confirm-password', [ConfirmablePasswordController::class, 'show'])
-                ->name('password.confirm');
+        ->name('password.confirm');
 
-    Route::post('confirm-password', [ConfirmablePasswordController::class, 'store']);
+    Route::post('confirm-password', [ConfirmablePasswordController::class, 'store'])
+        ->middleware('throttle:6,1');
 
+    // POST only. The verify-email view previously linked to this route with a
+    // GET <a href>, which threw MethodNotAllowedHttpException.
     Route::post('logout', [AuthenticatedSessionController::class, 'destroy'])
-                ->name('logout');
+        ->name('logout');
 });

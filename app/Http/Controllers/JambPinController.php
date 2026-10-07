@@ -2,165 +2,154 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Transactions;
+use App\Services\BillPaymentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class JambPinController extends Controller
 {
+    public function __construct(private readonly BillPaymentService $bills)
+    {
+    }
+
     public function index()
     {
+        $user = Auth::user();
+
         return view('jamb-pin.index', [
-            'user' => Auth::user(),
+            'user' => $user,
+            'types' => (array) config('bills.exam_pins.jamb', []),
+            'recentTransactions' => Transactions::where('user_id', $user->id)
+                ->where('service_type', 'exam')
+                ->where('provider', 'like', '%JAMB%')
+                ->latest()
+                ->limit(5)
+                ->get(),
         ]);
     }
-    
-    public function purchase(Request $request)
+
+    public function types()
     {
-        // Handle JAMB PIN purchase logic
-        return redirect()->route('jamb-pin.index')
-            ->with('success', 'JAMB PIN purchased successfully!');
+        return response()->json((array) config('bills.exam_pins.jamb', []));
     }
 
-    
-
-public function verifyProfile(Request $request)
+    public function history()
     {
-        $request->validate([
-            'profile_id' => 'required|string|size:10|regex:/^[A-Z0-9]+$/',
-            'exam_type' => 'required|in:utme,de'
+        return view('jamb-pin.history', [
+            'transactions' => $this->bills->historyFor(Auth::user(), ['exam']),
         ]);
+    }
+
+    /**
+     * Resolve a JAMB profile ID to a candidate name.
+     */
+    public function verifyProfile(Request $request)
+    {
+        $validated = $request->validate([
+            'profile_id' => ['required', 'string', 'size:10', 'regex:/^[A-Z0-9]+$/'],
+            'exam_type' => 'required|in:utme,de',
+        ]);
+
+        if (! $this->bills->provider('jamb')->isConfigured()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Profile verification is temporarily unavailable. Please try again later.',
+            ], 503);
+        }
 
         try {
-            // Log the request (without API key for security)
-            Log::info('JAMB Profile Verification Request', [
-                'profile_id' => $request->profile_id,
-                'exam_type' => $request->exam_type,
-                'user_id' => auth()->id()
+            $provider = $this->bills->provider('jamb');
+
+            $response = $provider->verifyCustomer('jamb', [
+                'profile_id' => $validated['profile_id'],
+                'exam_type' => $validated['exam_type'],
+                'request_id' => 'JMB-' . $validated['profile_id'],
             ]);
 
-            // Make secure API call from server
-            $response = Http::timeout(30)->get('https://www.nellobytesystems.com/APIVerifyJAMB.asp', [
-                'UserID' => env('CLUBKONNECT_CLIENT_ID'),
-            'APIKey' => env('CLUBKONNECT_API_KEY'),
-                'ExamType' => $request->exam_type,
-                'ProfileID' => $request->profile_id
-            ]);
-
-            // Check if request was successful
-            if ($response->failed()) {
-                Log::error('JAMB Verification API Failed', [
-                    'status' => $response->status(),
-                    'body' => $response->body()
-                ]);
-                
+            if (! $provider->isSuccess($response)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Verification service unavailable'
-                ], 503);
+                    'message' => $provider->errorMessage($response),
+                ], 422);
             }
-
-            $data = $response->json();
-            
-            Log::info('JAMB Verification Response', [
-                'profile_id' => $request->profile_id,
-                'response' => $data
-            ]);
 
             return response()->json([
                 'success' => true,
-                'data' => $data
+                'data' => [
+                    'profile_id' => $validated['profile_id'],
+                    'customer_name' => $response['customer_name'] ?? $response['CustomerName'] ?? null,
+                    'exam_type' => $validated['exam_type'],
+                ],
             ]);
-
-        } catch (\Exception $e) {
-            Log::error('JAMB Verification Error', [
-                'error' => $e->getMessage(),
-                'profile_id' => $request->profile_id
-            ]);
+        } catch (Throwable $e) {
+            Log::error('JAMB profile verification failed', ['error' => $e->getMessage()]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Verification failed. Please try again.'
-            ], 500);
+                'message' => 'We could not reach the provider. Please try again.',
+            ], 502);
         }
     }
 
-    public function purchasePin(Request $request)
+    public function purchase(Request $request)
     {
-        $request->validate([
-            'profile_id' => 'required|string|size:10|regex:/^[A-Z0-9]+$/',
+        $validated = $request->validate([
+            'profile_id' => ['required', 'string', 'size:10', 'regex:/^[A-Z0-9]+$/'],
             'exam_type' => 'required|in:utme,de',
-            'phone' => 'required|string|size:11|regex:/^[0-9]+$/',
-            'request_id' => 'required|string'
+            'phone' => ['required', 'string', 'regex:/^0[7-9][0-9]{9}$/'],
+            'pin' => 'required|string|size:4',
+            'idempotency_key' => 'nullable|string|min:8|max:64',
         ]);
 
-        try {
-            // Check wallet balance
-            $user = auth()->user();
-            $amount = $this->getExamPrice($request->exam_type);
-            
-            if ($user->wallet_balance < $amount) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Insufficient wallet balance'
-                ], 400);
-            }
+        $user = Auth::user();
+        $types = (array) config('bills.exam_pins.jamb', []);
+        $unitPrice = (float) ($types[$validated['exam_type']]['price'] ?? 0);
+        $label = $types[$validated['exam_type']]['label'] ?? strtoupper($validated['exam_type']);
 
-            // Generate callback URL
-            $callbackUrl = route('jamb.callback');
-            
-            // Make purchase API call
-            $response = Http::timeout(60)->get('https://www.nellobytesystems.com/APIJAMBV1.asp', [
-                'UserID' => config('services.nellobytes.user_id'),
-                'APIKey' => config('services.nellobytes.api_key'),
-                'ExamType' => $request->exam_type,
-                'PhoneNo' => $request->phone,
-                'RequestID' => $request->request_id,
-                'CallBackURL' => $callbackUrl
-            ]);
-
-            $data = $response->json();
-            
-            if ($data['statuscode'] === '200' || $data['status'] === 'ORDER_COMPLETED') {
-                // Deduct from wallet
-                $user->decrement('wallet_balance', $amount);
-                
-                // Save transaction
-                Transaction::create([
-                    'user_id' => $user->id,
-                    'type' => 'jamb',
-                    'reference' => $data['orderid'],
-                    'amount' => $amount,
-                    'status' => 'success',
-                    'meta' => json_encode($data)
-                ]);
-
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Purchase successful',
-                    'data' => $data
-                ]);
-            } else {
-                return response()->json([
-                    'success' => false,
-                    'message' => $data['remark'] ?? 'Purchase failed'
-                ], 400);
-            }
-
-        } catch (\Exception $e) {
-            Log::error('JAMB Purchase Error', [
-                'error' => $e->getMessage(),
-                'user_id' => auth()->id()
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Purchase failed. Please try again.'
-            ], 500);
+        if ($unitPrice <= 0) {
+            return back()->withInput()->with('error', 'JAMB e-PIN pricing is not configured. Please contact support.');
         }
-    }
 
-    private function getExamPrice($examType)
-    {
-        return $examType === 'utme' ? 6200 : 15700;
+        // `request_id` was previously supplied by the browser; deriving it here
+        // means a client cannot replay or collide provider request ids.
+        $requestId = 'JMB-' . $validated['profile_id'] . '-' . now()->format('ymdHis');
+
+        $result = $this->bills->purchase(
+            user: $user,
+            product: 'jamb',
+            amount: $unitPrice,
+            fee: (float) config('bills.fees.exam_pin', 0),
+            recipient: $validated['profile_id'],
+            providerLabel: 'JAMB',
+            description: 'JAMB e-PIN — ' . $label,
+            meta: [
+                'exam_type' => $validated['exam_type'],
+                'profile_id' => $validated['profile_id'],
+                'phone' => $validated['phone'],
+                'provider_request_id' => $requestId,
+            ],
+            dispatch: fn ($provider, Transactions $transaction) => $provider->purchase(
+                'jamb',
+                [
+                    'exam_type' => $validated['exam_type'],
+                    'quantity' => 1,
+                    'phone' => $validated['phone'],
+                ],
+                $requestId,
+            ),
+            successMessage: $label . ' PIN generated for profile ' . $validated['profile_id'] . '.',
+            pin: $validated['pin'],
+            idempotencyKey: $validated['idempotency_key'] ?? null,
+        );
+
+        if (! $result['ok']) {
+            return back()->withInput()->with('error', $result['message']);
+        }
+
+        return redirect()->route('transactions.success', $result['transaction']->reference)
+            ->with('success', $result['message']);
     }
 }

@@ -14,44 +14,75 @@ class User extends Authenticatable implements MustVerifyEmail
     use HasFactory, Notifiable;
 
     // In User.php model, add to $fillable array:
-protected $fillable = [
-    'name',
-    'email',
-    'password',
-    'phone',
-    'whatsapp',
-    'birthday',
-    'gender',
-    'profile_picture',
-    'address',
-    'state',
-    'city',
-    'profile_completed',
-    'notification_preferences',
-    'is_admin',
-    'is_super_admin',
-    'admin_role', // Add this line
-    'admin_permissions', // Add this line
-    'last_login_at', // Add this line
-    'is_online', // Add this line
-];
+    protected $fillable = [
+        'name',
+        'email',
+        'password',
+        'phone',
+        'whatsapp',
+        'birthday',
+        'gender',
+        'profile_picture',
+        'avatar_color',
+        'avatar_icon',
+        'referral_code',
+        'referred_by_user_id',
+        'tips_seen_at',
+        'address',
+        'state',
+        'city',
+        'profile_completed',
+        'notification_preferences',
+        'status',
+        'is_admin',
+        'is_super_admin',
+        'admin_role',
+        'admin_permissions',
+        'last_login_at',
+        'last_login_ip',
+        'last_activity',
+        'last_activity_at',
+        'last_assigned_at',
+        'is_online',
+        'is_blocked',
+        'requires_phone_update',
+        'phone_verified_at',
+        'transaction_pin',
+        'transaction_pin_set_at',
+        'failed_pin_attempts',
+        'pin_locked_until',
+    ];
 
-// Add to $casts array:
-protected $casts = [
-    'email_verified_at' => 'datetime',
-    'birthday' => 'date',
-    'profile_completed' => 'boolean',
-    'notification_preferences' => 'array',
-    'is_admin' => 'boolean', // Add this line
-    'is_super_admin' => 'boolean', // Add this line
-    'admin_permissions' => 'array', // Add this line
-    'is_online' => 'boolean', // Add this line
-    'last_login_at' => 'datetime', // Add this line
-];
+    protected $casts = [
+        'email_verified_at' => 'datetime',
+        'birthday' => 'date',
+        'profile_completed' => 'boolean',
+        'notification_preferences' => 'array',
+        'is_admin' => 'boolean',
+        'is_super_admin' => 'boolean',
+        'admin_permissions' => 'array',
+        'is_online' => 'boolean',
+        'is_blocked' => 'boolean',
+        'requires_phone_update' => 'boolean',
+        'last_login_at' => 'datetime',
+        'last_activity' => 'datetime',
+        'last_activity_at' => 'datetime',
+        'last_assigned_at' => 'datetime',
+        'phone_verified_at' => 'datetime',
+        'transaction_pin_set_at' => 'datetime',
+        'pin_locked_until' => 'datetime',
+        'dva_created_at' => 'datetime',
+        'tips_seen_at' => 'datetime',
+    ];
 
     protected $hidden = [
         'password',
         'remember_token',
+        // Never serialise the PIN hash. Without this it would appear in any
+        // JSON response that returns a user record.
+        'transaction_pin',
+        'failed_pin_attempts',
+        'pin_locked_until',
     ];
 
     protected $appends = [
@@ -138,9 +169,25 @@ protected $casts = [
         return $phone;
     }
 
-    public function getWalletBalanceAttribute()
+    /**
+     * Authoritative wallet balance.
+     *
+     * The `users.wallet_balance` column exists but nothing writes to it (it is
+     * not fillable, so `$user->update(['wallet_balance' => ...])` was silently
+     * discarded) — yet plenty of code read it, producing stale or zero
+     * balances. The wallets table is the single source of truth; the column is
+     * kept only as a legacy mirror and is never used for decisions.
+     */
+    public function getWalletBalanceAttribute(): float
     {
-        return $this->wallet ? $this->wallet->balance : 0;
+        $wallet = $this->relationLoaded('wallet') ? $this->wallet : $this->wallet()->first();
+
+        return (float) ($wallet->balance ?? 0);
+    }
+
+    public function isSuspended(): bool
+    {
+        return $this->status === 'suspended' || $this->is_blocked;
     }
 
     public function markProfileAsCompleted()
@@ -246,10 +293,18 @@ protected $casts = [
         return in_array($permission, $permissions) || in_array('*', $permissions);
     }
 
-    // Scope for admins
+    /**
+     * Scope to administrators.
+     *
+     * Grouped deliberately: the previous `where(...)->orWhere(...)` form leaked
+     * an OR across the parent query, so `$query->admins()->where('status', ...)`
+     * returned every super admin regardless of status.
+     */
     public function scopeAdmins($query)
     {
-        return $query->where('is_admin', true)->orWhere('is_super_admin', true);
+        return $query->where(function ($q) {
+            $q->where('is_admin', true)->orWhere('is_super_admin', true);
+        });
     }
 
     // Scope for regular users
@@ -280,8 +335,12 @@ public function chatMessages()
      */
     public function isOnline()
     {
-        return $this->is_online || 
-               ($this->last_activity && $this->last_activity->diffInMinutes(now()) <= 5);
+        if ($this->is_online && $this->last_activity && $this->last_activity->gt(now()->subMinutes(5))) {
+            return true;
+        }
+
+        return $this->last_activity !== null
+            && $this->last_activity->diffInMinutes(now()) <= 5;
     }
 
 

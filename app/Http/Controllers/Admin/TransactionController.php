@@ -9,6 +9,7 @@ use App\Models\Transactions;
 use App\Models\User;
 use App\Models\AdminLog;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class TransactionController extends Controller
 {
@@ -215,55 +216,90 @@ public function show(Request $request, Transactions $transaction)
         return back()->with('success', 'Transaction refunded successfully. Refund ID: ' . $refundTransaction->id);
     }
 
-    // Export transactions
-    public function export(Request $request)
+    /**
+     * Stream a filtered transaction export as CSV.
+     *
+     * Rewritten because the previous implementation called
+     * `\League\Csv\Writer::createFromString()`, but `league/csv` is not a
+     * dependency of this project — so the export threw
+     * "Class League\Csv\Writer not found" every time it was used. This uses
+     * PHP's own fputcsv and streams the rows, so a large export never has to be
+     * materialised in memory.
+     */
+    public function export(Request $request): StreamedResponse
     {
+        $request->validate([
+            'date_from' => 'nullable|date',
+            'date_to' => 'nullable|date|after_or_equal:date_from',
+            'status' => 'nullable|in:pending,processing,success,failed,cancelled,verifying',
+            'service_type' => 'nullable|string|max:40',
+        ]);
+
         $query = Transactions::with('user');
 
-        // Apply filters
         if ($request->filled('date_from')) {
-            $query->whereDate('created_at', '>=', $request->date_from);
+            $query->whereDate('created_at', '>=', $request->date('date_from'));
         }
         if ($request->filled('date_to')) {
-            $query->whereDate('created_at', '<=', $request->date_to);
+            $query->whereDate('created_at', '<=', $request->date('date_to'));
         }
         if ($request->filled('status')) {
-            $query->where('status', $request->status);
+            $query->where('status', $request->input('status'));
+        }
+        if ($request->filled('service_type')) {
+            $query->where('service_type', $request->input('service_type'));
         }
 
-        $transactions = $query->get();
+        $filename = 'transactions_' . now()->format('Y-m-d_His') . '.csv';
 
-        $csv = \League\Csv\Writer::createFromString('');
-        $csv->insertOne([
-            'ID', 'Reference', 'User', 'Email', 'Type', 'Service Type', 'Description',
-            'Amount', 'Fee', 'Total', 'Status', 'Payment Method', 'Recipient',
-            'Created At', 'Completed At'
-        ]);
+        return response()->streamDownload(function () use ($query) {
+            $out = fopen('php://output', 'w');
 
-        foreach ($transactions as $transaction) {
-            $csv->insertOne([
-                $transaction->id,
-                $transaction->reference,
-                $transaction->user->name ?? 'N/A',
-                $transaction->user->email ?? 'N/A',
-                $transaction->type,
-                $transaction->service_type,
-                $transaction->description,
-                number_format($transaction->amount, 2),
-                number_format($transaction->service_fee, 2),
-                number_format($transaction->total_amount, 2),
-                $transaction->status,
-                $transaction->payment_method,
-                $transaction->recipient,
-                $transaction->created_at->format('Y-m-d H:i:s'),
-                $transaction->completed_at ? $transaction->completed_at->format('Y-m-d H:i:s') : 'N/A'
+            fputcsv($out, [
+                'ID', 'Reference', 'Customer', 'Email', 'Type', 'Service type', 'Description',
+                'Amount', 'Fee', 'Total', 'Status', 'Payment method', 'Recipient',
+                'Provider', 'Created at', 'Completed at',
             ]);
-        }
 
-        return response((string) $csv, 200, [
-            'Content-Type' => 'text/csv',
-            'Content-Disposition' => 'attachment; filename="transactions_' . date('Y-m-d') . '.csv"',
-        ]);
+            $query->chunk(500, function ($transactions) use ($out) {
+                foreach ($transactions as $transaction) {
+                    fputcsv($out, [
+                        $transaction->id,
+                        $this->csvSafe($transaction->reference),
+                        $this->csvSafe($transaction->user->name ?? null),
+                        $this->csvSafe($transaction->user->email ?? null),
+                        $transaction->type,
+                        $transaction->service_type,
+                        $this->csvSafe($transaction->description),
+                        number_format((float) $transaction->amount, 2, '.', ''),
+                        number_format((float) $transaction->service_fee, 2, '.', ''),
+                        number_format((float) $transaction->total_amount, 2, '.', ''),
+                        $transaction->status,
+                        $transaction->payment_method,
+                        $this->csvSafe($transaction->recipient),
+                        $this->csvSafe($transaction->provider),
+                        optional($transaction->created_at)->format('Y-m-d H:i:s'),
+                        optional($transaction->completed_at)->format('Y-m-d H:i:s') ?? '',
+                    ]);
+                }
+            });
+
+            fclose($out);
+        }, $filename, ['Content-Type' => 'text/csv']);
+    }
+
+    /**
+     * Neutralise spreadsheet formula injection in exported text.
+     *
+     * A description starting with "=", "+", "-" or "@" is executed as a formula
+     * by Excel and Sheets when the file is opened, which turns a transaction
+     * description into an attack vector against the administrator who exports.
+     */
+    private function csvSafe(?string $value): string
+    {
+        $value = (string) $value;
+
+        return preg_match('/^[=+\-@\t\r]/', $value) ? "'" . $value : $value;
     }
 
     // Get transaction statistics (API endpoint)

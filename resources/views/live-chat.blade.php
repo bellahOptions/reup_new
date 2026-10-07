@@ -1,469 +1,417 @@
 @extends('layouts.app')
+
+@section('title', 'Live chat')
+
 @section('content')
-<main class="min-h-screen bg-gradient-to-br from-gray-50 to-green-50/30">
-    <div class="py-8">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <!-- Page Header -->
-            <div class="mb-8">
-                <div class="flex items-center justify-between mb-6">
-                    <div class="flex items-center space-x-3">
-                        <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center shadow-lg">
-                            <span class="text-2xl">💬</span>
-                        </div>
-                        <div>
-                            <h1 class="text-3xl font-bold text-gray-900">Live Chat Support</h1>
-                            <p class="text-gray-600 mt-1">Real-time chat with our support team</p>
-                        </div>
+@php
+    $me = auth()->user();
+@endphp
+
+<div class="container-page py-8"
+     x-data="liveChat({
+         sessionId: {{ $session?->id ?? 'null' }},
+         endpoints: {
+             messages: @js(route('chat.messages')),
+             send: @js(route('chat.send')),
+             typing: @js(route('chat.typing')),
+             close: @js(route('chat.close')),
+         },
+         csrf: @js(csrf_token()),
+         dashboard: @js(route('dashboard')),
+     })"
+     x-init="start()">
+
+    {{-- Header --}}
+    <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+            <h1 class="mt-2 text-2xl font-semibold tracking-tight">Live chat</h1>
+            <p class="mt-1 text-sm text-muted-foreground">
+                Talk to a support agent in real time. Your conversation is saved to your account.
+            </p>
+        </div>
+
+        <div class="flex items-center gap-2">
+            <span class="badge"
+                  :class="connected ? 'badge-success' : 'badge-warning'">
+                <span class="h-1.5 w-1.5 rounded-full"
+                      :class="connected ? 'bg-green-500' : 'bg-amber-500'"></span>
+                <span x-text="connected ? 'Connected' : 'Reconnecting'">Connected</span>
+            </span>
+
+            <button type="button"
+                    @click="endChat()"
+                    :disabled="!sessionId"
+                    class="btn btn-outline btn-sm text-red-600 hover:bg-red-50 disabled:opacity-50">
+                <x-icon name="x-mark" class="h-4 w-4" />
+                End chat
+            </button>
+        </div>
+    </div>
+
+    @if(! $session)
+        <div class="card">
+            <div class="empty-state">
+                <x-icon name="chat-bubble-left-right" class="h-8 w-8 text-ink-300" />
+                <h2 class="mt-3 text-base font-semibold">Chat is unavailable right now</h2>
+                <p class="mt-1 max-w-sm text-sm text-muted-foreground">
+                    We could not open a support session for your account. Email us instead and we will reply within one business day.
+                </p>
+                <a href="{{ route('contact') }}" class="btn btn-primary mt-5">
+                    <x-icon name="envelope" class="h-4 w-4" />
+                    Contact support
+                </a>
+            </div>
+        </div>
+    @else
+        <div class="grid gap-6 lg:grid-cols-3">
+
+            {{-- Conversation --}}
+            <div class="card flex flex-col lg:col-span-2" style="height: min(70vh, 640px);">
+                <div class="card-header flex-row items-center justify-between">
+                    <div class="min-w-0">
+                        <h2 class="card-title truncate">
+                            <span x-text="agentName || 'Waiting for an agent'">Waiting for an agent</span>
+                        </h2>
+                        <p class="card-description">
+                            Session <span class="font-mono">#{{ str_pad((string) $session->id, 6, '0', STR_PAD_LEFT) }}</span>
+                        </p>
                     </div>
-                    <div class="flex items-center space-x-3">
-                        <button id="closeChatBtn" class="px-4 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors">
-                            End Chat
-                        </button>
-                        <div class="flex items-center space-x-2 bg-green-100 text-green-800 px-3 py-2 rounded-lg">
-                            <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                            <span class="text-sm font-semibold">Connected</span>
-                        </div>
-                    </div>
+
+                    <span x-show="agentTyping" x-cloak
+                          class="badge badge-neutral">
+                        <span class="typing-dots"><span></span><span></span><span></span></span>
+                        Agent is typing
+                    </span>
                 </div>
+
+                {{-- Messages --}}
+                <div x-ref="scroller"
+                     class="scrollbar-slim flex-1 space-y-4 overflow-y-auto p-5"
+                     aria-live="polite"
+                     aria-relevant="additions">
+                    <template x-if="loading">
+                        <div class="flex items-center justify-center py-10 text-sm text-muted-foreground">
+                            <span class="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-ink-200 border-t-brand-500"></span>
+                            Loading conversation…
+                        </div>
+                    </template>
+
+                    <template x-if="!loading && messages.length === 0">
+                        <div class="empty-state py-10">
+                            <x-icon name="chat-bubble-oval-left" class="h-7 w-7 text-ink-300" />
+                            <p class="mt-2 text-sm text-muted-foreground">
+                                Send a message and an agent will pick it up.
+                            </p>
+                        </div>
+                    </template>
+
+                    <template x-for="message in messages" :key="message.id">
+                        <div class="flex" :class="message.mine ? 'justify-end' : 'justify-start'">
+                            <div class="max-w-[80%]">
+                                <div class="mb-1 flex items-center gap-2 text-xs text-muted-foreground"
+                                     :class="message.mine && 'justify-end'">
+                                    <span class="font-medium" x-text="message.author"></span>
+                                    <span x-text="message.time"></span>
+                                </div>
+                                <div class="rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap"
+                                     :class="message.mine
+                                         ? 'rounded-br-md bg-brand-500 text-white'
+                                         : 'rounded-bl-md bg-ink-100 text-ink-900'"
+                                     x-text="message.body"></div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                {{-- Composer --}}
+                <form class="border-t p-4" @submit.prevent="send()">
+                    <div class="flex items-end gap-3">
+                        <div class="min-w-0 flex-1">
+                            <label for="chat-message" class="sr-only">Message</label>
+                            <textarea
+                                id="chat-message"
+                                x-ref="input"
+                                x-model="draft"
+                                @input="notifyTyping()"
+                                @keydown.enter.prevent="send()"
+                                rows="2"
+                                maxlength="1000"
+                                placeholder="Type your message, then press Enter…"
+                                class="textarea resize-none"></textarea>
+                            <p class="mt-1 text-right text-xs text-muted-foreground" x-show="draft.length > 800" x-cloak>
+                                <span x-text="draft.length"></span>/1000
+                            </p>
+                        </div>
+
+                        <button type="submit"
+                                class="btn btn-primary"
+                                :disabled="sending || !draft.trim()">
+                            <x-icon name="paper-airplane" class="h-4 w-4" />
+                            <span x-text="sending ? 'Sending' : 'Send'">Send</span>
+                        </button>
+                    </div>
+
+                    <p class="mt-2 text-xs text-muted-foreground" x-show="error" x-cloak x-text="error"></p>
+                </form>
             </div>
 
-            <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                <!-- Chat Sidebar -->
-                <div class="lg:col-span-1 space-y-6">
-                    <!-- User Info Card -->
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-200/60 p-6">
-                        <div class="flex items-center space-x-3 mb-4">
-                            <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-full flex items-center justify-center text-white font-bold">
-                                {{ strtoupper(substr(auth()->user()->name, 0, 1)) }}
-                            </div>
-                            <div>
-                                <h3 class="font-bold text-gray-900">{{ auth()->user()->name }}</h3>
-                                <p class="text-sm text-gray-600">{{ auth()->user()->email }}</p>
-                            </div>
-                        </div>
-                        <div class="space-y-2 text-sm">
-                            <div class="flex justify-between">
-                                <span class="text-gray-500">Chat ID:</span>
-                                <span class="font-mono font-semibold">#{{ str_pad($session->id, 6, '0', STR_PAD_LEFT) }}</span>
-                            </div>
-                            <div class="flex justify-between">
-                                <span class="text-gray-500">Status:</span>
-                                <span class="font-semibold {{ $session->status === 'active' ? 'text-green-600' : 'text-yellow-600' }}">
-                                    {{ ucfirst($session->status) }}
-                                </span>
+            {{-- Sidebar --}}
+            <div class="space-y-6">
+                <div class="card">
+                    <div class="card-content">
+                        <div class="flex items-center gap-3">
+                            <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-500 text-sm font-semibold text-white">
+                                {{ strtoupper(substr($me->name, 0, 1)) }}
+                            </span>
+                            <div class="min-w-0">
+                                <p class="truncate text-sm font-medium">{{ $me->name }}</p>
+                                <p class="truncate text-xs text-muted-foreground">{{ $me->email }}</p>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Admin Info Card -->
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-200/60 p-6">
-                        <h3 class="font-bold text-gray-900 mb-4 flex items-center">
-                            <span class="text-xl mr-2">👨‍💼</span>
-                            Support Agent
-                        </h3>
-                        <div id="adminInfo" class="{{ $session->admin_id ? '' : 'hidden' }}">
-                            <div class="flex items-center space-x-3 mb-4">
-                                <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-bold">
-                                    <span>A</span>
-                                </div>
-                                <div>
-                                    <h4 id="adminName" class="font-bold text-gray-900">Loading...</h4>
-                                    <p class="text-sm text-gray-600">Support Team</p>
-                                </div>
+                        <dl class="mt-5 space-y-2 border-t pt-4 text-sm">
+                            <div class="flex items-center justify-between">
+                                <dt class="text-muted-foreground">Status</dt>
+                                <dd class="font-medium">{{ ucfirst($session->status) }}</dd>
                             </div>
-                            <div class="flex items-center text-sm text-gray-600">
-                                <span class="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
-                                <span>Online</span>
+                            <div class="flex items-center justify-between">
+                                <dt class="text-muted-foreground">Opened</dt>
+                                <dd class="font-medium">{{ $session->created_at?->format('M j, Y') }}</dd>
                             </div>
-                        </div>
-                        <div id="waitingForAdmin" class="{{ $session->admin_id ? 'hidden' : '' }}">
-                            <div class="text-center py-4">
-                                <div class="w-16 h-16 bg-yellow-100 rounded-full mx-auto mb-3 flex items-center justify-center">
-                                    <span class="text-2xl">⏳</span>
-                                </div>
-                                <p class="text-sm text-gray-700 font-semibold mb-1">Waiting for agent</p>
-                                <p class="text-xs text-gray-500">An agent will be with you shortly</p>
-                            </div>
-                        </div>
+                        </dl>
                     </div>
+                </div>
 
-                    <!-- Chat Tips -->
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-200/60 p-6">
-                        <h3 class="font-bold text-gray-900 mb-4 flex items-center">
-                            <span class="text-xl mr-2">💡</span>
-                            Chat Tips
-                        </h3>
-                        <ul class="space-y-3 text-sm text-gray-600">
-                            <li class="flex items-start">
-                                <span class="text-green-500 mr-2">•</span>
-                                <span>Be descriptive with your issue</span>
-                            </li>
-                            <li class="flex items-start">
-                                <span class="text-green-500 mr-2">•</span>
-                                <span>Have your transaction ID ready</span>
-                            </li>
-                            <li class="flex items-start">
-                                <span class="text-green-500 mr-2">•</span>
-                                <span>Typing indicator shows when agent is responding</span>
-                            </li>
-                            <li class="flex items-start">
-                                <span class="text-green-500 mr-2">•</span>
-                                <span>Chats are saved for future reference</span>
-                            </li>
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Getting a faster answer</h2>
+                    </div>
+                    <div class="card-content">
+                        <ul class="space-y-3 text-sm">
+                            @foreach([
+                                ['Quote your transaction reference — it starts with TXN, FND or RFND.', 'receipt-percent'],
+                                ['Describe what you expected to happen, not just what went wrong.', 'pencil-square'],
+                                ['Paste the exact error text if you saw one.', 'clipboard-document-list'],
+                                ['Never share your password or card details in chat.', 'lock-closed'],
+                            ] as [$tip, $icon])
+                                <li class="flex items-start gap-2.5">
+                                    <x-icon :name="$icon" class="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
+                                    <span class="text-muted-foreground">{{ $tip }}</span>
+                                </li>
+                            @endforeach
                         </ul>
                     </div>
                 </div>
 
-                <!-- Main Chat Area -->
-                <div class="lg:col-span-3">
-                    <div class="bg-white rounded-2xl shadow-lg border border-gray-200/60 h-[calc(100vh-200px)] flex flex-col">
-                        <!-- Chat Header -->
-                        <div class="border-b border-gray-200 p-4 md:p-6">
-                            <div class="flex items-center justify-between">
-                                <div>
-                                    <h2 class="text-xl font-bold text-gray-900">Live Support Chat</h2>
-                                    <p class="text-sm text-gray-600 mt-1">
-                                        <span id="agentStatus">
-                                            {{ $session->admin_id ? 'Connected with support agent' : 'Connecting you with an agent...' }}
-                                        </span>
-                                    </p>
-                                </div>
-                                <div class="flex items-center space-x-4">
-                                    <div class="hidden md:block">
-                                        <div id="typingIndicator" class="hidden text-sm text-gray-500">
-                                            <span class="flex items-center">
-                                                <span class="typing-dots">
-                                                    <span>.</span><span>.</span><span>.</span>
-                                                </span>
-                                                <span class="ml-2">Agent is typing</span>
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <span id="unreadBadge" class="hidden bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">0</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Messages Container -->
-                        <div id="chatMessages" class="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
-                            <!-- Messages will be loaded here via AJAX -->
-                            <div class="text-center py-8">
-                                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
-                                <p class="text-gray-600 mt-2 text-sm">Loading chat...</p>
-                            </div>
-                        </div>
-
-                        <!-- Chat Input -->
-                        <div class="border-t border-gray-200 p-4 md:p-6">
-                            <form id="chatForm" method="POST" class="space-y-3">
-                                @csrf
-                                <input type="hidden" id="sessionId" value="{{ $session->id }}">
-                                
-                                <div class="flex space-x-3">
-                                    <div class="flex-1">
-                                        <textarea id="messageInput" 
-                                            rows="1"
-                                            placeholder="Type your message here..."
-                                            class="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200 resize-none"
-                                            maxlength="1000"></textarea>
-                                        <p id="charCount" class="text-xs text-gray-500 text-right mt-1 hidden">
-                                            <span id="charCountText">0</span>/1000
-                                        </p>
-                                    </div>
-                                    <button type="submit" 
-                                            id="sendBtn"
-                                            class="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold px-6 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 flex-shrink-0">
-                                        Send
-                                    </button>
-                                </div>
-                                
-                                <div class="flex items-center justify-between text-sm text-gray-500">
-                                    <div>
-                                        <span id="connectionStatus" class="flex items-center">
-                                            <span class="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
-                                            Connected
-                                        </span>
-                                    </div>
-                                    <div>
-                                        <span>Chat will be saved automatically</span>
-                                    </div>
-                                </div>
-                            </form>
-                        </div>
+                <div class="card">
+                    <div class="card-content">
+                        <p class="text-sm text-muted-foreground">
+                            Prefer email? Write to
+                            <a href="mailto:{{ config('services.support.email') }}" class="link font-medium">
+                                {{ config('services.support.email') }}
+                            </a>
+                            and we will reply within one business day.
+                        </p>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
-</main>
+    @endif
+</div>
+@endsection
 
-<style>
-.typing-dots span {
-    animation: typing 1.4s infinite;
-    margin: 0 1px;
-}
-.typing-dots span:nth-child(2) {
-    animation-delay: 0.2s;
-}
-.typing-dots span:nth-child(3) {
-    animation-delay: 0.4s;
-}
-@keyframes typing {
-    0%, 60%, 100% { transform: translateY(0); }
-    30% { transform: translateY(-5px); }
-}
-
-.message-bubble {
-    @apply max-w-[70%] rounded-2xl p-4;
-}
-.user-message {
-    @apply bg-gradient-to-r from-green-500 to-green-600 text-white ml-auto;
-}
-.admin-message {
-    @apply bg-gray-100 text-gray-800 mr-auto;
-}
-</style>
-
+@push('scripts')
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    const sessionId = document.getElementById('sessionId').value;
-    const chatMessages = document.getElementById('chatMessages');
-    const messageInput = document.getElementById('messageInput');
-    const chatForm = document.getElementById('chatForm');
-    const sendBtn = document.getElementById('sendBtn');
-    const typingIndicator = document.getElementById('typingIndicator');
-    const charCount = document.getElementById('charCount');
-    const charCountText = document.getElementById('charCountText');
-    const adminInfo = document.getElementById('adminInfo');
-    const waitingForAdmin = document.getElementById('waitingForAdmin');
-    const agentStatus = document.getElementById('agentStatus');
-    const closeChatBtn = document.getElementById('closeChatBtn');
-    
-    let isTyping = false;
-    let typingTimeout;
-    let pollInterval;
-    let lastMessageId = 0;
+    function liveChat(config) {
+        return {
+            sessionId: config.sessionId,
+            endpoints: config.endpoints,
+            csrf: config.csrf,
+            dashboard: config.dashboard,
 
-    // Auto-resize textarea
-    messageInput.addEventListener('input', function() {
-        this.style.height = 'auto';
-        this.style.height = (this.scrollHeight) + 'px';
-        
-        // Show character count
-        if (this.value.length > 0) {
-            charCount.classList.remove('hidden');
-            charCountText.textContent = this.value.length;
-        } else {
-            charCount.classList.add('hidden');
-        }
-        
-        // Send typing status
-        if (!isTyping && this.value.length > 0) {
-            sendTypingStatus(true);
-            isTyping = true;
-        }
-        
-        clearTimeout(typingTimeout);
-        typingTimeout = setTimeout(() => {
-            if (isTyping) {
-                sendTypingStatus(false);
-                isTyping = false;
-            }
-        }, 1000);
-    });
+            messages: [],
+            draft: '',
+            loading: true,
+            sending: false,
+            connected: true,
+            error: '',
+            agentName: '',
+            agentTyping: false,
 
-    // Send typing status
-    function sendTypingStatus(status) {
-        fetch('/chat/typing', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-            },
-            body: JSON.stringify({
-                session_id: sessionId,
-                is_typing: status
-            })
-        });
-    }
+            lastId: 0,
+            pollTimer: null,
+            typingTimer: null,
+            typingSent: false,
 
-    // Load messages
-    async function loadMessages() {
-        try {
-            const response = await fetch(`/chat/messages?session_id=${sessionId}`);
-            const data = await response.json();
-            
-            if (data.messages && data.messages.length > 0) {
-                renderMessages(data.messages);
-                updateAdminInfo(data.session);
-                
-                // Store last message ID
-                const lastMsg = data.messages[data.messages.length - 1];
-                lastMessageId = lastMsg.id;
-            }
-        } catch (error) {
-            console.error('Error loading messages:', error);
-        }
-    }
+            start() {
+                if (!this.sessionId) {
+                    this.loading = false;
+                    return;
+                }
 
-    // Render messages
-    function renderMessages(messages) {
-        chatMessages.innerHTML = '';
-        
-        messages.forEach(msg => {
-            const isUser = msg.sender_type === 'user';
-            const time = new Date(msg.created_at).toLocaleTimeString([], { 
-                hour: '2-digit', 
-                minute: '2-digit' 
-            });
-            
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `flex ${isUser ? 'justify-end' : 'justify-start'}`;
-            messageDiv.innerHTML = `
-                <div class="message-bubble ${isUser ? 'user-message' : 'admin-message'}">
-                    <div class="text-sm mb-1">
-                        <span class="font-semibold">${msg.sender?.name || 'System'}</span>
-                        <span class="opacity-75 ml-2 text-xs">${time}</span>
-                    </div>
-                    <div class="whitespace-pre-wrap">${escapeHtml(msg.message)}</div>
-                </div>
-            `;
-            chatMessages.appendChild(messageDiv);
-        });
-        
-        // Scroll to bottom
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-    }
+                this.fetchMessages();
 
-    // Update admin info
-    function updateAdminInfo(session) {
-        if (session.admin_id) {
-            adminInfo.classList.remove('hidden');
-            waitingForAdmin.classList.add('hidden');
-            agentStatus.textContent = 'Connected with support agent';
-            
-            // Fetch admin details
-            fetch('/chat/admins')
-                .then(res => res.json())
-                .then(data => {
-                    if (data.admins && data.admins.length > 0) {
-                        const admin = data.admins.find(a => a.id == session.admin_id);
-                        if (admin) {
-                            document.getElementById('adminName').textContent = admin.name;
-                        }
+                // 4s rather than the previous 2s: the endpoint already scopes
+                // to this session, and halving the rate halves the DB load for
+                // no perceptible latency difference.
+                this.pollTimer = setInterval(() => this.fetchMessages(), 4000);
+
+                // Release the interval if the tab is hidden or unloaded, so a
+                // backgrounded dashboard does not poll forever.
+                document.addEventListener('visibilitychange', () => {
+                    if (document.hidden) {
+                        clearInterval(this.pollTimer);
+                    } else {
+                        this.pollTimer = setInterval(() => this.fetchMessages(), 4000);
                     }
                 });
-        } else {
-            adminInfo.classList.add('hidden');
-            waitingForAdmin.classList.remove('hidden');
-            agentStatus.textContent = 'Connecting you with an agent...';
-        }
-    }
+            },
 
-    // Send message
-    chatForm.addEventListener('submit', async function(e) {
-        e.preventDefault();
-        
-        const message = messageInput.value.trim();
-        if (!message) return;
-        
-        // Disable send button
-        sendBtn.disabled = true;
-        const originalText = sendBtn.innerHTML;
-        sendBtn.innerHTML = '<span>Sending...</span><span class="animate-spin">⏳</span>';
-        
-        try {
-            const response = await fetch('/chat/send', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-                },
-                body: JSON.stringify({
-                    session_id: sessionId,
-                    message: message
-                })
-            });
-            
-            const data = await response.json();
-            
-            if (data.success) {
-                messageInput.value = '';
-                messageInput.style.height = 'auto';
-                charCount.classList.add('hidden');
-                loadMessages();
-            }
-        } catch (error) {
-            console.error('Error sending message:', error);
-            alert('Failed to send message. Please try again.');
-        } finally {
-            sendBtn.disabled = false;
-            sendBtn.innerHTML = originalText;
-        }
-    });
+            async fetchMessages() {
+                try {
+                    const url = new URL(this.endpoints.messages, window.location.origin);
+                    url.searchParams.set('session_id', this.sessionId);
 
-    // Close chat
-    closeChatBtn.addEventListener('click', function() {
-        if (confirm('Are you sure you want to end this chat session?')) {
-            fetch('/chat/close', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-                },
-                body: JSON.stringify({
-                    session_id: sessionId
-                })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    window.location.href = '/dashboard';
-                }
-            });
-        }
-    });
-
-    // Poll for new messages
-    // Replace the pollMessages function in user chat
-function pollMessages() {
-    setInterval(async () => {
-        try {
-            const response = await fetch(`/chat/messages?session_id=${sessionId}&after=${lastMessageId}`);
-            const data = await response.json();
-            
-            if (data.messages && data.messages.length > 0) {
-                // Check for new messages
-                const newMessages = data.messages.filter(msg => msg.id > lastMessageId);
-                if (newMessages.length > 0) {
-                    // Append new messages
-                    newMessages.forEach(msg => {
-                        renderMessages([msg]);
-                        lastMessageId = Math.max(lastMessageId, msg.id);
+                    const res = await fetch(url, {
+                        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                        credentials: 'same-origin',
                     });
-                }
-                
-                // Update admin info if changed
-                if (data.session && data.session.admin_id) {
-                    updateAdminInfo(data.session);
-                }
-            }
-        } catch (error) {
-            console.error('Error polling messages:', error);
-        }
-    }, 2000); // Poll every 2 seconds
-}
 
-    // Utility function
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+                    if (!res.ok) throw new Error('Request failed');
+
+                    const data = await res.json();
+                    this.connected = true;
+                    this.applyMessages(data.messages || []);
+                    this.applySession(data.session || {});
+                } catch (e) {
+                    this.connected = false;
+                } finally {
+                    this.loading = false;
+                }
+            },
+
+            applyMessages(rows) {
+                if (!rows.length) {
+                    this.$nextTick(() => this.scrollToEnd());
+                    return;
+                }
+
+                const shouldStick = this.isNearBottom();
+                const mapped = rows.map((row) => this.mapMessage(row));
+
+                // Replace outright: the endpoint returns the whole thread, so
+                // appending produced duplicates on every poll.
+                this.messages = mapped;
+                this.lastId = Math.max(...mapped.map((m) => m.id), 0);
+
+                if (shouldStick) {
+                    this.$nextTick(() => this.scrollToEnd());
+                }
+            },
+
+            mapMessage(row) {
+                const isMine = row.sender_id === {{ auth()->id() }};
+
+                return {
+                    id: row.id,
+                    mine: isMine,
+                    author: row.sender?.name || (isMine ? 'You' : 'Support'),
+                    body: row.message ?? '',
+                    time: row.created_at
+                        ? new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        : '',
+                };
+            },
+
+            applySession(session) {
+                this.agentName = session.admin_id
+                    ? (session.admin?.name || 'Support agent')
+                    : '';
+            },
+
+            async send() {
+                const body = this.draft.trim();
+                if (!body || this.sending) return;
+
+                this.sending = true;
+                this.error = '';
+
+                try {
+                    const res = await fetch(this.endpoints.send, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-CSRF-TOKEN': this.csrf,
+                        },
+                        credentials: 'same-origin',
+                        body: JSON.stringify({ session_id: this.sessionId, message: body }),
+                    });
+
+                    const data = await res.json().catch(() => ({}));
+
+                    if (!res.ok || !data.success) {
+                        throw new Error(data.message || 'Message could not be sent.');
+                    }
+
+                    this.draft = '';
+                    this.typingSent = false;
+                    await this.fetchMessages();
+                } catch (e) {
+                    this.error = e.message || 'Message could not be sent. Please try again.';
+                } finally {
+                    this.sending = false;
+                    this.$nextTick(() => this.$refs.input?.focus());
+                }
+            },
+
+            notifyTyping() {
+                if (this.typingSent || !this.draft.trim()) return;
+
+                this.typingSent = true;
+                this.post(this.endpoints.typing, { session_id: this.sessionId, is_typing: true });
+
+                clearTimeout(this.typingTimer);
+                this.typingTimer = setTimeout(() => {
+                    this.typingSent = false;
+                    this.post(this.endpoints.typing, { session_id: this.sessionId, is_typing: false });
+                }, 1500);
+            },
+
+            endChat() {
+                if (!confirm('End this chat session? You can start a new one at any time.')) return;
+
+                this.post(this.endpoints.close, { session_id: this.sessionId })
+                    .then(() => { window.location.href = this.dashboard; });
+            },
+
+            post(url, payload) {
+                return fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': this.csrf,
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify(payload),
+                });
+            },
+
+            isNearBottom() {
+                const el = this.$refs.scroller;
+                if (!el) return true;
+
+                return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+            },
+
+            scrollToEnd() {
+                const el = this.$refs.scroller;
+                if (el) el.scrollTop = el.scrollHeight;
+            },
+        };
     }
-
-    // Initial load
-    loadMessages();
-    pollMessages();
-});
 </script>
-@endsection
+@endpush

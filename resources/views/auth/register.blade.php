@@ -1,158 +1,120 @@
 <x-guest-layout>
-    @section('title', 'Become a part of the Reup Family😃 - Secure Sign In')
-    <div class="min-h-screen flex">
-        <!-- Left Side - Image/Brand (Hidden on mobile) -->
-        <div class="hidden lg:flex lg:flex-1 bg-gradient-to-br from-green-500 to-green-600 relative overflow-hidden">
-            <div class="absolute inset-0 opacity-50"></div>
-            <div class="relative z-10 flex flex-col items-center justify-center text-center text-white p-12">
-                <div class="mb-8">
-                    <div class="text-7xl mb-4">🚀</div>
-                    <h3 class="text-4xl font-bold mb-4">Join ReUp Today</h3>
-                    <p class="text-xl text-green-100 max-w-md">
-                        Over 50,000+ users trust ReUp for their daily transactions.
-                    </p>
-                </div>
-                <div class="space-y-4 mt-8 text-left max-w-sm">
-                    <div class="flex items-center space-x-3">
-                        <div class="flex-shrink-0 w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
-                            <span class="text-xl">✓</span>
-                        </div>
-                        <p class="text-green-100">Instant transactions</p>
-                    </div>
-                    <div class="flex items-center space-x-3">
-                        <div class="flex-shrink-0 w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
-                            <span class="text-xl">✓</span>
-                        </div>
-                        <p class="text-green-100">Bank-level security</p>
-                    </div>
-                    <div class="flex items-center space-x-3">
-                        <div class="flex-shrink-0 w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
-                            <span class="text-xl">✓</span>
-                        </div>
-                        <p class="text-green-100">24/7 support</p>
-                    </div>
-                </div>
+    @section('title', 'Create an account')
+
+    <div class="card">
+        <div class="card-content sm:p-7">
+            <div class="mb-6">
+                <h1 class="text-2xl font-semibold tracking-tight">Create your account</h1>
+                <p class="mt-1.5 text-sm text-muted-foreground">
+                    One wallet for airtime, data, TV, power and exam PINs.
+                </p>
             </div>
+
+            <form method="POST" action="{{ route('register') }}" class="space-y-5">
+                @csrf
+
+                {{-- Referral attribution. Carried through as a hidden field so it
+                     survives a validation round trip; an unknown code is ignored
+                     server-side rather than blocking the sign-up. --}}
+                <input type="hidden" name="ref" value="{{ old('ref', $referralCode ?? '') }}">
+
+                @if(! empty($referralCode))
+                    <div class="flex items-start gap-2.5 rounded-lg border border-brand-200 bg-accent px-3.5 py-3">
+                        <x-icon name="users" variant="solid" class="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
+                        <p class="text-sm text-accent-foreground">
+                            You were invited with code <span class="font-mono font-semibold">{{ $referralCode }}</span>.
+                        </p>
+                    </div>
+                @endif
+
+                <div>
+                    <label for="name" class="label">Full name</label>
+                    <input
+                        id="name"
+                        name="name"
+                        type="text"
+                        value="{{ old('name') }}"
+                        required
+                        autofocus
+                        autocomplete="name"
+                        placeholder="Ada Obi"
+                        class="input mt-1.5 @error('name') input-error @enderror">
+                    @error('name')
+                        <p class="field-error">{{ $message }}</p>
+                    @enderror
+                </div>
+
+                <div>
+                    <label for="email" class="label">Email address</label>
+                    <input
+                        id="email"
+                        name="email"
+                        type="email"
+                        value="{{ old('email') }}"
+                        required
+                        autocomplete="username"
+                        placeholder="you@example.com"
+                        class="input mt-1.5 @error('email') input-error @enderror">
+                    @error('email')
+                        <p class="field-error">{{ $message }}</p>
+                    @enderror
+                </div>
+
+                <div>
+                    <label for="password" class="label">Password</label>
+                    <input
+                        id="password"
+                        name="password"
+                        type="password"
+                        required
+                        autocomplete="new-password"
+                        placeholder="At least 8 characters"
+                        class="input mt-1.5 @error('password') input-error @enderror">
+                    @error('password')
+                        <p class="field-error">{{ $message }}</p>
+                    @enderror
+                </div>
+
+                <div>
+                    <label for="password_confirmation" class="label">Confirm password</label>
+                    <input
+                        id="password_confirmation"
+                        name="password_confirmation"
+                        type="password"
+                        required
+                        autocomplete="new-password"
+                        placeholder="Repeat your password"
+                        class="input mt-1.5">
+                </div>
+
+                <div>
+                    <label for="terms" class="flex cursor-pointer items-start gap-2.5">
+                        <input id="terms" name="terms" type="checkbox" value="1" required
+                               class="checkbox mt-0.5" @checked(old('terms'))>
+                        <span class="text-sm text-muted-foreground">
+                            I agree to the
+                            <a href="{{ route('terms-of-service') }}" class="link">terms of service</a>
+                            and
+                            <a href="{{ route('privacy-policy') }}" class="link">privacy policy</a>.
+                        </span>
+                    </label>
+                    @error('terms')
+                        <p class="field-error">{{ $message }}</p>
+                    @enderror
+                </div>
+
+                <button type="submit" class="btn btn-primary w-full">
+                    Create account
+                    <x-icon name="arrow-right" class="h-4 w-4" />
+                </button>
+            </form>
         </div>
 
-        <!-- Right Side - Form -->
-        <div class="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8 bg-white">
-            <div class="w-full max-w-md space-y-8 py-12">
-                <!-- Logo & Header -->
-                <div class="text-center">
-                    <a href="{{route('home')}}">
-                        <img src="{{ asset('images/reup-03.svg') }}" alt="ReUp Logo" class="h-12 mx-auto mb-8">
-                    </a>
-                    <h2 class="text-3xl md:text-4xl font-bold text-gray-900 mb-2">
-                        Create your account ✨
-                    </h2>
-                    <p class="text-gray-600 text-sm md:text-base">
-                        Start paying bills faster today
-                    </p>
-                </div>
-
-                <form method="POST" action="{{ route('register') }}" class="space-y-5">
-                    @csrf
-
-                    <!-- Name -->
-                    <div>
-                        <x-label for="name" :value="__('Full Name')" class="text-gray-700 font-semibold mb-2" />
-                        <x-input 
-                            id="name" 
-                            class="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200" 
-                            type="text" 
-                            name="name" 
-                            :value="old('name')" 
-                            required 
-                            autofocus 
-                            autocomplete="name"
-                            placeholder="John Doe" />
-                        <x-input-error :messages="$errors->get('name')" class="mt-2" />
-                    </div>
-
-                    <!-- Email Address -->
-                    <div>
-                        <x-label for="email" :value="__('Email')" class="text-gray-700 font-semibold mb-2" />
-                        <x-input 
-                            id="email" 
-                            class="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200" 
-                            type="email" 
-                            name="email" 
-                            :value="old('email')" 
-                            required 
-                            autocomplete="username"
-                            placeholder="your@email.com" />
-                        <x-input-error :messages="$errors->get('email')" class="mt-2" />
-                    </div>
-
-                    <!-- Password -->
-                    <div>
-                        <x-label for="password" :value="__('Password')" class="text-gray-700 font-semibold mb-2" />
-                        <x-input 
-                            id="password" 
-                            class="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                            type="password"
-                            name="password"
-                            required 
-                            autocomplete="new-password"
-                            placeholder="Min. 8 characters" />
-                        <x-input-error :messages="$errors->get('password')" class="mt-2" />
-                    </div>
-
-                    <!-- Confirm Password -->
-                    <div>
-                        <x-label for="password_confirmation" :value="__('Confirm Password')" class="text-gray-700 font-semibold mb-2" />
-                        <x-input 
-                            id="password_confirmation" 
-                            class="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                            type="password"
-                            name="password_confirmation"
-                            required 
-                            autocomplete="new-password"
-                            placeholder="Re-enter password" />
-                        <x-input-error :messages="$errors->get('password_confirmation')" class="mt-2" />
-                    </div>
-
-                    <!-- Terms & Conditions -->
-                    <div class="flex items-start">
-                        <input 
-                            id="terms" 
-                            type="checkbox" 
-                            class="w-4 h-4 mt-1 text-green-600 border-gray-300 rounded focus:ring-green-500 transition-all duration-200" 
-                            required>
-                        <label for="terms" class="ml-2 block text-sm text-gray-700">
-                            I agree to the 
-                            <a href="#" class="text-green-600 hover:text-green-700 font-medium">Terms of Service</a> 
-                            and 
-                            <a href="#" class="text-green-600 hover:text-green-700 font-medium">Privacy Policy</a>
-                        </label>
-                    </div>
-
-                    <!-- Submit Button -->
-                    <div>
-                        <x-button class="w-full justify-center bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded-xl shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all duration-200">
-                            {{ __('Create Account') }} 🚀
-                        </x-button>
-                    </div>
-
-                    <!-- Divider -->
-                    <div class="relative">
-                        <div class="absolute inset-0 flex items-center">
-                            <div class="w-full border-t border-gray-300"></div>
-                        </div>
-                        <div class="relative flex justify-center text-sm">
-                            <span class="px-2 bg-white text-gray-500">Already have an account?</span>
-                        </div>
-                    </div>
-
-                    <!-- Sign In Link -->
-                    <div class="text-center">
-                        <a href="{{ route('login') }}" class="font-semibold text-green-600 hover:text-green-700 transition-colors duration-200">
-                            Sign in instead
-                        </a>
-                    </div>
-                </form>
-            </div>
+        <div class="card-footer justify-center">
+            <p class="text-sm text-muted-foreground">
+                Already registered?
+                <a href="{{ route('login') }}" class="link font-medium">Sign in</a>
+            </p>
         </div>
     </div>
 </x-guest-layout>

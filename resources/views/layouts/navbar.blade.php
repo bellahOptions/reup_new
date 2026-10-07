@@ -1,133 +1,230 @@
-<header class="w-full py-4 px-4 sm:px-6 lg:px-8">
-    <nav class="relative bg-white border border-gray-200/60 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 w-full max-w-7xl mx-auto">
-        <div class="px-4 sm:px-6 lg:px-8">
-            <div class="flex h-16 items-center justify-between">
-                <!-- Logo -->
-                <div class="flex items-center">
-                    <a href="{{route('home')}}" class="flex items-center space-x-2">
-                        <img src="{{ asset('images/reup-03.svg') }}" alt="Reup Logo" class="h-6 w-auto sm:h-7" />
-                    </a>
-                </div>
+@php
+    $user = auth()->user();
+    $walletBalance = $user?->wallet?->balance ?? 0;
 
-                <!-- Desktop Navigation -->
-                <div class="hidden md:flex md:items-center md:space-x-1">
-                    <a href="{{ route('home') }}" 
-                       class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-green-600 hover:bg-green-700 transition-colors duration-200">
-                        Home
-                    </a>
-                    <a href="{{ route('airtime-data.index') }}" 
-                       class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-gray-700 hover:text-green-600 hover:bg-green-50 transition-colors duration-200">
-                        Buy Airtime
-                    </a>
-                    <a href="{{ route('airtime-data.index') }}"  
-                       class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-gray-700 hover:text-green-600 hover:bg-green-50 transition-colors duration-200">
-                        Buy Data
-                    </a>
-                    <a href="{{ route('pricelist') }}" 
-                       class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-gray-700 hover:text-green-600 hover:bg-green-50 transition-colors duration-200">
-                        Airtime/Data Pricelist
-                    </a>
-                </div>
+    // Single source of truth for the primary nav. `active` is matched with
+    // routeIs() so sub-pages (history, success, etc.) keep the parent lit.
+    $primaryNav = [
+        ['label' => 'Dashboard', 'route' => 'dashboard', 'active' => 'dashboard', 'icon' => 'gauge'],
+        ['label' => 'Airtime & Data', 'route' => 'airtime-data.index', 'active' => 'airtime-data.*', 'icon' => 'device-phone-mobile'],
+        ['label' => 'Cable TV', 'route' => 'cable-tv.index', 'active' => 'cable-tv.*', 'icon' => 'tv'],
+        ['label' => 'Electricity', 'route' => 'electricity.index', 'active' => 'electricity.*', 'icon' => 'bolt'],
+    ];
 
-                <!-- CTA Buttons -->
-                <div class="hidden md:flex md:items-center md:space-x-3">
-                    @auth
-                    @if(Auth::user() && !Auth::user()->isAdmin())
-                {{-- The user is logged in... display content for authenticated users --}}
-                <a href="{{ url('/dashboard') }}" class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-gray-700 hover:text-green-600 hover:bg-green-50 transition-colors duration-200">You're logged in as {{ Auth::user()->name }}</a>
+    $moreNav = [
+        ['label' => 'WAEC e-PIN', 'route' => 'waec-pin.index', 'active' => 'waec-pin.*', 'icon' => 'document-check', 'description' => 'Verification & registration scratch cards'],
+        ['label' => 'JAMB e-PIN', 'route' => 'jamb-pin.index', 'active' => 'jamb-pin.*', 'icon' => 'academic-cap', 'description' => 'UTME and Direct Entry PINs'],
+        ['label' => 'Betting wallet', 'route' => 'betting.index', 'active' => 'betting.*', 'icon' => 'wallet', 'description' => 'Fund Bet9ja, SportyBet and others'],
+        ['label' => 'Pricelist', 'route' => 'pricelist', 'active' => 'pricelist', 'icon' => 'receipt-percent', 'description' => 'Current rates across all networks'],
+        ['label' => 'Transactions', 'route' => 'transactions.index', 'active' => 'transactions.*', 'icon' => 'queue-list', 'description' => 'Full history of your activity'],
+        ['label' => 'Refer and earn', 'route' => 'affiliate.index', 'active' => 'affiliate.*', 'icon' => 'users', 'description' => 'Earn ₦200 for every funded referral'],
+    ];
 
-    @elseif(Auth::user()->isAdmin())
-        <a href="{{ route('admin.dashboard') }}" class="text-gray-700 hover:bg-green-100 hover:text-green-600 px-3 py-2 text-sm font-medium">
-            Admin Dashboard
-        </a>
-    @endif
-    @endauth
-@guest
-                    <a href="{{ route('login') }}" 
-                       class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-gray-700 hover:text-green-600 hover:bg-gray-50 transition-colors duration-200">
-                        Sign In
-                    </a>
-                    <a href="{{ route('register') }}" 
-                       class="inline-flex items-center px-5 py-2 rounded-lg text-sm font-medium text-white bg-green-600 hover:bg-green-700 shadow-sm hover:shadow transition-all duration-200">
-                        Sign Up
-                    </a>
-                    @endguest
-                </div>
+    /*
+     * Support is an external WhatsApp link, not a route, so it is kept out of
+     * `$moreNav` (which the mobile drawer resolves through route()) and given
+     * its own item. Omitted entirely when no number is configured.
+     */
+    $whatsappUrl = config('services.support.whatsapp_url');
 
-                <!-- Mobile menu button -->
-                <div class="flex md:hidden">
-                    <button type="button" 
-                            id="mobile-menu-button"
-                            class="inline-flex items-center justify-center p-2 rounded-lg text-gray-700 hover:text-green-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-green-500 transition-colors duration-200"
-                            aria-controls="mobile-menu" 
-                            aria-expanded="false">
-                        <span class="sr-only">Open main menu</span>
-                        <!-- Hamburger icon -->
-                        <svg class="block h-6 w-6" id="menu-open-icon" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-                        </svg>
-                        <!-- Close icon -->
-                        <svg class="hidden h-6 w-6" id="menu-close-icon" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
+    $isMoreActive = collect($moreNav)->contains(fn ($item) => request()->routeIs($item['active']));
+@endphp
+
+<header
+    x-data="{ mobileOpen: false, moreOpen: false }"
+    @keydown.escape.window="mobileOpen = false; moreOpen = false"
+    class="sticky top-0 z-40 border-b border-border bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80"
+>
+    <div class="container-page">
+        <div class="flex h-16 items-center justify-between gap-4">
+
+            {{-- Brand --}}
+            {{-- Points at the public home page for guests: /dashboard is behind
+                 `auth`, so sending a signed-out visitor there just bounced them
+                 through a redirect. --}}
+            <a href="{{ auth()->check() ? route('dashboard') : route('home') }}" class="flex shrink-0 items-center gap-2">
+                <img src="{{ asset('images/reup-03.svg') }}" alt="ReUp" class="h-7 w-auto">
+            </a>
+
+            {{--
+                Product navigation is for signed-in users only.
+
+                These routes all sit behind `auth`, so rendering them to a
+                signed-out visitor produced a row of links that silently
+                redirected to the login page — it looked like the site was
+                broken rather than locked. Guests get the brand, and the
+                Sign in / Get started buttons in the right cluster.
+            --}}
+            @auth
+            <nav class="hidden items-center gap-0.5 lg:flex" aria-label="Primary">
+                @foreach($primaryNav as $item)
+                    <a href="{{ route($item['route']) }}"
+                       @if(request()->routeIs($item['active'])) aria-current="page" @endif
+                       class="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors
+                              {{ request()->routeIs($item['active'])
+                                    ? 'bg-brand-50 text-brand-700'
+                                    : 'text-ink-600 hover:bg-ink-100 hover:text-ink-900' }}">
+                        <x-icon :name="$item['icon']" class="h-4 w-4" />
+                        {{ $item['label'] }}
+                    </a>
+                @endforeach
+
+                {{-- "More" overflow --}}
+                <div class="relative">
+                    <button type="button"
+                            @click="moreOpen = !moreOpen"
+                            @click.outside="moreOpen = false"
+                            :aria-expanded="moreOpen ? 'true' : 'false'"
+                            aria-haspopup="true"
+                            class="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors
+                                   {{ $isMoreActive ? 'bg-brand-50 text-brand-700' : 'text-ink-600 hover:bg-ink-100 hover:text-ink-900' }}">
+                        More
+                        <x-icon name="chevron-down" class="h-3.5 w-3.5 transition-transform" ::class="moreOpen && 'rotate-180'" />
                     </button>
-                </div>
-            </div>
-        </div>
 
-        <!-- Mobile menu -->
-        <div class="hidden md:hidden" id="mobile-menu">
-            <div class="border-t border-gray-200/60 px-4 pt-4 pb-4 space-y-1">
-                <a href="{{route('home')}}" 
-                   class="block px-4 py-3 rounded-lg text-base font-medium text-white bg-green-600 hover:bg-green-700 transition-colors duration-200">
-                    Home
-                </a>
-                <a href="{{ route('airtime-data.index') }}" 
-                   class="block px-4 py-3 rounded-lg text-base font-medium text-gray-700 hover:text-green-600 hover:bg-green-50 transition-colors duration-200">
-                    Buy Airtime
-                </a>
-                <a href="{{ route('airtime-data.index') }}" 
-                   class="block px-4 py-3 rounded-lg text-base font-medium text-gray-700 hover:text-green-600 hover:bg-green-50 transition-colors duration-200">
-                    Buy Data
-                </a>
-                <a href="{{ route('pricelist') }}" 
-                   class="block px-4 py-3 rounded-lg text-base font-medium text-gray-700 hover:text-green-600 hover:bg-green-50 transition-colors duration-200">
-                    Airtime/Data Pricelist
-                </a>
-                
-                <!-- Mobile CTA Buttons -->
-                <div class="pt-4 space-y-2 border-t border-gray-200/60">
-                    <a href="{{ route('login') }}" 
-                       class="block w-full px-4 py-3 text-center rounded-lg text-base font-medium text-gray-700 border border-gray-300 hover:border-green-600 hover:text-green-600 transition-colors duration-200">
-                        Sign In
-                    </a>
-                    <a href="{{route('register')}}" 
-                       class="block w-full px-4 py-3 text-center rounded-lg text-base font-medium text-white bg-green-600 hover:bg-green-700 shadow-sm transition-colors duration-200">
-                        Sign Up
-                    </a>
+                    <div x-show="moreOpen" x-cloak x-transition.origin.top.right
+                         class="absolute right-0 mt-2 w-80 overflow-hidden rounded-xl border border-border bg-white shadow-overlay">
+                        <div class="p-1.5">
+                            @foreach($moreNav as $item)
+                                <a href="{{ route($item['route']) }}"
+                                   class="flex items-start gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-ink-100">
+                                    <span class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-ink-100 text-ink-600">
+                                        <x-icon :name="$item['icon']" class="h-4 w-4" />
+                                    </span>
+                                    <span class="min-w-0">
+                                        <span class="block text-sm font-medium text-ink-900">{{ $item['label'] }}</span>
+                                        <span class="block text-xs text-muted-foreground">{{ $item['description'] }}</span>
+                                    </span>
+                                </a>
+                            @endforeach
+
+                            @if($whatsappUrl)
+                                <a href="{{ $whatsappUrl }}"
+                                   target="_blank"
+                                   rel="noopener noreferrer"
+                                   class="flex items-start gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-ink-100">
+                                    <span class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-ink-100 text-[#128C7E]">
+                                        <x-icon name="whatsapp" variant="solid" class="h-4 w-4" />
+                                    </span>
+                                    <span class="min-w-0">
+                                        <span class="block text-sm font-medium text-ink-900">Support on WhatsApp</span>
+                                        <span class="block text-xs text-muted-foreground">Message us, opens in WhatsApp</span>
+                                    </span>
+                                </a>
+                            @endif
+                        </div>
+                    </div>
                 </div>
+            </nav>
+            @endauth
+
+            {{-- Right cluster --}}
+            <div class="flex items-center gap-2">
+                @auth
+                    {{-- Wallet balance --}}
+                    <a href="{{ route('wallet.index') }}"
+                       class="hidden items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm transition-colors hover:bg-ink-50 sm:inline-flex">
+                        <x-icon name="wallet" class="h-4 w-4 text-brand-600" />
+                        <span class="font-semibold tabular-nums">&#8358;{{ number_format($walletBalance, 2) }}</span>
+                    </a>
+
+                    <a href="{{ route('wallet.fund') }}" class="btn btn-primary btn-sm">
+                        <x-icon name="plus" class="h-4 w-4" />
+                        <span class="hidden sm:inline">Fund</span>
+                    </a>
+
+                    {{-- Account menu --}}
+                    <div class="relative" x-data="{ open: false }">
+                        <button type="button"
+                                @click="open = !open"
+                                @click.outside="open = false"
+                                :aria-expanded="open ? 'true' : 'false'"
+                                aria-haspopup="true"
+                                class="inline-flex items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
+                                aria-label="Account menu">
+                            <x-avatar :user="$user" size="sm" />
+                        </button>
+
+                        <div x-show="open" x-cloak x-transition.origin.top.right
+                             class="absolute right-0 mt-2 w-56 overflow-hidden rounded-xl border border-border bg-white shadow-overlay">
+                            <div class="border-b px-3 py-2.5">
+                                <p class="truncate text-sm font-medium text-ink-900">{{ $user->name }}</p>
+                                <p class="truncate text-xs text-muted-foreground">{{ $user->email }}</p>
+                            </div>
+                            <div class="p-1.5">
+                                <a href="{{ route('profile.index') }}" class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-700 hover:bg-ink-100">
+                                    <x-icon name="user" class="h-4 w-4 text-ink-500" /> Profile
+                                </a>
+                                <a href="{{ route('wallet.history') }}" class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-700 hover:bg-ink-100">
+                                    <x-icon name="queue-list" class="h-4 w-4 text-ink-500" /> Wallet history
+                                </a>
+                                <a href="{{ route('contact') }}" class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-700 hover:bg-ink-100">
+                                    <x-icon name="lifebuoy" class="h-4 w-4 text-ink-500" /> Support
+                                </a>
+
+                                @if($user->isAdmin())
+                                    <div class="my-1.5 h-px bg-border"></div>
+                                    <a href="{{ route('admin.dashboard') }}" class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-700 hover:bg-ink-100">
+                                        <x-icon name="shield-check" class="h-4 w-4 text-ink-500" /> Admin console
+                                    </a>
+                                @endif
+
+                                <div class="my-1.5 h-px bg-border"></div>
+                                <form method="POST" action="{{ route('logout') }}">
+                                    @csrf
+                                    <button type="submit" class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50">
+                                        <x-icon name="arrow-right-on-rectangle" class="h-4 w-4" /> Log out
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                @else
+                    <a href="{{ route('login') }}" class="btn btn-ghost btn-sm">Sign in</a>
+                    <a href="{{ route('register') }}" class="btn btn-primary btn-sm">Get started</a>
+                @endauth
+
+                {{-- Mobile trigger --}}
+                <button type="button"
+                        @click="mobileOpen = !mobileOpen"
+                        :aria-expanded="mobileOpen ? 'true' : 'false'"
+                        aria-controls="mobile-nav"
+                        class="btn btn-ghost btn-icon lg:hidden"
+                        aria-label="Toggle navigation">
+                    <x-icon name="bars-3" class="h-5 w-5" x-show="!mobileOpen" />
+                    <x-icon name="x-mark" class="h-5 w-5" x-show="mobileOpen" x-cloak />
+                </button>
             </div>
         </div>
-    </nav>
+    </div>
+
+    {{-- Mobile navigation. Signed-in only, for the same reason as the desktop
+         nav: every one of these routes is behind `auth`, so a guest tapping one
+         just landed on the login page. --}}
+    @auth
+    <div id="mobile-nav" x-show="mobileOpen" x-cloak
+         x-transition:enter="transition ease-out duration-150"
+         x-transition:enter-start="opacity-0 -translate-y-1"
+         x-transition:enter-end="opacity-100 translate-y-0"
+         class="border-t bg-white lg:hidden">
+        <div class="container-page space-y-1 py-3">
+            @foreach(array_merge($primaryNav, $moreNav) as $item)
+                <a href="{{ route($item['route']) }}"
+                   class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium
+                          {{ request()->routeIs($item['active']) ? 'bg-brand-50 text-brand-700' : 'text-ink-700 hover:bg-ink-100' }}">
+                    <x-icon :name="$item['icon']" class="h-4 w-4" />
+                    {{ $item['label'] }}
+                </a>
+            @endforeach
+
+            @if($whatsappUrl)
+                <a href="{{ $whatsappUrl }}" target="_blank" rel="noopener noreferrer"
+                   class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-ink-700 hover:bg-ink-100">
+                    <x-icon name="whatsapp" variant="solid" class="h-4 w-4 text-[#128C7E]" />
+                    Support on WhatsApp
+                </a>
+            @endif
+        </div>
+    </div>
+    @endauth
 </header>
-
-<script>
-    // Mobile menu toggle
-    document.addEventListener('DOMContentLoaded', function() {
-        const mobileMenuButton = document.getElementById('mobile-menu-button');
-        const mobileMenu = document.getElementById('mobile-menu');
-        const menuOpenIcon = document.getElementById('menu-open-icon');
-        const menuCloseIcon = document.getElementById('menu-close-icon');
-
-        if (mobileMenuButton && mobileMenu) {
-            mobileMenuButton.addEventListener('click', function() {
-                const isExpanded = mobileMenuButton.getAttribute('aria-expanded') === 'true';
-                
-                mobileMenuButton.setAttribute('aria-expanded', !isExpanded);
-                mobileMenu.classList.toggle('hidden');
-                menuOpenIcon.classList.toggle('hidden');
-                menuCloseIcon.classList.toggle('hidden');
-            });
-        }
-    });
-</script>

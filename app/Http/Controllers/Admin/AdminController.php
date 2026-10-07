@@ -5,12 +5,11 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\AdminLog;
+use App\Support\Permissions;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rules;
-use Spatie\Permission\Models\Role;
-use Spatie\Permission\Models\Permission;
 use App\Models\TermsPrivacy;
 use Illuminate\Support\Facades\Auth;
 use App\Mail\TermsUpdated;
@@ -20,313 +19,221 @@ use Illuminate\Support\Facades\Log;
 
 class AdminController extends Controller
 {
+    /**
+     * Human labels for the permission checkboxes.
+     * Sourced from the shared registry so the create/edit screens and the
+     * route middleware can never disagree about what a permission means.
+     */
+    private function getDefaultPermissions(): array
+    {
+        return Permissions::LABELS;
+    }
+
+    private function getDefaultPermissionsForRole(string $role): array
+    {
+        return Permissions::defaultsForRole($role);
+    }
+
+    private function roles(): array
+    {
+        return Permissions::roles();
+    }
+
     // List all admins
     public function index()
-{
-    // Get admins with selected fields
-    $admins = User::where('is_admin', true)
-        ->orWhere('is_super_admin', true)
-        ->orderBy('is_super_admin', 'desc')
-        ->orderBy('created_at', 'desc')
-        ->select([
-            'id',
-            'name',
-            'email',
-            'phone',
-            'whatsapp', // Optional: if you want to include WhatsApp number
-            'is_admin',
-            'is_super_admin',
-            'admin_role',
-            'admin_permissions',
-            'is_online',
-            'last_login_at',
-            'last_login_at',
-            'created_at',
-            'updated_at'
-        ])
-        ->paginate(20);
+    {
+        $admins = User::admins()
+            ->orderByDesc('is_super_admin')
+            ->orderByDesc('created_at')
+            ->paginate(20);
 
-    // Get stats for dashboard cards
-    $stats = [
-        'total_admins' => User::where('is_admin', true)
-            ->orWhere('is_super_admin', true)
-            ->count(),
-        'online_admins' => User::where(function($query) {
-                $query->where('is_admin', true)
-                      ->orWhere('is_super_admin', true);
-            })
-            ->where(function($query) {
-                $query->where('is_online', true)
-                      ->orWhere('last_login_at', '>=', now()->subMinutes(15));
-            })
-            ->count(),
-        'super_admins' => User::where('is_super_admin', true)->count(),
-        'active_admins' => User::where(function($query) {
-                $query->where('is_admin', true)
-                      ->orWhere('is_super_admin', true);
-            })
-            ->where('last_login_at', '>=', now()->subMinutes(15))
-            ->count(),
-    ];
+        $stats = [
+            'total_admins' => User::admins()->count(),
+            'online_admins' => User::admins()->where('is_online', true)->count(),
+            'super_admins' => User::where('is_super_admin', true)->count(),
+            'active_admins' => User::admins()
+                ->where('last_activity', '>=', now()->subMinutes(15))
+                ->count(),
+        ];
 
-    // Get role distribution
-    $roleDistribution = [
-        'Super Admin' => User::where('is_super_admin', true)->count(),
-        'Admin Manager' => User::where('admin_role', 'Admin Manager')->count(),
-        'Support Agent' => User::where('admin_role', 'Support Agent')->count(),
-        'Finance Manager' => User::where('admin_role', 'Finance Manager')->count(),
-        'Other' => User::where('is_admin', true)
-            ->whereNull('admin_role')
-            ->orWhere('admin_role', '')
-            ->count(),
-    ];
+        // Role distribution, read from the same registry the routes enforce.
+        $roleDistribution = collect(Permissions::roles())
+            ->mapWithKeys(fn ($role) => [ucfirst($role) => User::where('admin_role', $role)->count()])
+            ->put('Super admin', User::where('is_super_admin', true)->count())
+            ->all();
 
-    // Get recent activity logs
-    $recentLogs = AdminLog::with('user')
-        ->orderBy('created_at', 'desc')
-        ->limit(10)
-        ->get();
+        $recentLogs = AdminLog::with('user')
+            ->latest()
+            ->limit(10)
+            ->get();
 
-    return view('admin.admins.index', compact(
-        'admins', 
-        'stats', 
-        'roleDistribution', 
-        'recentLogs'
-    ));
-}
+        return view('admin.admins.index', compact('admins', 'stats', 'roleDistribution', 'recentLogs'));
+    }
 
     // Show create admin form
     public function create()
     {
-        $defaultPermissions = $this->getDefaultPermissions();
-        return view('admin.admins.create', compact('defaultPermissions'));
+        return view('admin.admins.create', [
+            'defaultPermissions' => $this->getDefaultPermissions(),
+            'roles' => $this->roles(),
+            'roleDefaults' => collect($this->roles())
+                ->mapWithKeys(fn ($role) => [$role => Permissions::defaultsForRole($role)])
+                ->all(),
+        ]);
     }
 
     // Store new admin
     public function store(Request $request)
     {
-        // Only super admin can create admins
-        if (!auth()->user()->is_super_admin) {
-            return redirect()->route('admin.admins.index')
-                ->with('error', 'Only Super Admin can create new admins.');
-        }
-
-        $validator = Validator::make($request->all(), [
+        $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', 'unique:users'],
-            'password' => ['required', 'confirmed', Rules\Password::defaults()],
-            'admin_role' => ['required', 'string', 'in:Super Admin,Admin Manager,Support Agent,Finance Manager'],
+            'email' => ['required', 'email', 'max:255', 'unique:users,email'],
+            'password' => ['required', 'confirmed', Rules\Password::min(12)],
+            'admin_role' => ['required', 'string', 'in:' . implode(',', Permissions::roles())],
             'permissions' => ['nullable', 'array'],
-            'permissions.*' => ['string', 'in:dashboard,users,transactions,bank-transfers,settings,chat']
+            'permissions.*' => ['string', 'in:' . implode(',', Permissions::ALL)],
         ]);
 
-        if ($validator->fails()) {
-            return redirect()->back()
-                ->withErrors($validator)
-                ->withInput();
-        }
-
-        // Create admin user
+        // A super admin may only be created by another super admin, and only
+        // ever through this screen.
         $admin = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'password' => Hash::make($validated['password']),
             'is_admin' => true,
-            'is_super_admin' => $request->admin_role === 'Super Admin',
-            'admin_role' => $request->admin_role,
-            'admin_permissions' => $request->permissions ?? $this->getDefaultPermissionsForRole($request->admin_role),
+            'is_super_admin' => false,
+            'admin_role' => $validated['admin_role'],
+            'admin_permissions' => $validated['permissions']
+                ?? Permissions::defaultsForRole($validated['admin_role']),
+            'email_verified_at' => now(),
         ]);
 
-        // Log the action
-        AdminLog::log(
-            auth()->id(),
-            'admin_created',
-            [
-                'admin_id' => $admin->id,
-                'admin_email' => $admin->email,
-                'role' => $admin->admin_role
-            ]
-        );
+        AdminLog::log(Auth::id(), 'admin_created', [
+            'admin_id' => $admin->id,
+            'role' => $admin->admin_role,
+            'permissions' => $admin->admin_permissions,
+        ]);
 
         return redirect()->route('admin.admins.index')
-            ->with('success', 'Admin created successfully!');
+            ->with('success', 'Administrator created.');
     }
 
     // Show admin edit form
     public function edit(User $admin)
     {
-        // Only super admin can edit admins
-        if (!auth()->user()->is_super_admin) {
-            return redirect()->route('admin.admins.index')
-                ->with('error', 'Only Super Admin can edit admins.');
-        }
+        abort_unless($admin->isAdmin(), 404);
 
-        $defaultPermissions = $this->getDefaultPermissions();
-        return view('admin.admins.edit', compact('admin', 'defaultPermissions'));
+        return view('admin.admins.edit', [
+            'admin' => $admin,
+            'defaultPermissions' => $this->getDefaultPermissions(),
+            'roles' => $this->roles(),
+        ]);
     }
 
     // Update admin
     public function update(Request $request, User $admin)
     {
-        // Only super admin can update admins
-        if (!auth()->user()->is_super_admin) {
-            return redirect()->route('admin.admins.index')
-                ->with('error', 'Only Super Admin can update admins.');
-        }
+        abort_unless($admin->isAdmin(), 404);
 
-        $validator = Validator::make($request->all(), [
+        $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email,' . $admin->id],
-            'admin_role' => ['required', 'string', 'in:Super Admin,Admin Manager,Support Agent,Finance Manager'],
+            'email' => ['required', 'email', 'max:255', 'unique:users,email,' . $admin->id],
+            'admin_role' => ['required', 'string', 'in:' . implode(',', Permissions::roles())],
             'permissions' => ['nullable', 'array'],
-            'permissions.*' => ['string', 'in:dashboard,users,transactions,bank-transfers,settings,chat'],
-            'is_active' => ['boolean']
+            'permissions.*' => ['string', 'in:' . implode(',', Permissions::ALL)],
+            'password' => ['nullable', 'confirmed', Rules\Password::min(12)],
         ]);
 
-        if ($validator->fails()) {
-            return redirect()->back()
-                ->withErrors($validator)
-                ->withInput();
+        // Guard the last remaining super admin: demoting or deactivating the
+        // only one would lock everybody out of admin management permanently.
+        if ($admin->is_super_admin && $admin->id === Auth::id() && User::where('is_super_admin', true)->count() === 1) {
+            unset($validated['admin_role']);
         }
 
         $oldRole = $admin->admin_role;
 
-        $admin->update([
-            'name' => $request->name,
-            'email' => $request->email,
-            'is_admin' => true,
-            'is_super_admin' => $request->admin_role === 'Super Admin',
-            'admin_role' => $request->admin_role,
-            'admin_permissions' => $request->permissions ?? $this->getDefaultPermissionsForRole($request->admin_role),
-            'is_online' => $request->has('is_active') ? $request->is_active : $admin->is_online,
+        $admin->fill([
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'admin_role' => $validated['admin_role'] ?? $admin->admin_role,
+            'admin_permissions' => $validated['permissions']
+                ?? Permissions::defaultsForRole($validated['admin_role'] ?? $admin->admin_role),
         ]);
 
-        // Update password if provided
-        if ($request->filled('password')) {
-            $admin->update([
-                'password' => Hash::make($request->password)
-            ]);
+        if (! empty($validated['password'])) {
+            $admin->password = Hash::make($validated['password']);
         }
 
-        // Log the action
-        AdminLog::log(
-            auth()->id(),
-            'admin_updated',
-            [
-                'admin_id' => $admin->id,
-                'admin_email' => $admin->email,
-                'old_role' => $oldRole,
-                'new_role' => $admin->admin_role
-            ]
-        );
+        // Changing the sign-in address invalidates the verification it carried.
+        if ($admin->isDirty('email')) {
+            $admin->email_verified_at = null;
+        }
+
+        $admin->save();
+
+        AdminLog::log(Auth::id(), 'admin_updated', [
+            'admin_id' => $admin->id,
+            'old_role' => $oldRole,
+            'new_role' => $admin->admin_role,
+        ]);
 
         return redirect()->route('admin.admins.index')
-            ->with('success', 'Admin updated successfully!');
+            ->with('success', 'Administrator updated.');
     }
 
     // Delete admin
     public function destroy(User $admin)
     {
-        // Prevent deleting self
-        if ($admin->id === auth()->id()) {
-            return redirect()->back()
-                ->with('error', 'You cannot delete your own account.');
+        abort_unless($admin->isAdmin(), 404);
+
+        if ($admin->id === Auth::id()) {
+            return back()->with('error', 'You cannot delete your own account.');
         }
 
-        // Only super admin can delete admins
-        if (!auth()->user()->is_super_admin) {
-            return redirect()->route('admin.admins.index')
-                ->with('error', 'Only Super Admin can delete admins.');
+        if ($admin->is_super_admin && User::where('is_super_admin', true)->count() <= 1) {
+            return back()->with('error', 'You cannot delete the last super admin.');
         }
 
-        // Prevent deleting the last super admin
-        if ($admin->is_super_admin) {
-            $superAdminCount = User::where('is_super_admin', true)->count();
-            if ($superAdminCount <= 1) {
-                return redirect()->back()
-                    ->with('error', 'Cannot delete the last Super Admin.');
-            }
-        }
-
-        // Log the action before deletion
-        AdminLog::log(
-            auth()->id(),
-            'admin_deleted',
-            [
-                'admin_id' => $admin->id,
-                'admin_email' => $admin->email,
-                'role' => $admin->admin_role
-            ]
-        );
+        AdminLog::log(Auth::id(), 'admin_deleted', [
+            'admin_id' => $admin->id,
+            'admin_email' => $admin->email,
+            'role' => $admin->admin_role,
+        ]);
 
         $admin->delete();
 
         return redirect()->route('admin.admins.index')
-            ->with('success', 'Admin deleted successfully!');
+            ->with('success', 'Administrator removed.');
     }
 
-    // Toggle admin status
+    // Toggle admin availability
     public function toggleStatus(User $admin)
     {
-        // Only super admin can toggle status
-        if (!auth()->user()->is_super_admin) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+        abort_unless($admin->isAdmin(), 404);
+
+        if ($admin->id === Auth::id()) {
+            return response()->json(['error' => 'You cannot change your own availability here.'], 422);
         }
 
-        $admin->update([
-            'is_online' => !$admin->is_online
+        $admin->forceFill(['is_online' => ! $admin->is_online])->save();
+
+        AdminLog::log(Auth::id(), 'admin_status_toggled', [
+            'admin_id' => $admin->id,
+            'is_online' => $admin->is_online,
         ]);
 
-        AdminLog::log(
-            auth()->id(),
-            'admin_status_toggled',
-            [
-                'admin_id' => $admin->id,
-                'status' => $admin->is_online ? 'online' : 'offline'
-            ]
-        );
-
-        return response()->json([
-            'success' => true,
-            'is_online' => $admin->is_online
-        ]);
-    }
-
-    // Get default permissions for roles
-    private function getDefaultPermissionsForRole($role)
-    {
-        $permissions = [
-            'Super Admin' => ['*'], // All permissions
-            'Admin Manager' => ['dashboard', 'users', 'admins', 'chat'],
-            'Support Agent' => ['dashboard', 'users', 'chat'],
-            'Finance Manager' => ['dashboard', 'transactions', 'bank-transfers']
-        ];
-
-        return $permissions[$role] ?? ['dashboard'];
-    }
-
-    // Get all available permissions
-    private function getDefaultPermissions()
-    {
-        return [
-            'dashboard' => 'Access Dashboard',
-            'users' => 'Manage Users',
-            'admins' => 'Manage Admins',
-            'transactions' => 'Manage Transactions',
-            'bank-transfers' => 'Manage Bank Transfers',
-            'settings' => 'Access Settings',
-            'chat' => 'Access Live Chat'
-        ];
+        return response()->json(['success' => true, 'is_online' => $admin->is_online]);
     }
 
     // Admin activity tracking
     public function updateActivity()
     {
-        if (auth()->check() && auth()->user()->isAdmin()) {
-            auth()->user()->update([
+        if (Auth::check() && Auth::user()->isAdmin()) {
+            Auth::user()->forceFill([
                 'last_activity_at' => now(),
-                'is_online' => true
-            ]);
+                'last_activity' => now(),
+                'is_online' => true,
+            ])->saveQuietly();
         }
 
         return response()->json(['success' => true]);
@@ -337,11 +244,7 @@ class AdminController extends Controller
  */
 public function editTerms()
 {
-    // Check if user is super admin
-    if (!Auth::user()->is_super_admin) {
-        abort(403, 'Only Super Admins can manage Terms of Service');
-    }
-
+    // Authorisation is enforced by the route group (`admin:manage_settings`).
     // Get active terms and privacy
     $terms = TermsPrivacy::getTerms();
     $privacy = TermsPrivacy::getPrivacy();
@@ -355,14 +258,7 @@ public function editTerms()
  */
 public function updateTerms(Request $request)
 {
-    // Check if user is super admin
-    if (!Auth::user()->is_super_admin) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Only Super Admins can manage Terms of Service'
-        ], 403);
-    }
-
+    // Gated by `admin:manage_settings` on the route.
     $validator = Validator::make($request->all(), [
         'content' => 'required|string|min:50',
         'type' => 'required|in:terms,privacy'
@@ -515,19 +411,22 @@ private function sendNotificationToAllUsers(TermsPrivacy $document): void
 }
 
 /**
- * Get Terms/Privacy preview
+ * Version history for a document.
  */
-public function previewTerms($type)
+public function termsHistory(string $type)
 {
-    $document = TermsPrivacy::getByTypeAndVersion($type);
+    $type = TermsPrivacy::assertValidType($type);
 
-    if (!$document) {
-        abort(404, ucfirst($type) . ' not found');
-    }
-
-    return view('admin.terms.preview', [
-        'document' => $document,
-        'content' => $document->preview_content
+    return response()->json([
+        'success' => true,
+        'type' => $type,
+        'versions' => TermsPrivacy::history($type)->map(fn ($version) => [
+            'id' => $version->id,
+            'version_date' => \Illuminate\Support\Carbon::parse($version->version_date)->format('F j, Y g:i A'),
+            'updated_by' => $version->updated_by,
+            'checksum' => substr($version->checksum, 0, 12),
+            'excerpt' => \Illuminate\Support\Str::limit(trim(strip_tags($version->content)), 160),
+        ]),
     ]);
 }
 
@@ -576,14 +475,15 @@ public function restoreVersion(Request $request, $id)
 /**
  * Get document content via AJAX
  */
-public function getDocument($type)
+public function getDocument(string $type)
 {
+    $type = TermsPrivacy::assertValidType($type);
     $document = TermsPrivacy::getByTypeAndVersion($type);
 
     if (!$document) {
         return response()->json([
             'success' => false,
-            'message' => ucfirst($type) . ' not found'
+            'message' => ucfirst($type) . ' has not been published yet.',
         ], 404);
     }
 
@@ -594,8 +494,8 @@ public function getDocument($type)
         'content' => $document->content,
         'preview_content' => $document->preview_content,
         'version_date' => $document->formatted_version_date,
-        'updated_at' => $document->updated_at->diffForHumans(),
-        'updated_by' => $document->updatedBy ? $document->updatedBy->name : 'System',
+        'updated_at' => $document->updated_at?->diffForHumans() ?? 'never',
+        'updated_by' => $document->updatedBy?->name ?? 'System',
         'statistics' => $document->statistics,
         'is_active' => $document->is_active
     ]);
@@ -606,21 +506,14 @@ public function getDocument($type)
  */
 public function toggleTermsStatus($id)
 {
-    if (!Auth::user()->is_super_admin) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Only Super Admins can toggle document status'
-        ], 403);
-    }
-
     try {
         $document = TermsPrivacy::findOrFail($id);
-        $document->update(['is_active' => !$document->is_active]);
+        $document = TermsPrivacy::setActive($document->id, ! $document->is_active);
 
         $status = $document->is_active ? 'activated' : 'deactivated';
 
         Log::info('Document status toggled', [
-            'document_id' => $id,
+            'document_id' => $document->id,
             'type' => $document->type,
             'new_status' => $status,
             'by_user' => Auth::user()->name
@@ -633,6 +526,8 @@ public function toggleTermsStatus($id)
             'type_name' => $document->type_name
         ]);
 
+    } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+        return response()->json(['success' => false, 'message' => 'Document not found'], 404);
     } catch (\Exception $e) {
         Log::error('Failed to toggle document status: ' . $e->getMessage());
 

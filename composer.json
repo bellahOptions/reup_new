@@ -28,12 +28,11 @@
             "App\\": "app/",
             "Database\\Factories\\": "database/factories/",
             "Database\\Seeders\\": "database/seeders/"
-        }
+        },
+        "files": [
+            "app/Helpers/settings_helper.php"
+        ]
     },
-    
-    "files": [
-        "app/Helpers/settings_helper.php"
-    ],
     "autoload-dev": {
         "psr-4": {
             "Tests\\": "tests/"
@@ -52,6 +51,24 @@
         ],
         "post-create-project-cmd": [
             "@php artisan key:generate --ansi"
+        ],
+        "dev": [
+            "Composer\\Config::disableProcessTimeout",
+            "@php artisan serve"
+        ],
+        "serve": [
+            "Composer\\Config::disableProcessTimeout",
+            "@php artisan serve"
+        ],
+        "vite": [
+            "Composer\\Config::disableProcessTimeout",
+            "npm run dev"
+        ],
+        "test": [
+            "@php artisan test"
+        ],
+        "fresh": [
+            "@php artisan migrate:fresh --seed"
         ]
     },
     "extra": {

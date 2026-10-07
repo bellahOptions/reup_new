@@ -2,21 +2,41 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Exception;
 
 class ClubKonnectService 
 {
-    protected string $clientId;
-    protected string $apiKey;
+    /**
+     * Credentials.
+     *
+     * These were declared as non-nullable `string` properties and assigned
+     * straight from config(), so with CLUBKONNECT_* unset — which is the
+     * default in .env — PHP threw
+     *   TypeError: Cannot assign null to property ... of type string
+     * during container resolution. Because the service is constructor-injected
+     * into AirtimeDataController, that fatal took out `php artisan route:list`
+     * and every airtime/data request.
+     */
+    protected ?string $clientId;
+    protected ?string $apiKey;
     protected string $baseUrl;
 
     public function __construct()
     {
         $this->clientId = config('services.clubkonnect.client_id');
-        $this->apiKey   = config('services.clubkonnect.api_key');
-        $this->baseUrl  = config('services.clubkonnect.base_url');
+        $this->apiKey = config('services.clubkonnect.api_key');
+        $this->baseUrl = (string) config('services.clubkonnect.base_url', 'https://www.clubkonnect.com');
+    }
+
+    /**
+     * Whether the provider can actually be called.
+     */
+    public function isConfigured(): bool
+    {
+        return ! empty($this->clientId) && ! empty($this->apiKey);
     }
 
     /**
@@ -24,6 +44,15 @@ class ClubKonnectService
      */
     public function get(string $endpoint, array $params = []): ?array
     {
+        if (! $this->isConfigured()) {
+            Log::error('ClubKonnect called without credentials configured.', ['endpoint' => $endpoint]);
+
+            return [
+                'status' => 'NOT_CONFIGURED',
+                'message' => 'Airtime and data services are temporarily unavailable.',
+            ];
+        }
+
         try {
             // Inject credentials - Use exact parameter names from documentation
             $params = array_merge($params, [
@@ -31,17 +60,22 @@ class ClubKonnectService
                 'APIKey' => $this->apiKey,
             ]);
 
-            Log::info('ClubKonnect API Request', [
+            // Log the request shape, never the credential.
+            Log::info('ClubKonnect request', [
                 'endpoint' => $endpoint,
-                'params' => array_merge($params, ['APIKey' => '[REDACTED]'])
+                'params' => array_merge(
+                    collect($params)->except(['APIKey', 'UserID'])->all(),
+                    ['APIKey' => '[redacted]', 'UserID' => '[redacted]']
+                ),
             ]);
 
             // Make GET request
             $response = Http::timeout(60)
                 ->get($endpoint, $params);
 
-            // Log raw response
-            Log::info('ClubKonnect Raw Response', [
+            // Body is logged at debug level only: it contains customer phone
+            // numbers and, on failure, echoed request parameters.
+            Log::debug('ClubKonnect response', [
                 'status' => $response->status(),
                 'body' => $response->body(),
             ]);
@@ -51,7 +85,7 @@ class ClubKonnectService
                 
                 if (is_null($data)) {
                     Log::error('ClubKonnect returned invalid JSON', [
-                        'body' => $response->body()
+                        'endpoint' => $endpoint,
                     ]);
                     return [
                         'status' => 'INVALID_RESPONSE',
@@ -59,13 +93,12 @@ class ClubKonnectService
                     ];
                 }
                 
-                Log::info('ClubKonnect Parsed Response', ['data' => $data]);
                 return $data;
             }
 
-            Log::error('ClubKonnect API Error', [
+            Log::error('ClubKonnect API error', [
                 'status' => $response->status(),
-                'body' => $response->body()
+                'endpoint' => $endpoint,
             ]);
 
             return [
@@ -134,6 +167,160 @@ class ClubKonnectService
     {
         $endpoint = 'https://www.nellobytesystems.com/APIWalletBalanceV1.asp';
         return $this->get($endpoint);
+    }
+
+    /* =====================================================================
+     | Bill payments
+     |=================================================================== */
+
+    /**
+     * Validate a smartcard / IUC number against a cable TV provider.
+     *
+     * This must happen server-side. The cable TV page used to call NelloBytes
+     * directly from the browser and interpolate the API key into the markup,
+     * which published the credential to every visitor.
+     */
+    public function verifyCableTvCustomer(string $provider, string $smartcardNumber, string $requestId): ?array
+    {
+        return $this->get('https://www.nellobytesystems.com/APIVerifyCableTVV1.asp', [
+            'CableTV' => $provider,
+            'SmartCardNo' => $smartcardNumber,
+            'RequestID' => $requestId,
+        ]);
+    }
+
+    /**
+     * Pay a cable TV subscription.
+     */
+    public function purchaseCableTv(
+        string $provider,
+        string $package,
+        string $smartcardNumber,
+        float $amount,
+        string $phone,
+        string $requestId
+    ): ?array {
+        return $this->get('https://www.nellobytesystems.com/APICableTVV1.asp', [
+            'CableTV' => $provider,
+            'Package' => $package,
+            'SmartCardNo' => $smartcardNumber,
+            'Amount' => $amount,
+            'PhoneNo' => $phone,
+            'RequestID' => $requestId,
+        ]);
+    }
+
+    /**
+     * Validate a meter number with a disco.
+     */
+    public function verifyMeter(string $disco, string $meterNumber, string $meterType, string $requestId): ?array
+    {
+        return $this->get('https://www.nellobytesystems.com/APIVerifyElectricityV1.asp', [
+            'ElectricCompany' => $disco,
+            'MeterNo' => $meterNumber,
+            'MeterType' => $meterType,
+            'RequestID' => $requestId,
+        ]);
+    }
+
+    /**
+     * Pay an electricity bill and return the token on success.
+     */
+    public function purchaseElectricity(
+        string $disco,
+        string $meterNumber,
+        string $meterType,
+        float $amount,
+        string $phone,
+        string $requestId
+    ): ?array {
+        return $this->get('https://www.nellobytesystems.com/APIElectricityV1.asp', [
+            'ElectricCompany' => $disco,
+            'MeterNo' => $meterNumber,
+            'MeterType' => $meterType,
+            'Amount' => $amount,
+            'PhoneNo' => $phone,
+            'RequestID' => $requestId,
+        ]);
+    }
+
+    /**
+     * Buy an exam PIN (WAEC / JAMB / NECO).
+     */
+    public function purchaseExamPin(string $examType, int $quantity, string $phone, string $requestId): ?array
+    {
+        return $this->get('https://www.nellobytesystems.com/APIExamPinV1.asp', [
+            'ExamType' => $examType,
+            'Quantity' => $quantity,
+            'PhoneNo' => $phone,
+            'RequestID' => $requestId,
+        ]);
+    }
+
+    /**
+     * Resolve a JAMB profile to a candidate name.
+     */
+    public function verifyJambProfile(string $profileId, string $examType, string $requestId): ?array
+    {
+        return $this->get('https://www.nellobytesystems.com/APIJAMBVerifyV1.asp', [
+            'ExamType' => $examType,
+            'ProfileID' => $profileId,
+            'RequestID' => $requestId,
+        ]);
+    }
+
+    /**
+     * Validate a betting account number against a bookmaker.
+     */
+    public function verifyBettingCustomer(string $bettingCode, string $customerId, string $requestId): ?array
+    {
+        return $this->get('https://www.nellobytesystems.com/APIVerifyBettingV1.asp', [
+            'BettingCompany' => $bettingCode,
+            'CustomerID' => $customerId,
+            'RequestID' => $requestId,
+        ]);
+    }
+
+    /**
+     * Fund a betting wallet.
+     */
+    public function purchaseBetting(
+        string $bettingCode,
+        string $customerId,
+        float $amount,
+        string $phone,
+        string $requestId
+    ): ?array {
+        return $this->get('https://www.nellobytesystems.com/APIBettingV1.asp', [
+            'BettingCompany' => $bettingCode,
+            'CustomerID' => $customerId,
+            'Amount' => $amount,
+            'PhoneNo' => $phone,
+            'RequestID' => $requestId,
+        ]);
+    }
+
+    /**
+     * Public data-plan catalogue, keyed by network.
+     *
+     * Cached briefly: it changes rarely and every page view was otherwise an
+     * upstream round trip.
+     */
+    public function dataPlans(): ?array
+    {
+        return Cache::remember('clubkonnect.data_plans', 900, function () {
+            return $this->get('https://www.nellobytesystems.com/APIDatabundleV2.asp');
+        });
+    }
+
+    /**
+     * Public cable TV bouquet catalogue.
+     */
+    public function cableTvPackages(): ?array
+    {
+        return Cache::remember('clubkonnect.cable_packages', 900, function () {
+            return $this->get('https://www.nellobytesystems.com/APICableTVPackagesV2.asp');
+        });
     }
 
     /**

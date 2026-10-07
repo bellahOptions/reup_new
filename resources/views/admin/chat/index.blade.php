@@ -1,211 +1,228 @@
 @extends('admin.layouts.app')
 
-@section('title', 'Live Chat')
+@section('title', 'Live chat')
+@section('page-title', 'Live chat')
+@section('page-description', 'Pick up customer conversations and reply in real time.')
 
 @section('content')
-<div class="py-6">
-    <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
-        <!-- Page Header -->
-        <div class="mb-8">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-3">
-                    <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center shadow-lg">
-                        <span class="text-2xl">💬</span>
+<div class="space-y-6" x-data="liveChat">
+
+    {{-- =========================== Toolbar ============================ --}}
+    <div class="card">
+        <div class="card-content flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+                    <x-icon name="chat-bubble-left-right" class="h-4 w-4" />
+                </span>
+                <div>
+                    <p class="text-sm font-medium">Support availability</p>
+                    <p class="text-xs text-muted-foreground">
+                        <span class="tabular-nums" x-text="stats.active">0</span> active &middot;
+                        <span class="tabular-nums" x-text="stats.pending">0</span> waiting &middot;
+                        <span class="tabular-nums" x-text="stats.closed">0</span> closed today
+                    </p>
+                </div>
+            </div>
+
+            <button type="button" class="btn btn-sm"
+                    :class="available ? 'btn-primary' : 'btn-outline'"
+                    :aria-pressed="available ? 'true' : 'false'"
+                    @click="toggleAvailability()">
+                {{-- Blade compiles a component's :name attribute at render time,
+                     long before Alpine runs, so an Alpine expression here
+                     ("available ? … : …") is parsed as a PHP constant and
+                     throws "Undefined constant". Both icons are rendered and
+                     toggled with x-show instead. --}}
+                <x-icon name="check-circle" class="h-4 w-4" x-show="available" />
+                <x-icon name="pause-circle" class="h-4 w-4" x-show="!available" x-cloak />
+                <span x-text="available ? 'Available' : 'Busy'">Available</span>
+            </button>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-4">
+
+        {{-- ============================ Sidebar ======================== --}}
+        <div class="space-y-6 lg:col-span-1">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title flex items-center gap-2">
+                        <x-icon name="chart-bar" class="h-4 w-4 text-ink-500" />
+                        Chat stats
+                    </h2>
+                </div>
+                <div class="card-content space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="stat-label">Active chats</span>
+                        <span class="text-sm font-semibold tabular-nums text-green-700" x-text="stats.active">0</span>
                     </div>
-                    <div>
-                        <h1 class="text-3xl font-bold text-gray-900">Live Chat Support</h1>
-                        <p class="text-gray-600 mt-1">Manage customer support chats</p>
+                    <div class="flex items-center justify-between">
+                        <span class="stat-label">Waiting</span>
+                        <span class="text-sm font-semibold tabular-nums text-amber-700" x-text="stats.pending">0</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="stat-label">Closed today</span>
+                        <span class="text-sm font-semibold tabular-nums text-sky-700" x-text="stats.closed">0</span>
                     </div>
                 </div>
-                <div class="flex items-center space-x-4">
-                    <div class="flex items-center space-x-2 bg-green-100 text-green-800 px-4 py-2 rounded-lg">
-                        <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                        <span class="text-sm font-semibold">Active</span>
-                    </div>
-                    <button onclick="toggleAvailability()" 
-                            id="availabilityBtn"
-                            class="px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 flex items-center space-x-2">
-                        <span id="availabilityIcon">✅</span>
-                        <span id="availabilityText">Available</span>
-                    </button>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title flex items-center gap-2">
+                        <x-icon name="users" class="h-4 w-4 text-ink-500" />
+                        Online team
+                    </h2>
+                </div>
+                <div class="card-content">
+                    <template x-if="!admins.length">
+                        <p class="text-sm text-muted-foreground">No other administrators online.</p>
+                    </template>
+
+                    <ul class="space-y-3">
+                        <template x-for="admin in admins" :key="admin.id">
+                            <li class="flex items-center justify-between gap-3">
+                                <div class="flex min-w-0 items-center gap-2.5">
+                                    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-700"
+                                          x-text="initial(admin.name)"></span>
+                                    <div class="min-w-0">
+                                        <p class="truncate text-sm font-medium" x-text="admin.name"></p>
+                                        <p class="truncate text-xs text-muted-foreground" x-text="admin.admin_role"></p>
+                                    </div>
+                                </div>
+                                <span class="h-2 w-2 shrink-0 rounded-full bg-green-500" aria-hidden="true"></span>
+                            </li>
+                        </template>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title flex items-center gap-2">
+                        <x-icon name="funnel" class="h-4 w-4 text-ink-500" />
+                        Filters
+                    </h2>
+                </div>
+                <div class="card-content space-y-2">
+                    <span class="label">Status</span>
+                    @foreach(['all' => 'All chats', 'active' => 'Active', 'pending' => 'Pending', 'closed' => 'Closed'] as $value => $label)
+                        <label class="flex items-center gap-2 text-sm" for="statusFilter_{{ $value }}">
+                            <input type="radio" id="statusFilter_{{ $value }}" name="statusFilter" value="{{ $value }}"
+                                   class="checkbox" x-model="statusFilter"
+                                   {{ $value === 'all' ? 'checked' : '' }}>
+                            <span>{{ $label }}</span>
+                        </label>
+                    @endforeach
                 </div>
             </div>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            <!-- Sidebar - Chat List -->
-            <div class="lg:col-span-1 space-y-6">
-                <!-- Stats Card -->
-                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                    <h3 class="font-bold text-gray-900 mb-4 flex items-center">
-                        <span class="text-xl mr-2">📊</span>
-                        Chat Stats
-                    </h3>
-                    <div class="space-y-3">
-                        <div class="flex justify-between items-center">
-                            <span class="text-sm text-gray-600">Active Chats</span>
-                            <span class="font-bold text-green-600" id="activeChatsCount">0</span>
-                        </div>
-                        <div class="flex justify-between items-center">
-                            <span class="text-sm text-gray-600">Waiting</span>
-                            <span class="font-bold text-yellow-600" id="waitingChatsCount">0</span>
-                        </div>
-                        <div class="flex justify-between items-center">
-                            <span class="text-sm text-gray-600">Closed Today</span>
-                            <span class="font-bold text-blue-600" id="closedChatsCount">0</span>
-                        </div>
+        {{-- ========================== Chat pane ======================== --}}
+        <div class="lg:col-span-3">
+            <div class="card overflow-hidden">
+                <div class="card-header flex-row items-center justify-between gap-3">
+                    <div class="min-w-0">
+                        <h2 class="card-title">Customer support</h2>
+                        <p class="card-description truncate" x-text="current ? `Chat with ${current.name} \u2022 ${current.email}` : 'Select a chat to begin'">
+                            Select a chat to begin
+                        </p>
                     </div>
+                    <span class="badge badge-destructive" x-show="unreadCount > 0" x-cloak x-text="unreadCount"></span>
                 </div>
 
-                <!-- Online Admins -->
-                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                    <h3 class="font-bold text-gray-900 mb-4 flex items-center">
-                        <span class="text-xl mr-2">👥</span>
-                        Online Team
-                    </h3>
-                    <div id="onlineAdmins" class="space-y-3">
-                        <!-- Online admins will be loaded here -->
-                        <div class="text-center py-4">
-                            <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-green-600"></div>
-                            <p class="text-gray-600 mt-2 text-sm">Loading...</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Chat Filters -->
-                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                    <h3 class="font-bold text-gray-900 mb-4 flex items-center">
-                        <span class="text-xl mr-2">🔍</span>
-                        Filters
-                    </h3>
-                    <div class="space-y-3">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Status</label>
-                            <div class="space-y-2">
-                                <label class="flex items-center space-x-2">
-                                    <input type="radio" name="statusFilter" value="all" checked 
-                                           class="text-blue-600 focus:ring-blue-500">
-                                    <span class="text-sm text-gray-700">All Chats</span>
-                                </label>
-                                <label class="flex items-center space-x-2">
-                                    <input type="radio" name="statusFilter" value="active"
-                                           class="text-green-600 focus:ring-green-500">
-                                    <span class="text-sm text-gray-700">Active</span>
-                                </label>
-                                <label class="flex items-center space-x-2">
-                                    <input type="radio" name="statusFilter" value="pending"
-                                           class="text-yellow-600 focus:ring-yellow-500">
-                                    <span class="text-sm text-gray-700">Pending</span>
-                                </label>
-                                <label class="flex items-center space-x-2">
-                                    <input type="radio" name="statusFilter" value="closed"
-                                           class="text-red-600 focus:ring-red-500">
-                                    <span class="text-sm text-gray-700">Closed</span>
-                                </label>
+                <div class="flex h-[32rem]">
+                    {{-- Chat list --}}
+                    <div class="scrollbar-slim w-1/3 overflow-y-auto border-r border-border">
+                        <template x-if="!sessions.length">
+                            <div class="empty-state py-10">
+                                <x-icon name="chat-bubble-oval-left" class="h-8 w-8 text-ink-300" />
+                                <p class="mt-2 text-sm text-muted-foreground">No chats in this view.</p>
                             </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+                        </template>
 
-            <!-- Main Chat Area -->
-            <div class="lg:col-span-3">
-                <div class="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-                    <!-- Chat Header -->
-                    <div class="border-b border-gray-200 p-6">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <h2 class="text-xl font-bold text-gray-900">Customer Support</h2>
-                                <p class="text-sm text-gray-600 mt-1">
-                                    <span id="selectedChatInfo">Select a chat to begin</span>
-                                </p>
-                            </div>
-                            <div class="flex items-center space-x-4">
-                                <div id="typingIndicator" class="hidden text-sm text-gray-500">
-                                    <span class="flex items-center">
-                                        <span class="typing-dots">
-                                            <span>.</span><span>.</span><span>.</span>
-                                        </span>
-                                        <span class="ml-2">Customer is typing</span>
-                                    </span>
-                                </div>
-                                <span id="unreadBadge" class="hidden bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">0</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Two Column Layout -->
-                    <div class="flex h-[calc(100vh-300px)]">
-                        <!-- Chat List -->
-                        <div class="w-1/3 border-r border-gray-200 overflow-y-auto">
-                            <div id="chatList" class="divide-y divide-gray-200">
-                                <!-- Chat sessions will be loaded here -->
-                                <div class="text-center py-8">
-                                    <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
-                                    <p class="text-gray-600 mt-2 text-sm">Loading chats...</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Chat Messages -->
-                        <div class="w-2/3 flex flex-col">
-                            <!-- Messages Container -->
-                            <div id="chatMessages" class="flex-1 overflow-y-auto p-6 space-y-4">
-                                <div class="text-center py-12">
-                                    <div class="w-16 h-16 bg-gray-100 rounded-full mx-auto mb-4 flex items-center justify-center">
-                                        <span class="text-2xl">💬</span>
-                                    </div>
-                                    <h3 class="text-lg font-semibold text-gray-900 mb-2">No chat selected</h3>
-                                    <p class="text-gray-600 text-sm">Select a chat from the list to start conversation</p>
-                                </div>
-                            </div>
-
-                            <!-- Chat Input -->
-                            <div class="border-t border-gray-200 p-6">
-                                <form id="chatForm" class="space-y-3">
-                                    @csrf
-                                    <input type="hidden" id="currentSessionId">
-                                    
-                                    <div class="flex space-x-3">
-                                        <div class="flex-1">
-                                            <textarea id="messageInput" 
-                                                      rows="2"
-                                                      placeholder="Type your response..."
-                                                      disabled
-                                                      class="block w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200 resize-none disabled:bg-gray-100 disabled:cursor-not-allowed"
-                                                      maxlength="1000"></textarea>
-                                            <p id="charCount" class="text-xs text-gray-500 text-right mt-1 hidden">
-                                                <span id="charCountText">0</span>/1000
-                                            </p>
+                        <ul class="divide-y divide-border">
+                            <template x-for="session in sessions" :key="session.id">
+                                <li>
+                                    <button type="button" class="w-full px-4 py-3 text-left transition-colors hover:bg-ink-50"
+                                            :class="currentId === session.id && 'bg-brand-50'"
+                                            @click="selectChat(session.id)">
+                                        <div class="flex items-center justify-between gap-2">
+                                            <div class="flex min-w-0 items-center gap-2.5">
+                                                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface text-xs font-semibold text-ink-700 ring-1 ring-border"
+                                                      x-text="initial(session.user?.name)"></span>
+                                                <div class="min-w-0">
+                                                    <p class="truncate text-sm font-medium" x-text="session.user?.name"></p>
+                                                    <p class="text-xs tabular-nums text-muted-foreground" x-text="'#' + String(session.id).padStart(6, '0')"></p>
+                                                </div>
+                                            </div>
+                                            <span class="badge shrink-0" :class="session.status === 'active' ? 'badge-success' : 'badge-warning'"
+                                                  x-text="session.status"></span>
                                         </div>
-                                        <button type="submit" 
-                                                id="sendBtn"
-                                                disabled
-                                                class="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold px-6 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">
-                                            Send
+                                        <p class="mt-2 truncate text-xs text-muted-foreground"
+                                           x-text="session.last_message ? session.last_message.substring(0, 60) : 'No messages yet'"></p>
+                                    </button>
+                                </li>
+                            </template>
+                        </ul>
+                    </div>
+
+                    {{-- Messages --}}
+                    <div class="flex w-2/3 flex-col">
+                        <div class="scrollbar-slim flex-1 space-y-4 overflow-y-auto p-5" x-ref="messages">
+                            <template x-if="!messages.length">
+                                <div class="empty-state py-10">
+                                    <x-icon name="chat-bubble-left-right" class="h-8 w-8 text-ink-300" />
+                                    <p class="mt-2 text-sm text-muted-foreground"
+                                       x-text="current ? 'No messages yet.' : 'Select a chat from the list to start the conversation.'"></p>
+                                </div>
+                            </template>
+
+                            <template x-for="message in messages" :key="message.id">
+                                <div class="flex" :class="message.sender_type === 'admin' ? 'justify-end' : 'justify-start'">
+                                    <div class="max-w-[75%] rounded-xl px-4 py-2.5 text-sm"
+                                         :class="message.sender_type === 'admin' ? 'bg-brand-500 text-white' : 'bg-surface text-foreground ring-1 ring-border'">
+                                        <div class="mb-1 flex items-center gap-2 text-xs"
+                                             :class="message.sender_type === 'admin' ? 'text-white/80' : 'text-muted-foreground'">
+                                            <span class="font-medium" x-text="message.sender_type === 'admin' ? 'You' : (message.sender?.name ?? 'Customer')"></span>
+                                            <span class="tabular-nums" x-text="formatTime(message.created_at)"></span>
+                                        </div>
+                                        <p class="whitespace-pre-wrap" x-text="message.message"></p>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+
+                        <div class="border-t border-border p-4">
+                            <form @submit.prevent="sendMessage()" class="space-y-3">
+                                <input type="hidden" x-model="currentId">
+                                <textarea rows="2" maxlength="1000" x-model="draft" :disabled="!currentId"
+                                          @input="notifyTyping()"
+                                          placeholder="Type your response..."
+                                          class="textarea resize-none disabled:bg-surface"></textarea>
+                                <p class="text-right text-xs tabular-nums text-muted-foreground"
+                                   x-show="draft.length" x-cloak x-text="`${draft.length}/1000`"></p>
+
+                                <div class="flex items-center justify-between gap-3">
+                                    <div class="flex items-center gap-3">
+                                        <button type="button" class="btn btn-ghost btn-sm text-destructive"
+                                                x-show="currentId" x-cloak @click="closeChat()">
+                                            <x-icon name="no-symbol" class="h-4 w-4" />
+                                            End chat
+                                        </button>
+                                        <button type="button" class="btn btn-ghost btn-sm"
+                                                x-show="currentId" x-cloak @click="transferChat()">
+                                            <x-icon name="arrow-path" class="h-4 w-4" />
+                                            Transfer
                                         </button>
                                     </div>
-                                    
-                                    <div class="flex items-center justify-between text-sm text-gray-500">
-                                        <div>
-                                            <span id="connectionStatus" class="flex items-center">
-                                                <span class="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
-                                                Connected
-                                            </span>
-                                        </div>
-                                        <div class="space-x-4">
-                                            <button type="button" id="closeChatBtn" 
-                                                    class="text-red-600 hover:text-red-800 hidden">
-                                                ❌ End Chat
-                                            </button>
-                                            <button type="button" id="transferChatBtn" 
-                                                    class="text-blue-600 hover:text-blue-800 hidden">
-                                                🔄 Transfer
-                                            </button>
-                                        </div>
-                                    </div>
-                                </form>
-                            </div>
+
+                                    <button type="submit" class="btn btn-primary btn-sm" :disabled="!currentId || !draft.trim()">
+                                        <x-icon name="paper-airplane" class="h-4 w-4" />
+                                        Send
+                                    </button>
+                                </div>
+                            </form>
                         </div>
                     </div>
                 </div>
@@ -215,323 +232,201 @@
 </div>
 @endsection
 
-@section('scripts')
+@push('scripts')
 <script>
-let currentSessionId = null;
-let isAvailable = true;
-let chatPollInterval;
+    // ---------------------------------------------------------------
+    // Live chat console
+    // ---------------------------------------------------------------
+    // Endpoints, payloads and the three-second poll are unchanged. The two
+    // lists and the message thread used to be rendered by string-concatenating
+    // innerHTML from fetch handlers and wired with `onclick="selectChat(...)"`,
+    // which is why customer names were interpolated into markup unescaped.
+    // They are now Alpine templates, so `x-text` escapes every value.
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('liveChat', () => ({
+            sessions: [],
+            admins: [],
+            messages: [],
+            stats: { active: 0, pending: 0, closed: 0 },
+            currentId: null,
+            current: null,
+            draft: '',
+            available: true,
+            statusFilter: 'all',
+            _poll: null,
+            _activity: null,
 
-document.addEventListener('DOMContentLoaded', function() {
-    // Load initial data
-    loadChatSessions();
-    loadOnlineAdmins();
-    updateStats();
-    
-    // Set up polling
-    chatPollInterval = setInterval(() => {
-        if (currentSessionId) {
-            loadMessages(currentSessionId);
-        }
-        loadChatSessions();
-        loadOnlineAdmins();
-        updateStats();
-    }, 3000);
-    
-    // Update activity
-    setInterval(updateActivity, 60000);
-    
-    // Chat form submission
-    document.getElementById('chatForm').addEventListener('submit', sendMessage);
-    
-    // Message input handling
-    const messageInput = document.getElementById('messageInput');
-    messageInput.addEventListener('input', handleMessageInput);
-});
-
-function loadChatSessions() {
-    fetch('/admin/chat/sessions')
-        .then(res => res.json())
-        .then(data => {
-            renderChatList(data.sessions);
-        });
-}
-
-function loadOnlineAdmins() {
-    fetch('/admin/chat/online-admins')
-        .then(res => res.json())
-        .then(data => {
-            renderOnlineAdmins(data.admins);
-        });
-}
-
-function updateStats() {
-    fetch('/admin/chat/stats')
-        .then(res => res.json())
-        .then(data => {
-            document.getElementById('activeChatsCount').textContent = data.active;
-            document.getElementById('waitingChatsCount').textContent = data.pending;
-            document.getElementById('closedChatsCount').textContent = data.closed;
-        });
-}
-
-function renderChatList(sessions) {
-    const container = document.getElementById('chatList');
-    if (sessions.length === 0) {
-        container.innerHTML = `
-            <div class="text-center py-8">
-                <div class="w-12 h-12 bg-gray-100 rounded-full mx-auto mb-4 flex items-center justify-center">
-                    <span class="text-xl">💬</span>
-                </div>
-                <p class="text-gray-600 text-sm">No active chats</p>
-            </div>
-        `;
-        return;
-    }
-    
-    container.innerHTML = sessions.map(session => `
-        <div class="p-4 hover:bg-gray-50 cursor-pointer transition-colors ${currentSessionId === session.id ? 'bg-blue-50' : ''}"
-             onclick="selectChat(${session.id}, this)">
-            <div class="flex items-center justify-between mb-2">
-                <div class="flex items-center space-x-2">
-                    <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-bold">
-                        ${session.user.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                        <div class="font-medium text-gray-900">${session.user.name}</div>
-                        <div class="text-xs text-gray-500">#${session.id.toString().padStart(6, '0')}</div>
-                    </div>
-                </div>
-                <div class="text-xs ${session.status === 'active' ? 'text-green-600' : 'text-yellow-600'}">
-                    ${session.status}
-                </div>
-            </div>
-            <div class="text-sm text-gray-600 truncate">
-                ${session.last_message ? session.last_message.substring(0, 50) + '...' : 'No messages yet'}
-            </div>
-            <div class="flex items-center justify-between mt-2 text-xs text-gray-500">
-                <span>${new Date(session.last_message_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                ${session.unread_count > 0 ? `
-                    <span class="bg-red-500 text-white px-2 py-1 rounded-full">${session.unread_count}</span>
-                ` : ''}
-            </div>
-        </div>
-    `).join('');
-}
-
-function renderOnlineAdmins(admins) {
-    const container = document.getElementById('onlineAdmins');
-    container.innerHTML = admins.map(admin => `
-        <div class="flex items-center justify-between">
-            <div class="flex items-center space-x-2">
-                <div class="w-8 h-8 bg-gradient-to-br from-green-500 to-green-600 rounded-full flex items-center justify-center text-white text-xs font-bold">
-                    ${admin.name.charAt(0).toUpperCase()}
-                </div>
-                <div>
-                    <div class="text-sm font-medium text-gray-900">${admin.name}</div>
-                    <div class="text-xs text-gray-500">${admin.admin_role}</div>
-                </div>
-            </div>
-            <div class="flex items-center">
-                <span class="w-2 h-2 bg-green-500 rounded-full"></span>
-            </div>
-        </div>
-    `).join('');
-}
-
-// Replace the selectChat function
-async function selectChat(sessionId, element) {
-    currentSessionId = sessionId;
-    document.getElementById('currentSessionId').value = sessionId;
-    
-    // Update UI
-    document.querySelectorAll('#chatList > div').forEach(div => {
-        div.classList.remove('bg-blue-50');
-    });
-    if (element) {
-        element.classList.add('bg-blue-50');
-    }
-    
-    // Enable chat input
-    document.getElementById('messageInput').disabled = false;
-    document.getElementById('sendBtn').disabled = false;
-    document.getElementById('closeChatBtn').classList.remove('hidden');
-    document.getElementById('transferChatBtn').classList.remove('hidden');
-    
-    try {
-        // Load messages
-        const response = await fetch(`/admin/chat/sessions/${sessionId}/messages`);
-        const data = await response.json();
-        
-        renderMessages(data.messages);
-        document.getElementById('selectedChatInfo').textContent = 
-            `Chat with ${data.user.name} • ${data.user.email}`;
-    } catch (error) {
-        console.error('Error loading chat:', error);
-    }
-}
-
-async function loadMessages(sessionId) {
-    try {
-        const response = await fetch(`/admin/chat/sessions/${sessionId}/messages`);
-        const data = await response.json();
-        renderMessages(data.messages);
-        
-        // Update session info
-        document.getElementById('selectedChatInfo').textContent = 
-            `Chat with ${data.user.name} • ${data.user.email}`;
-    } catch (error) {
-        console.error('Error loading messages:', error);
-    }
-}
-
-function renderMessages(messages) {
-    const container = document.getElementById('chatMessages');
-    if (!messages || messages.length === 0) {
-        container.innerHTML = `
-            <div class="text-center py-12">
-                <p class="text-gray-600">No messages yet</p>
-            </div>
-        `;
-        return;
-    }
-    
-    container.innerHTML = messages.map(msg => `
-        <div class="flex ${msg.sender_type === 'admin' ? 'justify-end' : 'justify-start'}">
-            <div class="max-w-[70%] rounded-2xl p-4 ${msg.sender_type === 'admin' ? 'bg-gradient-to-r from-green-500 to-green-600 text-white' : 'bg-gray-100 text-gray-800'}">
-                <div class="text-sm mb-1">
-                    <span class="font-semibold">${msg.sender_type === 'admin' ? 'You' : msg.sender.name}</span>
-                    <span class="opacity-75 ml-2 text-xs">${new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                </div>
-                <div class="whitespace-pre-wrap">${escapeHtml(msg.message)}</div>
-            </div>
-        </div>
-    `).join('');
-    
-    // Scroll to bottom
-    container.scrollTop = container.scrollHeight;
-}
-
-function handleMessageInput() {
-    const input = document.getElementById('messageInput');
-    const charCount = document.getElementById('charCount');
-    const charCountText = document.getElementById('charCountText');
-    
-    if (input.value.length > 0) {
-        charCount.classList.remove('hidden');
-        charCountText.textContent = input.value.length;
-        
-        // Auto-resize
-        input.style.height = 'auto';
-        input.style.height = input.scrollHeight + 'px';
-        
-        // Send typing indicator
-        sendTypingStatus(true);
-    } else {
-        charCount.classList.add('hidden');
-    }
-}
-
-async function sendMessage(e) {
-    e.preventDefault();
-    
-    const messageInput = document.getElementById('messageInput');
-    const message = messageInput.value.trim();
-    
-    if (!message || !currentSessionId) return;
-    
-    const sendBtn = document.getElementById('sendBtn');
-    sendBtn.disabled = true;
-    const originalText = sendBtn.innerHTML;
-    sendBtn.innerHTML = '<span>Sending...</span>';
-    
-    try {
-        const response = await fetch('/admin/chat/send', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+            get unreadCount() {
+                return this.sessions.reduce((total, session) => total + (session.unread_count || 0), 0);
             },
-            body: JSON.stringify({
-                session_id: currentSessionId,
-                message: message
-            })
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            messageInput.value = '';
-            messageInput.style.height = 'auto';
-            document.getElementById('charCount').classList.add('hidden');
-            loadMessages(currentSessionId);
-        }
-    } catch (error) {
-        console.error('Error sending message:', error);
-        alert('Failed to send message. Please try again.');
-    } finally {
-        sendBtn.disabled = false;
-        sendBtn.innerHTML = originalText;
-    }
-}
 
-function sendTypingStatus(isTyping) {
-    if (!currentSessionId) return;
-    
-    fetch('/admin/chat/typing', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-        },
-        body: JSON.stringify({
-            session_id: currentSessionId,
-            is_typing: isTyping
-        })
+            init() {
+                this.loadSessions();
+                this.loadAdmins();
+                this.loadStats();
+
+                this._poll = setInterval(() => {
+                    if (this.currentId) this.loadMessages(this.currentId);
+                    this.loadSessions();
+                    this.loadAdmins();
+                    this.loadStats();
+                }, 3000);
+
+                this._activity = setInterval(() => this.post('{{ route('admin.update.activity') }}'), 60000);
+
+                this.$watch('statusFilter', () => this.loadSessions());
+            },
+
+            initial(name) {
+                return (name || '?').charAt(0).toUpperCase();
+            },
+
+            formatTime(value) {
+                return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            },
+
+            headers(json = false) {
+                const base = {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                    'Accept': 'application/json',
+                };
+
+                return json ? { ...base, 'Content-Type': 'application/json' } : base;
+            },
+
+            async post(url, body) {
+                return fetch(url, {
+                    method: 'POST',
+                    headers: this.headers(body !== undefined),
+                    credentials: 'same-origin',
+                    body: body === undefined ? undefined : JSON.stringify(body),
+                });
+            },
+
+            async loadSessions() {
+                try {
+                    const response = await fetch(`{{ route('admin.chat.sessions') }}?status=${encodeURIComponent(this.statusFilter)}`, {
+                        headers: this.headers(),
+                        credentials: 'same-origin',
+                    });
+                    const data = await response.json();
+                    this.sessions = data.sessions ?? [];
+                } catch (error) {
+                    // Transient failure: keep the previous list.
+                }
+            },
+
+            async loadAdmins() {
+                try {
+                    const response = await fetch('{{ route('admin.chat.online-admins') }}', {
+                        headers: this.headers(),
+                        credentials: 'same-origin',
+                    });
+                    const data = await response.json();
+                    this.admins = data.admins ?? [];
+                } catch (error) {
+                    // Transient failure: keep the previous list.
+                }
+            },
+
+            async loadStats() {
+                try {
+                    const response = await fetch('{{ route('admin.chat.stats') }}', {
+                        headers: this.headers(),
+                        credentials: 'same-origin',
+                    });
+                    this.stats = await response.json();
+                } catch (error) {
+                    // Transient failure: keep the previous figures.
+                }
+            },
+
+            async selectChat(sessionId) {
+                this.currentId = sessionId;
+                await this.loadMessages(sessionId);
+            },
+
+            async loadMessages(sessionId) {
+                try {
+                    const response = await fetch(`{{ route('admin.chat.messages', '') }}/${sessionId}/messages`, {
+                        headers: this.headers(),
+                        credentials: 'same-origin',
+                    });
+                    const data = await response.json();
+
+                    this.messages = data.messages ?? [];
+                    this.current = data.user ?? null;
+
+                    this.$nextTick(() => {
+                        const box = this.$refs.messages;
+                        if (box) box.scrollTop = box.scrollHeight;
+                    });
+                } catch (error) {
+                    // Transient failure: keep the previous thread.
+                }
+            },
+
+            async sendMessage() {
+                const message = this.draft.trim();
+                if (!message || !this.currentId) return;
+
+                try {
+                    const response = await this.post('{{ route('admin.chat.send') }}', {
+                        session_id: this.currentId,
+                        message,
+                    });
+
+                    const data = await response.json();
+
+                    if (data.success) {
+                        this.draft = '';
+                        await this.loadMessages(this.currentId);
+                    }
+                } catch (error) {
+                    alert('Failed to send the message. Please try again.');
+                }
+            },
+
+            notifyTyping() {
+                if (!this.currentId) return;
+
+                this.post('{{ route('admin.chat.typing') }}', {
+                    session_id: this.currentId,
+                    is_typing: true,
+                });
+            },
+
+            async toggleAvailability() {
+                this.available = !this.available;
+                await this.post('{{ route('admin.chat.availability') }}', { is_available: this.available });
+            },
+
+            async closeChat() {
+                if (!this.currentId) return;
+                if (!confirm('End this chat session?')) return;
+
+                await this.post('{{ route('admin.chat.close') }}', { session_id: this.currentId });
+
+                this.currentId = null;
+                this.current = null;
+                this.messages = [];
+                await this.loadSessions();
+            },
+
+            async transferChat() {
+                if (!this.currentId) return;
+
+                const adminId = prompt('Administrator ID to transfer this chat to:');
+                if (!adminId) return;
+
+                await this.post('{{ route('admin.chat.transfer') }}', {
+                    session_id: this.currentId,
+                    admin_id: adminId,
+                });
+
+                await this.loadSessions();
+            },
+        }));
     });
-}
-
-function toggleAvailability() {
-    isAvailable = !isAvailable;
-    const btn = document.getElementById('availabilityBtn');
-    const icon = document.getElementById('availabilityIcon');
-    const text = document.getElementById('availabilityText');
-    
-    if (isAvailable) {
-        btn.className = 'px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 flex items-center space-x-2';
-        icon.textContent = '✅';
-        text.textContent = 'Available';
-    } else {
-        btn.className = 'px-4 py-2 bg-gradient-to-r from-gray-500 to-gray-600 hover:from-gray-600 hover:to-gray-700 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 flex items-center space-x-2';
-        icon.textContent = '⏸️';
-        text.textContent = 'Busy';
-    }
-    
-    // Update availability status
-    fetch('/admin/chat/availability', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-        },
-        body: JSON.stringify({
-            is_available: isAvailable
-        })
-    });
-}
-
-function updateActivity() {
-    fetch('/admin/update-activity', {
-        method: 'POST',
-        headers: {
-            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-        }
-    });
-}
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
 </script>
-@endsection
+@endpush
