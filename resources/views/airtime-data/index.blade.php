@@ -92,6 +92,7 @@
                     <div class="card-content md:p-8">
                         {{-- ================= Airtime ================= --}}
                         <form id="airtimeForm" action="{{ route('airtime.purchase') }}" method="POST"
+                              data-loading-text="Sending airtime&hellip;"
                               class="space-y-6" x-show="service === 'airtime'">
                             @csrf
 
@@ -165,6 +166,7 @@
 
                         {{-- ================= Data ================= --}}
                         <form id="dataForm" action="{{ route('data.purchase') }}" method="POST"
+                              data-loading-text="Sending data&hellip;"
                               class="space-y-6" x-show="service === 'data'" x-cloak>
                             @csrf
 
@@ -207,10 +209,13 @@
                                     </select>
                                 </div>
 
+                                {{-- The price is deliberately not posted as a
+                                     source of truth: the server re-resolves
+                                     what this bundle costs from the catalogue
+                                     when the form arrives. --}}
                                 <input type="hidden" id="plan_name" name="plan_name">
                                 <input type="hidden" id="plan_price" name="plan_price">
                                 <input type="hidden" id="plan_type" name="plan_type">
-                                <input type="hidden" id="plan_base_price" name="plan_base_price">
                             </div>
 
                             <div>
@@ -347,17 +352,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // Get user's wallet balance
     const walletBalance = {{ (float) ($wallet->balance ?? 0) }};
     const serviceFeeRate = 0.02; // 2% service fee
-    const profitMargin = 0.015; // 1.5% profit margin on data plans
 
     // Store fetched data plans
     let fetchedDataPlans = [];
     let currentFilter = 'all';
     let currentNetworkId = '';
-
-    // Function to calculate price with profit
-    function calculateWithProfit(basePrice) {
-        return parseFloat((basePrice * (1 + profitMargin)).toFixed(2));
-    }
 
     // Panel visibility and the toggle's pressed styling are owned by Alpine
     // (see x-data on the page grid); the ids are kept for the balance checks
@@ -434,27 +433,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Network mapping based on your JSON response
-    const networkMapping = {
-        '01': 'MTN',
-        '02': 'Glo',
-        '03': 'm_9mobile',
-        '04': 'Airtel'
-    };
-
-    // Function to categorize plan type
-    function getPlanType(productName) {
-        const name = productName.toLowerCase();
-
-        if (name.includes('sme')) return 'SME';
-        if (name.includes('awoof')) return 'Awoof Data';
-        if (name.includes('night')) return 'Night Plan';
-        if (name.includes('direct')) return 'Direct Data';
-        if (name.includes('weekend')) return 'Weekend Plan';
-
-        return 'Direct Data';
-    }
-
     // Function to filter and display plans
     function displayFilteredPlans() {
         dataPlanSelect.innerHTML = '<option value="">Select a data plan</option>';
@@ -528,11 +506,19 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Load data plans when network is selected
+    /*
+     * Load data plans when a network is selected.
+     *
+     * The catalogue comes from this application, not from the provider. It was
+     * previously fetched straight from NelloBytes with the account id in the
+     * query string — which published the credential to every visitor — and the
+     * markup was applied in the browser, so the price the form posted could be
+     * edited with devtools. The server now returns the price it will actually
+     * charge, and re-resolves it again when the purchase arrives.
+     */
     dataNetworkRadios.forEach(radio => {
         radio.addEventListener('change', async function() {
             currentNetworkId = this.value;
-            const networkKey = networkMapping[currentNetworkId];
 
             dataPlanSelect.disabled = true;
             dataPlanSelect.innerHTML = '<option value="">Loading plans...</option>';
@@ -547,43 +533,44 @@ document.addEventListener('DOMContentLoaded', function() {
             currentFilter = 'all';
 
             try {
-                const response = await fetch(`https://www.nellobytesystems.com/APIDatabundlePlansV2.asp?UserID=CK101255870`);
-                const data = await response.json();
+                const response = await fetch('{{ route('pricelist.api') }}', {
+                    headers: { 'Accept': 'application/json' },
+                });
 
-                const mobileNetwork = data.MOBILE_NETWORK;
-                const networkData = mobileNetwork[networkKey];
-
-                if (!networkData || !networkData[0] || !networkData[0].PRODUCT) {
-                    dataPlanSelect.innerHTML = '<option value="">No data plans available for this network</option>';
-                    return;
+                if (!response.ok) {
+                    throw new Error('Plan catalogue responded with ' + response.status);
                 }
 
-                const products = networkData[0].PRODUCT;
-                fetchedDataPlans = [];
+                const payload = await response.json();
 
-                products.forEach(product => {
-                    const planType = getPlanType(product.PRODUCT_NAME);
-                    const basePrice = parseFloat(product.PRODUCT_AMOUNT);
-                    const sellingPrice = calculateWithProfit(basePrice);
-
-                    fetchedDataPlans.push({
-                        product_id: product.PRODUCT_ID,
-                        name: product.PRODUCT_NAME,
-                        price: sellingPrice.toFixed(2), // Price with 1.5% markup
-                        base_price: basePrice.toFixed(2), // Original price from API
-                        product_code: product.PRODUCT_CODE,
-                        product_sno: product.PRODUCT_SNO,
+                fetchedDataPlans = (payload.data_plans || [])
+                    .filter(plan => String(plan.network_code) === String(currentNetworkId))
+                    .map(plan => ({
+                        product_id: String(plan.plan_id ?? ''),
+                        name: plan.plan_name || 'Data bundle',
+                        price: Number(plan.your_price || 0).toFixed(2),
+                        product_code: plan.plan_code || '',
                         network_id: currentNetworkId,
-                        network_name: networkKey.replace('m_', ''),
-                        type: planType
-                    });
-                });
+                        type: plan.plan_type || 'Direct Data',
+                    }))
+                    .filter(plan => plan.product_id && parseFloat(plan.price) > 0);
+
+                if (!fetchedDataPlans.length) {
+                    dataPlanSelect.innerHTML = '<option value="">No plans are priced for this network right now</option>';
+                    return;
+                }
 
                 displayFilteredPlans();
 
             } catch (error) {
                 console.error('Error loading data plans:', error);
-                dataPlanSelect.innerHTML = '<option value="">Error loading plans. Please try again.</option>';
+
+                fetchedDataPlans = [];
+                dataPlanSelect.innerHTML = '<option value="">We could not load the plans. Please try again.</option>';
+
+                if (window.ReUpFeedback) {
+                    window.ReUpFeedback.error('We could not load the data plans. Please try again in a moment.');
+                }
             } finally {
                 dataPlanLoader.classList.add('hidden');
                 dataPlanLoader.classList.remove('flex');
@@ -597,16 +584,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (selectedOption.value) {
             const planName = selectedOption.dataset.planName || '';
-            const planPrice = parseFloat(selectedOption.dataset.planPrice || 0); // Selling price
+            const planPrice = parseFloat(selectedOption.dataset.planPrice || 0); // We charge this
             const planType = selectedOption.dataset.planType || '';
 
-            // Find the base price from fetchedDataPlans
-            const selectedPlan = fetchedDataPlans.find(p => p.product_id === selectedOption.value);
-            const basePrice = selectedPlan ? parseFloat(selectedPlan.base_price) : planPrice / 1.015;
-
+            // Posted for display and for a price cross-check on the server; it is
+            // not what the server charges from.
             planNameInput.value = planName;
-            planPriceInput.value = planPrice; // Selling price (with markup)
-            document.getElementById('plan_base_price').value = basePrice; // API price
+            planPriceInput.value = planPrice;
             planTypeInput.value = planType;
 
             // Show plan summary

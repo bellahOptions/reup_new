@@ -27,7 +27,11 @@
                 </div>
             @endif
 
+            {{-- `data-no-loading`: this form renders its own "Verifying…" state
+                 from the Alpine flag below, so the global button lock would only
+                 duplicate it. --}}
             <form method="POST" action="{{ route('login.code.verify.post') }}" class="space-y-5"
+                  data-no-loading
                   @submit="submitting = true">
                 @csrf
 

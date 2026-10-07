@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\PromotionNotification;
 use App\Models\Transactions;
 use App\Services\BillPaymentService;
+use App\Services\ClubKonnectCatalogue;
 use App\Services\SecurityService;
 use App\Services\WalletService;
 use Illuminate\Http\Request;
@@ -25,6 +26,7 @@ class AirtimeDataController extends Controller
         private readonly BillPaymentService $bills,
         private readonly WalletService $wallets,
         private readonly SecurityService $security,
+        private readonly ClubKonnectCatalogue $catalogue,
     ) {
     }
 
@@ -110,6 +112,19 @@ class AirtimeDataController extends Controller
         );
     }
 
+    /**
+     * Buy a data bundle.
+     *
+     * The bundle and its price are resolved here, from the catalogue, exactly
+     * like the pricelist page does it. The posted `plan_price` is only a
+     * cross-check: this page used to fetch the provider catalogue in the browser
+     * (credential and all) and apply the markup there, which meant the amount
+     * that reached the wallet was whatever the browser said it was — editable
+     * with devtools, so a ₦20,000 bundle could be bought for ₦50.
+     *
+     * A price that has moved since the page was rendered is refused rather than
+     * charged silently: the customer must see the new amount before paying it.
+     */
     public function purchaseData(Request $request)
     {
         $range = (array) config('bills.ranges.data', ['min' => 50, 'max' => 200000]);
@@ -125,8 +140,36 @@ class AirtimeDataController extends Controller
             'idempotency_key' => 'nullable|string|min:8|max:64',
         ]);
 
-        $network = self::NETWORKS[$validated['data_network']];
-        $amount = round((float) $validated['plan_price'], 2);
+        $plan = $this->catalogue->plan($validated['data_plan']);
+
+        if (! $plan) {
+            return back()->withInput()->with(
+                'error',
+                'That data bundle is no longer available. Please refresh the page and choose it again — no money has left your wallet.'
+            );
+        }
+
+        $amount = round((float) ($plan['your_price'] ?? 0), 2);
+
+        if ($amount <= 0) {
+            return back()->withInput()->with(
+                'error',
+                'That data bundle has no price right now. Please choose another bundle or contact support.'
+            );
+        }
+
+        if (abs($amount - round((float) $validated['plan_price'], 2)) > 0.01) {
+            return back()->withInput()->with(
+                'error',
+                'The price of that bundle is now ₦' . number_format($amount, 2)
+                . '. Please confirm the new price and submit again — no money has left your wallet.'
+            );
+        }
+
+        // Everything downstream reads the catalogue's values, not the form's.
+        $networkCode = (string) ($plan['network_code'] ?? $validated['data_network']);
+        $network = self::NETWORKS[$networkCode] ?? ($plan['network'] ?? 'Unknown');
+        $planName = (string) ($plan['plan_name'] ?? $validated['plan_name']);
 
         return $this->dispatchPurchase(
             $request,
@@ -134,20 +177,22 @@ class AirtimeDataController extends Controller
             amount: $amount,
             recipient: $validated['phone'],
             providerLabel: $network,
-            description: 'Data — ' . $validated['plan_name'],
+            description: 'Data — ' . $planName,
             meta: [
-                'network_code' => $validated['data_network'],
+                'network_code' => $networkCode,
                 'network_name' => $network,
                 'phone_number' => $validated['phone'],
-                'plan_id' => $validated['data_plan'],
-                'plan_name' => $validated['plan_name'],
+                'plan_id' => $plan['plan_id'] ?? $validated['data_plan'],
+                'plan_code' => $plan['plan_code'] ?? null,
+                'plan_name' => $planName,
+                'plan_type' => $plan['plan_type'] ?? null,
             ],
             providerParams: [
-                'network' => $validated['data_network'],
-                'plan' => $validated['data_plan'],
+                'network' => $networkCode,
+                'plan' => (string) ($plan['plan_id'] ?? $validated['data_plan']),
                 'phone' => $validated['phone'],
             ],
-            successMessage: $validated['plan_name'] . ' sent to ' . $validated['phone'] . '.',
+            successMessage: $planName . ' sent to ' . $validated['phone'] . '.',
             pin: $validated['pin'],
             idempotencyKey: $validated['idempotency_key'] ?? null,
         );

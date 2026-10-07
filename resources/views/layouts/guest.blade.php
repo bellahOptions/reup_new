@@ -39,6 +39,12 @@
     {{-- Guests have no dashboard and no contact link on these screens, so the
          WhatsApp bubble is their only route to a human. --}}
     @include('partials.support-widget')
+
+    {{-- Flash + validation feedback on the auth screens. `status` messages
+         ("we have emailed you a reset link") are flashed, not rendered inline,
+         so without this include they were silently dropped. --}}
+    @include('partials.flash')
+
     @stack('scripts')
 </body>
 </html>

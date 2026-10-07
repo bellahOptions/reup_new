@@ -472,6 +472,108 @@
         font-family: var(--font-mono);
         font-size: 0.8125rem;
     }
+
+    /* ---- Async feedback -------------------------------------------------
+       A submit button that is waiting on the network, and the toast channel
+       that reports how the request ended. Both are driven from resources/js,
+       so they are real classes rather than utility strings assembled in
+       JavaScript (which Tailwind cannot see reliably and which read badly at
+       the call site).
+       -------------------------------------------------------------------- */
+    .btn-spinner {
+        width: 1rem;
+        height: 1rem;
+        flex: none;
+        border-radius: 9999px;
+        border: 2px solid currentColor;
+        border-top-color: transparent;
+        animation: reup-spin 0.6s linear infinite;
+    }
+
+    .btn[aria-busy="true"] {
+        cursor: progress;
+    }
+
+    /* Toast channel. Mirrors partials/flash so a server redirect and a
+       JavaScript failure look like the same product talking. */
+    .flash-region {
+        position: fixed;
+        inset-inline: 0;
+        top: 1rem;
+        z-index: 60;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+        padding-inline: 1rem;
+        pointer-events: none;
+    }
+
+    .flash-toast {
+        pointer-events: auto;
+        display: flex;
+        align-items: flex-start;
+        gap: 0.75rem;
+        width: 100%;
+        max-width: 28rem;
+        border: 1px solid var(--color-ink-200);
+        border-inline-start-width: 4px;
+        border-radius: 0.75rem;
+        background-color: #ffffff;
+        padding: 0.75rem 1rem;
+        box-shadow: 0 10px 30px rgb(13 16 13 / 0.12);
+        font-size: 0.875rem;
+        color: var(--color-ink-800);
+        animation: reup-toast-in 0.18s ease-out;
+    }
+
+    .flash-toast--success { border-inline-start-color: var(--color-brand-500); }
+    .flash-toast--error { border-inline-start-color: #dc2626; }
+    .flash-toast--warning { border-inline-start-color: #d97706; }
+    .flash-toast--info { border-inline-start-color: #0284c7; }
+
+    .flash-toast__dismiss {
+        margin-inline-start: auto;
+        flex: none;
+        border: 0;
+        background: none;
+        padding: 0 0.25rem;
+        color: var(--color-ink-400);
+        font-size: 1.125rem;
+        line-height: 1;
+        cursor: pointer;
+    }
+
+    .flash-toast__dismiss:hover {
+        color: var(--color-ink-700);
+    }
+}
+
+@keyframes reup-spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes reup-toast-in {
+    from {
+        opacity: 0;
+        transform: translateY(-0.5rem);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Something is still happening, so the spinner keeps turning — slower — but
+   nothing slides around. */
+@media (prefers-reduced-motion: reduce) {
+    .btn-spinner {
+        animation-duration: 1.6s;
+    }
+
+    .flash-toast {
+        animation: none;
+    }
 }
 
 /* ==========================================================================

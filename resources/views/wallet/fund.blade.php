@@ -129,7 +129,10 @@
                         }
                      }">
 
+                    {{-- `data-no-loading`: the Alpine `submitting` flag below
+                         already swaps the button label and disables it. --}}
                     <form id="fundWalletForm" method="POST" action="{{ route('wallet.process-funding') }}"
+                          data-no-loading
                           @submit="if (outOfRange) { $event.preventDefault(); return; } submitting = true">
                         @csrf
 

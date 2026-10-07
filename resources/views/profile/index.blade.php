@@ -955,6 +955,13 @@ document.addEventListener('alpine:init', () => {
                 if (result.data && result.data.success) {
                     this.stage = 'done';
                     this.message = result.data.message || 'Phone number verified.';
+
+                    // Survives the reload below, which would otherwise throw the
+                    // confirmation away and leave the customer guessing.
+                    if (window.ReUpFeedback) {
+                        window.ReUpFeedback.afterReload(this.message);
+                    }
+
                     window.location.reload();
                     return;
                 }

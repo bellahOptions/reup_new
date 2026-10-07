@@ -33,6 +33,12 @@
     @include('layouts.footer')
     @include('partials.support-widget')
 
+    {{-- Flash messages, delivered through the same toast channel as the
+         dashboard layout. Without this the public pages — the contact form in
+         particular, which redirects back with a success message — completed
+         with no visible outcome at all. --}}
+    @include('partials.flash')
+
     @stack('scripts')
 </body>
 </html>
