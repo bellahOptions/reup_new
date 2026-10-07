@@ -5,7 +5,7 @@ namespace App\Services\Providers;
 /**
  * A bill-payment / vending upstream.
  *
- * Two are supported: ClubKonnect (NelloBytes) as primary, Payvessel as the
+ * Two are supported: ClubKonnect (NelloBytes) as primary, Pairgate as the
  * alternative. The point of the interface is that no controller knows which
  * one served a request, and that a failure on one can be retried on the other
  * without duplicating the wallet logic.

@@ -43,11 +43,19 @@ return [
     | Failover route for vending when ClubKonnect is down, rejects a request, or
     | its float is short. Leave the key empty to run on ClubKonnect alone — the
     | provider reports itself unconfigured and is skipped.
+    |
+    | Docs: https://pairgate.com/developers/introduction. The key is sent as
+    | `Authorization: Bearer …` on every call. `test_mode` prefixes each path
+    | with /test, which Pairgate answers without charging the wallet — useful for
+    | smoke-testing a deploy, never for production.
+    |
+    | Product-level identifiers (network, disco, plan) are mapped separately, in
+    | config/bills.php under `pairgate`.
     */
-    'payvessel' => [
-        'secret_key' => env('PAYVESSEL_SECRET_KEY'),
-        'public_key' => env('PAYVESSEL_PUBLIC_KEY'),
-        'base_url' => env('PAYVESSEL_BASE_URL', 'https://api.payvessel.com/api/v1'),
+    'pairgate' => [
+        'api_key' => env('PAIRGATE_API_KEY'),
+        'base_url' => env('PAIRGATE_BASE_URL', 'https://pairgate.com/api/v1'),
+        'test_mode' => (bool) env('PAIRGATE_TEST_MODE', false),
     ],
 
     'paystack' => [

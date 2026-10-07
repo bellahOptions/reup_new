@@ -23,7 +23,7 @@ use Throwable;
  *
  * It only touches transactions where **Paystack is the authority**: card /
  * bank / USSD funding. It cannot reconcile bill purchases (airtime, data, cable,
- * electricity), because those are settled by ClubKonnect/Payvessel and Paystack
+ * electricity), because those are settled by ClubKonnect/Pairgate and Paystack
  * has never heard of them. Querying Paystack for a bill reference would return
  * "not found" and, if that were treated as a failure, would wrongly mark
  * successfully-delivered purchases as failed. That is why the query is scoped by

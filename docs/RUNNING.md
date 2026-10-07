@@ -77,9 +77,59 @@ php artisan payments:reconcile             # poll and resolve
 ```
 
 The sweep only ever *polls* payments where Paystack is the authority (card, bank
-transfer, USSD funding). Bill purchases are resolved by ClubKonnect/Payvessel and
+transfer, USSD funding). Bill purchases are resolved by ClubKonnect/Pairgate and
 are deliberately excluded — Paystack has never heard of them, so polling one
 would return "not found" and could wrongly close a delivered order.
+
+
+## Bill-payment providers
+
+Airtime, data, cable, electricity, exam pins and betting funding are vended by
+one of two upstreams, chosen per purchase by `ProviderManager` in the order in
+`BILL_PROVIDER_ORDER` (default `clubkonnect,pairgate`):
+
+| Provider | Env | Role |
+| --- | --- | --- |
+| ClubKonnect (NelloBytes) | `CLUBKONNECT_CLIENT_ID`, `CLUBKONNECT_API_KEY` | primary |
+| Pairgate | `PAIRGATE_API_KEY` | failover |
+
+`php artisan env:doctor` prints which of them are configured and the failover
+order. A provider with no credentials is skipped, so leaving `PAIRGATE_API_KEY`
+blank means ClubKonnect serves everything — that is a valid configuration, just
+without a second route when ClubKonnect is down or short of float.
+
+### Pairgate
+
+Docs: <https://pairgate.com/developers/introduction>. The key is sent as
+`Authorization: Bearer …`; base URL and test mode come from
+`PAIRGATE_BASE_URL` and `PAIRGATE_TEST_MODE`. Test mode prefixes every path with
+`/test`, which Pairgate answers without debiting the wallet — use it once after a
+deploy, then turn it off, because in that mode nothing is actually delivered.
+
+Two things need attention before Pairgate can serve everything:
+
+1. **Identifiers are translated in `config/bills.php` under `pairgate`.**
+   Pairgate uses its own slugs (`mtn`, `ikedc`, `bet9ja`) where this application
+   uses ClubKonnect's numeric codes. Networks, discos, cable providers,
+   bookmakers and exam bodies are mapped there already. **`data_plans` and
+   `cable_packages` are empty by design** — plan ids are provider-specific and
+   unrelated, so they have to be filled from `GET /data-plans` and
+   `GET /cable-plans` before Pairgate can sell data or cable. Until then those
+   two products are refused locally and failed over, rather than sent upstream
+   with a guessed plan id.
+2. **Electricity tokens and exam PINs arrive asynchronously.** The purchase call
+   only acknowledges the order; the token/PIN is delivered on Pairgate's
+   webhook (`pin` field, one webhook per exam pin), and the transaction can be
+   polled with `GET /transaction/status?reference_code=…`. **No webhook receiver
+   is implemented in this application yet**, so a purchase vended by Pairgate is
+   recorded as successful without its token; wire `POST /pairgate/webhook` (HMAC
+   headers `X-Pairgate-Timestamp` and `X-Pairgate-Signature`) before relying on
+   Pairgate for those two products.
+
+Pairgate also has floors that differ from ours — electricity ₦1,000 (we allow
+from ₦500), and ₦50 on airtime, data and betting. An amount below a floor is
+rejected upstream and failed over; raise `bills.ranges` if that shows up in the
+logs as repeated `INVALID_AMOUNT` failovers.
 
 
 ## Before committing
@@ -118,6 +168,50 @@ MySQL rather than SQLite on purpose: the migrations are not engine-portable —
 `2026_02_10_000001` uses `UPDATE ... LEFT JOIN`, which SQLite rejects — so a
 SQLite run would fail for reasons that have nothing to do with the code under
 test.
+
+---
+
+## Indexed strings are capped at 191 characters
+
+`AppServiceProvider::boot()` calls `Schema::defaultStringLength(191)`. Do not
+remove it: on MySQL/MariaDB builds whose InnoDB index key limit is 1000 bytes
+rather than 3072, `php artisan migrate` dies on the very first run with
+
+```
+SQLSTATE[42000]: ... 1071 Specified key was too long; max key length is 1000 bytes
+(SQL: alter table `personal_access_tokens` add index
+      `personal_access_tokens_tokenable_type_tokenable_id_index`
+      (`tokenable_type`, `tokenable_id`))
+```
+
+`morphs('tokenable')` creates a `VARCHAR(255)`, and under `utf8mb4` that is
+255 × 4 = 1020 bytes; adding the `tokenable_id` bigint puts the composite index
+over the limit. 191 × 4 = 764 bytes, which leaves room. The same cap protects
+every other indexed string column (`users.email`, `transactions.reference`,
+`site_settings.key`, `failed_jobs.uuid`).
+
+It only applies where no length is given, so the explicitly-sized indexed columns
+(`string('token', 64)`, `string('purpose', 32)`, `string('type', 20)`) are
+unaffected, and the widest composite index left in the schema is
+`tokenable_type` + `tokenable_id` at 772 bytes.
+
+**Recovering from the failed first run.** `Schema::create` issues the `CREATE
+TABLE` first and the index as a separate `ALTER`, so the failed migration leaves
+`personal_access_tokens` behind *without* its index — and because the migration
+was never recorded, re-running `migrate` stops with "table already exists"
+instead of the original error. On a fresh install, start clean:
+
+```
+php artisan migrate:fresh
+```
+
+If the database already holds data you need, drop only the orphan table and
+migrate again:
+
+```
+php artisan tinker --execute="Schema::dropIfExists('personal_access_tokens');"
+php artisan migrate
+```
 
 ---
 

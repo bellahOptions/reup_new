@@ -35,7 +35,7 @@ return [
      | fails identically or double-charges.
      */
     'provider_order' => array_values(array_filter(
-        explode(',', (string) env('BILL_PROVIDER_ORDER', 'clubkonnect,payvessel'))
+        explode(',', (string) env('BILL_PROVIDER_ORDER', 'clubkonnect,pairgate'))
     )),
 
     'providers' => [
@@ -43,10 +43,100 @@ return [
             'label' => 'ClubKonnect',
             'products' => ['airtime', 'data', 'cable_tv', 'electricity', 'waec', 'jamb', 'betting'],
         ],
-        'payvessel' => [
-            'label' => 'Payvessel',
-            'products' => ['airtime', 'data', 'cable_tv', 'electricity', 'waec', 'jamb', 'betting'],
+        'pairgate' => [
+            'label' => 'Pairgate',
+            /*
+             * No `jamb`: Pairgate sells WAEC / NECO / NABTEB pins only and
+             * documents no JAMB product, so claiming support here would send a
+             * request upstream that is guaranteed to be rejected.
+             */
+            'products' => ['airtime', 'data', 'cable_tv', 'electricity', 'waec', 'betting'],
         ],
+    ],
+
+    /* ---------------------------------------------------------------------
+     | Pairgate identifier translation
+     |--------------------------------------------------------------------
+     | Pairgate identifies networks, discos and bookmakers by its own slugs
+     | (`mtn`, `ikedc`, `bet9ja`), while everything else in this application —
+     | config above, the forms, the transaction metadata — uses ClubKonnect's
+     | numeric codes. These maps are the seam between the two, and an entry that
+     | is missing is treated as "Pairgate cannot sell this" and failed over, not
+     | as a failed sale.
+     |
+     | Note the two products that cannot be translated automatically:
+     |
+     |   * `data_plans` and `cable_packages` map a ClubKonnect plan/bouquet id
+     |     to a Pairgate `plan_id`. The catalogues are provider-specific and
+     |     unrelated, so these start empty and must be filled from
+     |     GET /data-plans and GET /cable-plans before Pairgate can serve data
+     |     or cable purchases. Until then those two products fail over.
+     |
+     | Also worth knowing when tuning limits: Pairgate's own floors are higher
+     | in places than ours — electricity has a ₦1,000 minimum against our ₦500,
+     | and betting/airtime/data ₦50. A request below a floor is refused upstream
+     | and failed over, so prefer raising `ranges` over expecting Pairgate to
+     | accept a smaller amount.
+     */
+    'pairgate' => [
+        /** ClubKonnect network code => Pairgate provider slug. */
+        'networks' => [
+            '01' => 'mtn',
+            '02' => 'glo',
+            '03' => '9mobile',
+            '04' => 'airtel',
+        ],
+
+        /** `discos` code above => Pairgate provider slug. */
+        'discos' => [
+            '01' => 'ikedc',
+            '02' => 'eko',
+            '03' => 'aedc',
+            '04' => 'ph',
+            '05' => 'kedco',
+            '06' => 'ibedc',
+            '07' => 'enugu',
+            '08' => 'jedc',
+            '09' => 'kaduna',
+            '10' => 'benin',
+            '11' => 'yola',
+            '12' => 'aba',
+        ],
+
+        /**
+         * `cable_providers` key => Pairgate slug. Showmax is deliberately
+         * absent: Pairgate documents DStv, GOtv and StarTimes only.
+         */
+        'cable_providers' => [
+            'dstv' => 'dstv',
+            'gotv' => 'gotv',
+            'startimes' => 'startimes',
+        ],
+
+        /**
+         * `betting_providers` key => Pairgate slug. Only the bookmakers
+         * Pairgate lists appear here; the rest fail over.
+         */
+        'betting_providers' => [
+            'bet9ja' => 'bet9ja',
+            'sportybet' => 'sportybet',
+            'betking' => 'betking',
+            'nairabet' => 'nairabet',
+            'accessbet' => 'accessbet',
+        ],
+
+        /** Exam product => Pairgate education slug (`nabt` spells NABTEB). */
+        'exam_providers' => [
+            'waec' => 'waec',
+            'neco' => 'neco',
+            'nabteb' => 'nabt',
+        ],
+
+        /** ClubKonnect data plan id => Pairgate plan_id. Fill from GET /data-plans. */
+        'data_plans' => [],
+
+        /** ClubKonnect bouquet => Pairgate plan_id. Fill from GET /cable-plans. */
+        'cable_packages' => [],
     ],
 
     /** Consult provider float before charging a customer. */

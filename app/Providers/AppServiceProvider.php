@@ -8,9 +8,10 @@ use App\Services\BillPaymentService;
 use App\Services\ClubKonnectService;
 use App\Services\ProviderManager;
 use App\Services\Providers\ClubKonnectProvider;
-use App\Services\Providers\PayvesselProvider;
+use App\Services\Providers\PairgateProvider;
 use App\Support\Vite;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 
@@ -34,7 +35,7 @@ class AppServiceProvider extends ServiceProvider
         */
         $this->app->singleton(ClubKonnectService::class);
         $this->app->singleton(ClubKonnectProvider::class);
-        $this->app->singleton(PayvesselProvider::class);
+        $this->app->singleton(PairgateProvider::class);
         $this->app->singleton(ProviderManager::class);
         $this->app->singleton(BillPaymentService::class);
     }
@@ -46,6 +47,33 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot()
     {
+        /*
+        |------------------------------------------------------------------
+        | Indexed string length: 191 characters, not 255
+        |------------------------------------------------------------------
+        | On MySQL/MariaDB builds whose InnoDB index key limit is 1000 bytes
+        | (rather than 3072 with DYNAMIC rows and a large prefix), a default
+        | `string()` column cannot be indexed: 255 × 4 bytes for utf8mb4 is
+        | 1020 bytes on its own. The first migration run then dies at
+        |
+        |   1071 Specified key was too long; max key length is 1000 bytes
+        |   (alter table `personal_access_tokens` add index
+        |    `..._tokenable_type_tokenable_id_index` (`tokenable_type`, `tokenable_id`))
+        |
+        | because `morphs('tokenable')` is a VARCHAR(255) plus a bigint. 191 is
+        | the largest length that fits: 191 × 4 = 764 bytes, leaving room for the
+        | bigint in that composite index, and it keeps `users.email`,
+        | `transactions.reference`, `site_settings.key` and `failed_jobs.uuid`
+        | indexable too.
+        |
+        | This is Laravel's documented remedy for exactly this error. It only
+        | affects `string()` columns created without an explicit length;
+        | `string('token', 64)`, `string('purpose', 32)` and the like are
+        | unaffected. Removing it re-breaks `php artisan migrate` on those
+        | servers — see docs/RUNNING.md.
+        */
+        Schema::defaultStringLength(191);
+
         /*
         |------------------------------------------------------------------
         | WhatsApp click-to-chat URL
