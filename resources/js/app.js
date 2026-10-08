@@ -9,6 +9,11 @@ import './forms';
 // wrapper so nothing fails silently.
 import './feedback';
 
+// Wallet funding: background submit with immediate feedback. Must be imported
+// before Alpine.start() so `window.walletFunding` exists when the funding
+// page's x-data is evaluated.
+import './wallet-funding';
+
 import Alpine from 'alpinejs';
 
 window.Alpine = Alpine;

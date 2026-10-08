@@ -250,7 +250,7 @@ class WalletController extends Controller
 
         return $validated['payment_method'] === 'bank_transfer'
             ? $this->initiateBankTransfer($transaction)
-            : $this->initiateCardPayment($transaction);
+            : $this->initiateCardPayment($request, $transaction);
     }
 
     /**
@@ -372,12 +372,12 @@ class WalletController extends Controller
      * If both gateways fail the transaction is failed as before, so the
      * attempt resolves itself rather than sitting pending.
      */
-    private function initiateCardPayment(Transactions $transaction)
+    private function initiateCardPayment(Request $request, Transactions $transaction)
     {
         try {
             $url = $this->paystack->initialize($transaction, $transaction->user);
 
-            return redirect()->away($url);
+            return $this->sendToGateway($request, $url);
         } catch (Throwable $e) {
             report($e);
 
@@ -386,7 +386,7 @@ class WalletController extends Controller
                 'error' => $e->getMessage(),
             ]);
 
-            return $this->fallbackToBachs($transaction);
+            return $this->fallbackToBachs($request, $transaction);
         }
     }
 
@@ -396,10 +396,11 @@ class WalletController extends Controller
      * Everything a customer sees about the outcome happens here, so the funding
      * page never has to explain "Paystack" to anyone.
      */
-    private function fallbackToBachs(Transactions $transaction)
+    private function fallbackToBachs(Request $request, Transactions $transaction)
     {
         if (! $this->bachs->isConfigured()) {
             return $this->failCardAttempt(
+                $request,
                 $transaction,
                 'Could not start payment session.',
                 'We could not start the card payment session. Please try again or use bank transfer.'
@@ -421,7 +422,7 @@ class WalletController extends Controller
                 'reference' => $transaction->reference,
             ]);
 
-            return redirect()->away($url);
+            return $this->sendToGateway($request, $url);
         } catch (Throwable $e) {
             report($e);
 
@@ -431,6 +432,7 @@ class WalletController extends Controller
             ]);
 
             return $this->failCardAttempt(
+                $request,
                 $transaction,
                 'Could not start payment session: ' . $e->getMessage(),
                 'We could not start the card payment session. Please try again, or fund by bank transfer.'
@@ -439,13 +441,37 @@ class WalletController extends Controller
     }
 
     /**
-     * Mark a card attempt dead and send the customer back to the form.
+     * Hand the customer to the gateway, in whichever shape the browser asked.
+     *
+     * The funding form submits with `fetch()` so it can report the outcome
+     * immediately (see resources/views/wallet/fund.blade.php). A full-page POST
+     * leaves the old page — and its "Processing…" button — on screen for as long
+     * as both gateway calls take, which is how a slow provider turns into an
+     * apparently infinite spinner. The JSON branch answers in one round trip.
+     *
+     * A non-JSON request still gets the original redirect, so a no-JavaScript
+     * browser is not broken by the faster path.
+     */
+    private function sendToGateway(Request $request, string $url)
+    {
+        if (! $request->wantsJson()) {
+            return redirect()->away($url);
+        }
+
+        return response()->json([
+            'status' => 'redirect',
+            'redirect' => $url,
+        ]);
+    }
+
+    /**
+     * Mark a card attempt dead and report it.
      *
      * The row is failed rather than left pending: nothing reached a gateway, so
      * there is nothing to reconcile, and `payments:reconcile` would otherwise
      * have to age it out.
      */
-    private function failCardAttempt(Transactions $transaction, string $internal, string $customerMessage)
+    private function failCardAttempt(Request $request, Transactions $transaction, string $internal, string $customerMessage)
     {
         $transaction->forceFill([
             'status' => 'failed',
@@ -454,7 +480,25 @@ class WalletController extends Controller
             'completed_at' => now(),
         ])->save();
 
-        return redirect()->route('wallet.fund')->with('error', $customerMessage);
+        return $this->reportFailure($request, $customerMessage);
+    }
+
+    /**
+     * The one place a funding failure is turned into a response.
+     *
+     * 502 rather than 500: the request was valid and it is an upstream gateway
+     * that could not be used, which is what the status code is for.
+     */
+    private function reportFailure(Request $request, string $message)
+    {
+        if ($request->wantsJson()) {
+            return response()->json([
+                'status' => 'failed',
+                'message' => $message,
+            ], 502);
+        }
+
+        return redirect()->route('wallet.fund')->with('error', $message);
     }
 
     /**

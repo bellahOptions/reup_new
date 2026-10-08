@@ -229,6 +229,72 @@ and flash toasts. Inside `@section('content')`:
 - No gradients, no `shadow-2xl`, no `hover:translate-x`, no coloured sidebars.
 - Destructive actions need a confirm step and `btn-destructive`.
 
+## Component logic belongs in the bundle, not in `x-data`
+
+`resources/js/wallet-funding.js` exists because an inline Alpine component
+shipped a bug that **no server-side test could see**.
+
+Alpine evaluates `x-data="..."` at runtime with `new Function`. If the
+expression does not parse, the whole component fails — and because Alpine
+resolves bindings against it, *every* binding on the page dies at once. The
+console fills with `ReferenceError: submitting is not defined`,
+`ReferenceError: outcomeTone is not defined`, one per attribute, none of which
+points at the real cause. The single useful line is a bare
+`SyntaxError: Invalid or unexpected token`.
+
+The trigger was mundane: a double quote inside a JavaScript comment —
+
+```js
+/*
+ * A full-page POST keeps the old page — and its "Processing…" label — on screen
+ */
+```
+
+That `"` closes the **HTML attribute** early. The browser hands Alpine a
+truncated, unterminated object literal, and the page is dead. Nothing about the
+rendered status code, the markup or the CSS reveals it.
+
+So:
+
+* **Put component logic in `resources/js/*.js`** and pass only server values into
+  the attribute: `x-data="walletFunding({ amount: @js(...), ... })"`.
+* **Run the browser audit after touching a component.** `php tools/check-assets.php`
+  proves the bundle loads; it does not prove an inline expression parses. The
+  audit is what catches this class of bug:
+
+  ```
+  node tools/browser-audit.js "http://127.0.0.1:8000/wallet/fund" cookie.txt
+  ```
+
+  Note the cookie file must be one line, `reup_session=<value>` — **with** the
+  name. A bare value silently makes every request unauthenticated, the tool
+  follows the redirect to `/login`, and it then reports `ALL GREEN` for the login
+  page you did not ask about. Read the reported URL, not just the verdict.
+
+### Interaction with `resources/js/forms.js`
+
+`forms.js` listens for `submit` **globally** and, when the event has not already
+been prevented, replaces the clicked button's `innerHTML` with a spinner. An
+Alpine `@submit` attribute does not prevent the event by itself, so a handler
+that submits with `fetch` must call `preventDefault()` **synchronously, before
+its first `await`** — otherwise the global listener wipes the button's child
+nodes, including the `x-show`/`x-text` spans, and the button never recovers.
+`wallet-funding.js` also keeps `data-no-loading` on the form as an explicit
+second signal.
+
+## Wallet funding submits in the background
+
+The funding form posts with `fetch()` and renders the JSON reply, rather than
+doing a page POST. A page POST leaves the old page — and its "Processing…"
+label — on screen until the server answers, and that answer waits on a card
+gateway (two, when the Bachs fallback is in play), each with a 30s timeout. That
+is what made a slow provider look like an infinite spinner.
+
+The endpoint returns either `{status: "redirect", redirect: <gateway url>}` or
+`502 {status: "failed", message: ...}`, and the client aborts at 20s so an
+unresponsive provider still produces a readable outcome. A plain, non-JSON POST
+still gets a real redirect, so a browser without JavaScript is not broken by it.
+
 ## Verifying a change
 
 ```

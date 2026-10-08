@@ -92,55 +92,40 @@
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
             <div class="lg:col-span-2">
                 <div class="card"
-                     x-data="{
+                     x-data="walletFunding({
                         amount: @js(old('amount') !== null ? (float) old('amount') : null),
                         method: @js(old('payment_method', 'paystack')),
-                        submitting: false,
                         quick: @js($quickAmounts),
                         min: @js((float) $min_amount),
                         max: @js((float) $max_amount),
                         paystackPercentage: @js($paystackPercentage),
                         paystackAdditional: @js($paystackAdditional),
                         paystackCap: @js($paystackCap !== null ? (float) $paystackCap : null),
-                        bankFixedFee: @js($bankFixedFee),
-                        get numericAmount() {
-                            const n = parseFloat(this.amount);
-                            return Number.isFinite(n) && n > 0 ? n : 0;
-                        },
-                        get fee() {
-                            if (this.numericAmount <= 0) return 0;
-                            if (this.method === 'bank_transfer') return this.bankFixedFee;
-                            let fee = (this.numericAmount * this.paystackPercentage / 100) + this.paystackAdditional;
-                            if (this.paystackCap !== null && fee > this.paystackCap) fee = this.paystackCap;
-                            return Math.round(fee * 100) / 100;
-                        },
-                        get total() {
-                            return this.numericAmount + this.fee;
-                        },
-                        get outOfRange() {
-                            if (this.numericAmount <= 0) return false;
-                            return this.numericAmount < this.min || this.numericAmount > this.max;
-                        },
-                        format(value) {
-                            return '\u20A6' + Number(value).toLocaleString('en-NG', {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2
-                            });
-                        }
-                     }">
+                        bankFixedFee: @js($bankFixedFee)
+                     })">
 
-                    {{-- `data-no-loading`: the Alpine `submitting` flag below
-                         already swaps the button label and disables it.
+                    {{-- The component itself lives in
+                         resources/js/wallet-funding.js, not in an inline x-data
+                         string. Inline it was neither parse-checked by the build
+                         nor safe from HTML-attribute quoting: a double quote in
+                         one of its own JS comments closed the attribute early,
+                         Alpine received a truncated expression, and every
+                         binding on the page died at once. Only server values are
+                         passed in here.
+
+                         `data-no-loading`: this form owns its own loading state
+                         (see the module), so forms.js must keep its hands off the
+                         button.
 
                          The third `route()` argument ($absolute = false) is
                          load-bearing, not cosmetic: `form-action 'self'` is
-                         measured against the page origin and includes the
-                         port, so an absolute action built from APP_URL is
-                         refused whenever APP_URL and the address bar disagree
-                         (e.g. http://localhost vs http://127.0.0.1:8000). --}}
+                         measured against the page origin and includes the port,
+                         so an absolute action built from APP_URL is refused
+                         whenever APP_URL and the address bar disagree (e.g.
+                         http://localhost vs http://127.0.0.1:8000). --}}
                     <form id="fundWalletForm" method="POST" action="{{ route('wallet.process-funding', [], false) }}"
                           data-no-loading
-                          @submit="if (outOfRange) { $event.preventDefault(); return; } submitting = true">
+                          @submit="submit($event)">
                         @csrf
 
                         <div class="card-header">
@@ -161,6 +146,25 @@
                                     </div>
                                 </div>
                             @endif
+
+                            {{-- The outcome of a background submit. This is what
+                                 stops a slow gateway from looking like an
+                                 infinite spinner: the customer is told what
+                                 happened, including that nothing was charged. --}}
+                            <div x-show="outcome" x-cloak
+                                 :class="outcomeTone === 'error'
+                                     ? 'border-red-200 bg-red-50 text-red-800'
+                                     : 'border-brand-200 bg-brand-50 text-brand-800'"
+                                 class="flex items-start gap-3 rounded-lg border p-4"
+                                 :role="outcomeTone === 'error' ? 'alert' : 'status'">
+                                <x-icon name="exclamation-circle" variant="solid"
+                                        class="mt-0.5 h-5 w-5 shrink-0"
+                                        x-show="outcomeTone === 'error'" />
+                                <x-icon name="check-circle" variant="solid"
+                                        class="mt-0.5 h-5 w-5 shrink-0"
+                                        x-show="outcomeTone !== 'error'" x-cloak />
+                                <p class="min-w-0 text-sm" x-text="outcome"></p>
+                            </div>
 
                             {{-- Current balance --}}
                             <div class="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border bg-surface p-4">

@@ -621,7 +621,134 @@ class BachsFallbackTest extends TestCase
     }
 
     /* =====================================================================
-     | 5. Signature verification unit behaviour
+     | 6. Immediate feedback
+     |=================================================================== */
+
+    /**
+     * The funding form submits with `fetch`, so the answer has to be JSON. If
+     * this ever regressed to a redirect the form would receive a 302 to an
+     * external gateway, follow it, and the customer would be left looking at a
+     * "Processing…" button with no explanation.
+     */
+    public function test_a_json_submit_gets_the_gateway_url_back(): void
+    {
+        Http::fake([
+            'api.paystack.co/transaction/initialize' => Http::response([
+                'status' => true,
+                'data' => [
+                    'authorization_url' => 'https://checkout.paystack.com/json',
+                    'access_code' => 'json',
+                    'reference' => 'json',
+                ],
+            ]),
+        ]);
+
+        $this->actingAs($this->user())
+            ->postJson(route('wallet.process-funding'), [
+                'amount' => '5000',
+                'payment_method' => 'paystack',
+            ])
+            ->assertOk()
+            ->assertJson([
+                'status' => 'redirect',
+                'redirect' => 'https://checkout.paystack.com/json',
+            ]);
+    }
+
+    /**
+     * The whole point of the change: a gateway that cannot start a payment is
+     * reported in one round trip, with a message the customer can act on,
+     * rather than leaving the spinner running.
+     */
+    public function test_a_json_submit_reports_both_gateways_failing_immediately(): void
+    {
+        Http::fake([
+            'api.paystack.co/*' => Http::response(['status' => false, 'message' => 'Invalid key'], 401),
+            'sandbox-api.bachs.io/*' => Http::response(['message' => 'ACCOUNT_NOT_ACTIVATED'], 400),
+        ]);
+
+        $user = $this->user();
+
+        $response = $this->actingAs($user)->postJson(route('wallet.process-funding'), [
+            'amount' => '5000',
+            'payment_method' => 'paystack',
+        ]);
+
+        // 502: our request was fine, the upstream gateway could not be used.
+        $response->assertStatus(502)
+            ->assertJson(['status' => 'failed']);
+
+        $this->assertNotEmpty($response->json('message'));
+        $this->assertStringContainsString('bank transfer', $response->json('message'));
+
+        // And the attempt is resolved, not left pending.
+        $this->assertSame('failed', Transactions::where('user_id', $user->id)->firstOrFail()->status);
+    }
+
+    public function test_a_json_submit_reports_validation_errors_as_json(): void
+    {
+        $this->actingAs($this->user())
+            ->postJson(route('wallet.process-funding'), [
+                'amount' => '1',
+                'payment_method' => 'paystack',
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['amount']);
+    }
+
+    /**
+     * The non-JavaScript fallback must keep working: a plain form POST still
+     * gets a real redirect rather than a JSON body it cannot use.
+     */
+    public function test_a_plain_form_post_still_redirects(): void
+    {
+        Http::fake([
+            'api.paystack.co/transaction/initialize' => Http::response([
+                'status' => true,
+                'data' => [
+                    'authorization_url' => 'https://checkout.paystack.com/plain',
+                    'access_code' => 'plain',
+                    'reference' => 'plain',
+                ],
+            ]),
+        ]);
+
+        $this->actingAs($this->user())->post(route('wallet.process-funding'), [
+            'amount' => '5000',
+            'payment_method' => 'paystack',
+        ])->assertRedirect('https://checkout.paystack.com/plain');
+    }
+
+    /**
+     * The form has to opt into the JSON path, or none of the above is reachable
+     * from the page the customer actually uses.
+     */
+    public function test_the_funding_form_submits_in_the_background(): void
+    {
+        $html = $this->actingAs($this->user())->get(route('wallet.fund'))->assertOk()->getContent();
+
+        // The component is called from the module, not inlined.
+        $this->assertStringContainsString('x-data="walletFunding({', $html);
+        $this->assertStringContainsString('@submit="submit($event)"', $html);
+
+        /*
+         * The submit handler itself lives in resources/js/wallet-funding.js.
+         * That is the point: inline, Alpine evaluates it with `new Function` at
+         * runtime, so a quoting mistake is invisible to every server-side check
+         * and takes every binding on the page down with it. `.env`-independent
+         * assertions on the bundle belong to the build, not here — but the
+         * behaviour (Accept: application/json, the abort cap) is asserted in
+         * that module's own docblock and exercised by the JSON tests above.
+         */
+        $module = (string) file_get_contents(resource_path('js/wallet-funding.js'));
+
+        $this->assertStringContainsString("Accept: 'application/json'", $module);
+        $this->assertStringContainsString('AbortController', $module);
+        $this->assertStringContainsString('preventDefault', $module);
+    }
+
+    /* =====================================================================
+     | 7. Signature verification unit behaviour
      |=================================================================== */
 
     public function test_signature_v2_carries_the_timestamp_inline(): void
