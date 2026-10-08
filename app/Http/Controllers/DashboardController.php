@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Catalogue\ServiceCatalogue;
 use App\Models\ChatSession;
 use App\Models\PromotionNotification;
 use App\Models\Transactions;
@@ -9,9 +10,15 @@ use App\Support\Money;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class DashboardController extends Controller
 {
+    public function __construct(
+        private readonly ServiceCatalogue $catalogue,
+    ) {
+    }
+
     public function index(Request $request)
     {
         $user = Auth::user();
@@ -135,6 +142,33 @@ class DashboardController extends Controller
          */
         $showTips = $user->tips_seen_at === null;
 
+        /*
+         * The dashboard's service sections, assembled from the database rather than
+         * listed in the template (§51.42). A template that named its own services
+         * would keep offering one after its last provider was withdrawn, and the
+         * customer would find out at the payment step.
+         *
+         * No price is included: a price belongs to a quote at checkout.
+         */
+        $catalogue = $this->catalogue->payload();
+
+        /*
+         * The greeting follows a local clock, and §51.8's copy uses `{first_name}`.
+         *
+         * Neither is stored: the `users` table has a single `name` and no timezone
+         * column. Rather than invent a schema to satisfy a greeting, the first word of
+         * the name is used — which is what a customer would have typed into a first-name
+         * field anyway — and the application timezone stands in for the customer's.
+         *
+         * The timezone is the one place where this is a genuine approximation rather
+         * than a derivation: a customer abroad reads the greeting of the deployment's
+         * timezone. It is a greeting, so the cost of being wrong is a slightly odd
+         * salutation rather than a wrong amount, and a per-account timezone is the
+         * upgrade if it ever matters.
+         */
+        $greetingName = Str::of((string) $user->name)->trim()->explode(' ')->first() ?: (string) $user->name;
+        $localNow = now()->setTimezone(config('app.timezone', 'UTC'));
+
         return view('dashboard', compact(
             'user',
             'userStats',
@@ -145,6 +179,9 @@ class DashboardController extends Controller
             'quickActions',
             'announcements',
             'showTips',
+            'catalogue',
+            'greetingName',
+            'localNow',
         ));
     }
 

@@ -26,6 +26,41 @@ class Permissions
         'chat',
         'manage_settings',
         'manage_admins',
+        // Wave 1 — commercial controls
+        'view_pricing',
+        'manage_pricing',
+        'view_profit',
+        'manage_providers',
+        'manage_catalogue',
+    ];
+
+    /**
+     * Permissions only a super admin can effectively hold.
+     *
+     * These are the commercial controls: pricing, margin, provider
+     * configuration, catalogue publication and profit analytics. They are
+     * deliberately absent from the `admin` role's defaults, so promoting a
+     * support agent to administrator does not silently hand them the ability to
+     * reprice the platform or read its margins.
+     *
+     * `User::hasPermission()` already returns true for a super admin regardless,
+     * so this list is what the admin-management screen uses to refuse granting
+     * one of these to a lesser role in the first place.
+     */
+    public const SUPER_ADMIN_ONLY = [
+        'view_pricing',
+        'manage_pricing',
+        'view_profit',
+        'manage_providers',
+        'manage_catalogue',
+    ];
+
+    /** Permissions that expose internal provider cost or margin figures. */
+    public const FINANCIAL_INTERNAL = [
+        'view_pricing',
+        'manage_pricing',
+        'view_profit',
+        'manage_providers',
     ];
 
     /** Human-readable labels, for the admin management screens. */
@@ -43,6 +78,11 @@ class Permissions
         'chat' => 'Handle live chat',
         'manage_settings' => 'Change platform settings, announcements and legal documents',
         'manage_admins' => 'Create and manage administrator accounts',
+        'view_pricing' => 'View pricing rules, provider cost and margins',
+        'manage_pricing' => 'Create, change and deactivate pricing rules',
+        'view_profit' => 'View revenue, provider cost and profit analytics',
+        'manage_providers' => 'Configure providers, credentials and routing priority',
+        'manage_catalogue' => 'Review, publish and withdraw services for sale',
     ];
 
     /**

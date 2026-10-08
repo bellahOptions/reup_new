@@ -580,14 +580,53 @@
    Utilities
    ========================================================================== */
 
-/* Announcement marquee — kept as a real utility so views stop inlining
-   <style> blocks (the previous approach emitted duplicate keyframes per
-   render and broke under CSP). */
-@utility animate-marquee {
+/* ==========================================================================
+   Announcement marquee
+   --------------------------------------------------------------------------
+   Two identical groups sit side by side and the *track* translates by exactly
+   -50% — one group's width — so the second group lands precisely where the
+   first began and the loop has no seam. Right-to-left, endlessly.
+
+   Getting the geometry right is the whole trick, and the previous version had
+   it wrong. It put `gap` on the animated element holding both copies, which
+   makes the two-copy width `2 × (items + gaps) − gap` rather than
+   `2 × (items + gaps)`. Half of that is a group plus *half* a gap, so each
+   cycle advanced 1rem too little and the marquee visibly hitched once per
+   loop — an infinite loop that never quite lined up.
+
+   The fix is to move the spacing inside each group: `gap` between items plus a
+   matching `padding-right` for the junction with the next group. The two groups
+   are then byte-for-byte identical and -50% is exact.
+
+   The duration is a custom property with a real default, so the marquee still
+   moves if a caller ever omits the speed — `animation` without a duration is
+   `0s`, which renders a frozen, clipped row that looks broken rather than
+   animated.
+   ========================================================================== */
+.marquee {
+    overflow: hidden;
+}
+
+.marquee-track {
     display: flex;
     width: max-content;
-    animation: reup-marquee linear infinite;
+    animation: reup-marquee var(--marquee-duration, 40s) linear infinite;
     will-change: transform;
+}
+
+.marquee-group {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    /* The gap between items … */
+    gap: 2rem;
+    /* … and the same gap again at the junction with the next group, so the
+       boundary reads as one continuous list. */
+    padding-right: 2rem;
+}
+
+.pause-on-hover:hover .marquee-track {
+    animation-play-state: paused;
 }
 
 @keyframes reup-marquee {
@@ -595,8 +634,30 @@
     to   { transform: translateX(-50%); }
 }
 
-.pause-on-hover:hover .animate-marquee {
-    animation-play-state: paused;
+/* An endlessly scrolling row is exactly what `prefers-reduced-motion` exists
+   for. Rather than pausing a row that is then clipped mid-word, the track stops
+   animating and the announcements wrap — every one of them readable, none of
+   them moving. The duplicated group is dropped because it was only ever there
+   to make the loop seamless. */
+@media (prefers-reduced-motion: reduce) {
+    .marquee {
+        overflow: visible;
+    }
+
+    .marquee-track {
+        animation: none;
+        width: auto;
+        flex-wrap: wrap;
+    }
+
+    .marquee-group {
+        flex-wrap: wrap;
+        padding-right: 0;
+    }
+
+    .marquee-group[aria-hidden='true'] {
+        display: none;
+    }
 }
 
 /* Alpine cloak: prevents un-initialised x-show content from flashing.

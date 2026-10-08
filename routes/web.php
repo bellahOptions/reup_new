@@ -14,6 +14,7 @@ use App\Http\Controllers\PaystackController;
 use App\Http\Controllers\PairgateWebhookController;
 use App\Http\Controllers\PricelistController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ServiceCatalogueController;
 use App\Http\Controllers\TermsController;
 use App\Http\Controllers\WaecPinController;
 use App\Http\Controllers\AffiliateController;
@@ -93,6 +94,22 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/transactions', [WalletController::class, 'history'])->name('transactions.index');
+
+    /*
+    |----------------------------------------------------------------------
+    | The service catalogue
+    |----------------------------------------------------------------------
+    | §51.42: the frontend must not hardcode availability, products, fees or
+    | status, so the storefront reads them from here. Authenticated because the
+    | catalogue is filtered by what the customer's account can use, and because
+    | an unauthenticated list is free reconnaissance.
+    |
+    | It carries no price: a price belongs to a quote for a specific quantity at
+    | a specific moment, and a catalogue price would be a second, staler source
+    | of truth for the amount a customer is charged.
+    */
+    Route::get('/services', [ServiceCatalogueController::class, 'show'])->name('services.index');
+    Route::get('/services/catalogue', [ServiceCatalogueController::class, 'index'])->name('services.catalogue');
 
     /*
     |----------------------------------------------------------------------

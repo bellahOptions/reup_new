@@ -7,6 +7,9 @@ use App\Http\Controllers\Admin\BankTransferController;
 use App\Http\Controllers\Admin\ContactController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\NotificationController;
+use App\Http\Controllers\Admin\PricingController;
+use App\Http\Controllers\Admin\ProfitController;
+use App\Http\Controllers\Admin\ProviderController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\TransactionController;
 use App\Http\Controllers\Admin\UserController;
@@ -193,5 +196,77 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'admin'])->group(fun
         Route::get('/balance', [PaystackController::class, 'getBalance'])->name('balance');
         Route::post('/balance/refresh', [PaystackController::class, 'refreshBalance'])->name('balance.refresh');
         Route::get('/stats/{period?}', [PaystackController::class, 'getTransactionStats'])->name('stats');
+    });
+
+    /* ---- Pricing -----------------------------------------------------
+     | Super Admin commercial controls. `view_pricing` and `view_profit` are in
+     | Permissions::SUPER_ADMIN_ONLY, so a moderator or support account cannot
+     | reach these screens. Every write action also re-checks `manage_pricing` in
+     | the controller, because a route registered without its middleware would
+     | otherwise be a pricing-change endpoint — and pricing is a financial
+     | control.
+     */
+    Route::prefix('pricing')->name('pricing.')->middleware('admin:view_pricing')->group(function () {
+        Route::get('/', [PricingController::class, 'index'])->name('index');
+
+        // Static segments before `{rule}` so the model binding cannot swallow them.
+        Route::get('/rules', [PricingController::class, 'rules'])->name('rules');
+        Route::get('/rules/create', [PricingController::class, 'create'])->name('create');
+        Route::post('/rules', [PricingController::class, 'store'])
+            ->middleware('admin:manage_pricing')->name('store');
+        Route::get('/rules/{rule}/edit', [PricingController::class, 'edit'])->name('edit');
+        Route::get('/rules/{rule}/history', [PricingController::class, 'versions'])->name('versions');
+        Route::put('/rules/{rule}', [PricingController::class, 'update'])
+            ->middleware('admin:manage_pricing')->name('update');
+        Route::put('/rules/{rule}/toggle', [PricingController::class, 'toggle'])
+            ->middleware('admin:manage_pricing')->name('toggle');
+        Route::delete('/rules/{rule}', [PricingController::class, 'destroy'])
+            ->middleware('admin:manage_pricing')->name('destroy');
+
+        Route::get('/bulk', [PricingController::class, 'bulkForm'])->name('bulk');
+        Route::post('/bulk', [PricingController::class, 'bulkUpdate'])
+            ->middleware('admin:manage_pricing')->name('bulk.update');
+
+        /*
+         * Preview is a read-only calculation, so it needs no write permission —
+         * but it does reveal cost and margin, which is why it sits inside the
+         * group that requires `view_pricing`. Throttled because it prices a rule
+         * on every keystroke-driven request.
+         */
+        Route::post('/preview', [PricingController::class, 'preview'])
+            ->middleware('throttle:60,1')->name('preview');
+    });
+
+    /* ---- Revenue & Profit -------------------------------------------- */
+    Route::prefix('profit')->name('profit.')->middleware('admin:view_profit')->group(function () {
+        Route::get('/', [ProfitController::class, 'index'])->name('index');
+        Route::get('/data', [ProfitController::class, 'data'])->middleware('throttle:60,1')->name('data');
+        Route::get('/watchlist', [ProfitController::class, 'marginWatchlist'])->name('watchlist');
+    });
+
+    /* ---- Providers: health, float, alerts and routing ------------------
+     | Super Admin only (`manage_providers` is in Permissions::SUPER_ADMIN_ONLY).
+     |
+     | Routing lives here rather than in a table of its own, because
+     | `ProviderRegistry` already orders candidates by `priority` and `is_primary`.
+     | A second routing table would be a second answer to the same question, and the
+     | disagreement would surface as an order routed somewhere nobody chose.
+     |
+     | Every write action re-checks `manage_providers` in the controller, so a route
+     | registered without its middleware is not thereby a routing-change endpoint.
+     */
+    Route::prefix('providers')->name('providers.')->middleware('admin:manage_providers')->group(function () {
+        Route::get('/', [ProviderController::class, 'index'])->name('index');
+        Route::get('/{provider}', [ProviderController::class, 'show'])->name('show');
+
+        Route::put('/{provider}', [ProviderController::class, 'update'])
+            ->middleware('admin:manage_providers')->name('update');
+        Route::post('/{provider}/check', [ProviderController::class, 'check'])
+            ->middleware('admin:manage_providers')->name('check');
+
+        Route::post('/alerts/{alert}/acknowledge', [ProviderController::class, 'acknowledgeAlert'])
+            ->middleware('admin:manage_providers')->name('alerts.acknowledge');
+        Route::post('/alerts/{alert}/resolve', [ProviderController::class, 'resolveAlert'])
+            ->middleware('admin:manage_providers')->name('alerts.resolve');
     });
 });

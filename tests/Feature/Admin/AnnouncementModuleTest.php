@@ -131,9 +131,9 @@ class AnnouncementModuleTest extends TestCase
         $html = $this->actingAs(User::factory()->create())
             ->get(route('dashboard'))->assertOk()->getContent();
 
-        preg_match('/animate-marquee(.*?)<\/div>\s*<\/div>/s', $html, $m);
-        $block = $m[1] ?? '';
+        $block = $this->marqueeBlock($html);
 
+        $this->assertNotSame('', $block, 'The marquee was not found on the dashboard.');
         $this->assertStringContainsString('<svg', $block, 'The icon should render as an inline SVG.');
         $this->assertSame(0, preg_match('/[\x{1F300}-\x{1FAFF}]/u', $block), 'No emoji may be emitted.');
     }
@@ -147,9 +147,9 @@ class AnnouncementModuleTest extends TestCase
         $html = $this->actingAs(User::factory()->create())
             ->get(route('airtime-data.index'))->assertOk()->getContent();
 
-        preg_match('/animate-marquee(.*?)<\/div>\s*<\/div>/s', $html, $m);
-        $block = $m[1] ?? '';
+        $block = $this->marqueeBlock($html);
 
+        $this->assertNotSame('', $block, 'The marquee was not found on the airtime page.');
         $this->assertStringContainsString('Airtime promo', $block);
         $this->assertStringContainsString('<svg', $block);
     }
@@ -163,12 +163,62 @@ class AnnouncementModuleTest extends TestCase
         $html = $this->actingAs(User::factory()->create())
             ->get(route('dashboard'))->assertOk()->getContent();
 
-        preg_match('/animate-marquee(.*?)<\/div>\s*<\/div>/s', $html, $m);
-        $block = $m[1] ?? '';
+        $block = $this->marqueeBlock($html);
 
         $this->assertStringContainsString('Legacy row', $block);
         $this->assertStringContainsString('<svg', $block);
         $this->assertStringNotContainsString("\u{1F389}", $block);
+    }
+
+    /**
+     * The rendered marquee, delimited by counting divs.
+     *
+     * Anchored on the component's own `marquee` wrapper and closed by walking
+     * `<div`/`</div>` pairs until they balance, so the returned block is the
+     * component and nothing else.
+     *
+     * Deliberately not anchored on the animated track's class: the previous version of
+     * these tests keyed on `animate-marquee`, and renaming that class for the seamless
+     * loop silently reduced them to asserting against an empty string. A block that
+     * cannot be found now fails loudly instead.
+     */
+    private function marqueeBlock(string $html): string
+    {
+        $start = strpos($html, '<div class="marquee"');
+
+        if ($start === false) {
+            return '';
+        }
+
+        // The wrapper's own opening tag has been consumed.
+        $depth = 1;
+        $offset = $start + 4;
+        $length = strlen($html);
+
+        while ($offset < $length) {
+            $open = strpos($html, '<div', $offset);
+            $close = strpos($html, '</div>', $offset);
+
+            if ($close === false) {
+                break;
+            }
+
+            if ($open !== false && $open < $close) {
+                $depth++;
+                $offset = $open + 4;
+
+                continue;
+            }
+
+            $depth--;
+            $offset = $close + 6;
+
+            if ($depth === 0) {
+                return substr($html, $start, $offset - $start);
+            }
+        }
+
+        return substr($html, $start);
     }
 
     public function test_an_unknown_icon_falls_back_rather_than_breaking(): void

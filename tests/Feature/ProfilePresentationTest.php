@@ -195,6 +195,112 @@ class ProfilePresentationTest extends TestCase
         $this->post(route('tips.dismiss'))->assertRedirect(route('login'));
     }
 
+    /* =====================================================================
+     | Transaction PIN — shown on request
+     =================================================================== */
+
+    public function test_the_pin_form_is_not_rendered_until_it_is_asked_for(): void
+    {
+        $user = User::factory()->create();
+
+        $response = $this->actingAs($user)->get(route('profile.index'));
+
+        $response->assertOk();
+
+        // The status is shown …
+        $response->assertSee('Transaction PIN', false);
+        $response->assertSee('Not set', false);
+
+        // … and the form is not. "New PIN / Confirm PIN" sitting open on a profile
+        // page reads as something to fill in, and a customer who types a PIN they did
+        // not mean to set has changed their own credentials by accident.
+        $response->assertDontSee('Confirm PIN', false);
+        $response->assertDontSee('Email authorisation code', false);
+
+        // The CSRF token the PIN form would carry is absent too: server-side gating
+        // rather than a CSS-hidden panel, so nothing is merely invisible.
+        $response->assertDontSee('name="pin_confirmation"', false);
+        $response->assertDontSee('action="' . route('profile.pin') . '"', false);
+    }
+
+    public function test_the_pin_form_is_rendered_when_the_customer_asks_for_it(): void
+    {
+        $user = User::factory()->create();
+
+        $response = $this->actingAs($user)->get(route('profile.index', ['pin' => 1]));
+
+        $response->assertOk();
+        $response->assertSee('Confirm PIN', false);
+        $response->assertSee('Email authorisation code', false);
+        $response->assertSee('Set PIN', false);
+
+        // No current-PIN field on a first-time set: there is nothing to verify against.
+        $response->assertDontSee('Current PIN', false);
+    }
+
+    public function test_a_change_asks_for_the_current_pin(): void
+    {
+        $user = User::factory()->create(['transaction_pin' => bcrypt('1357')]);
+
+        // Collapsed: the honest label is "Change PIN", not "Set PIN".
+        $collapsed = $this->actingAs($user)->get(route('profile.index'));
+
+        $collapsed->assertSee('Change PIN', false);
+        $collapsed->assertDontSee('Confirm PIN', false);
+
+        $opened = $this->actingAs($user)->get(route('profile.index', ['pin' => 1]));
+
+        $opened->assertSee('Current PIN', false);
+        $opened->assertSee('Change PIN', false);
+    }
+
+    public function test_the_form_stays_open_when_validation_failed(): void
+    {
+        $user = User::factory()->create();
+
+        /*
+         * The failure this prevents: a validation error rendered inside a collapsed
+         * form is an error nobody sees. The customer submits, the page reloads to the
+         * closed state, and they are told nothing.
+         */
+        $this->actingAs($user)
+            ->put(route('profile.pin'), ['pin' => '12', 'pin_code' => ''])
+            ->assertSessionHasErrors();
+
+        $response = $this->actingAs($user)->get(route('profile.index'));
+
+        $response->assertSee('Confirm PIN', false);
+        $response->assertSee('Email authorisation code', false);
+    }
+
+    public function test_the_form_stays_open_when_the_authorisation_code_is_wrong(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->put(route('profile.pin'), [
+                'pin' => '2580',
+                'pin_confirmation' => '2580',
+                'pin_code' => '000000',
+            ])
+            ->assertSessionHasErrors('pin_code');
+
+        // `pin_code` is one of the keys that re-opens the form, so the customer can see
+        // what went wrong and request another code.
+        $this->actingAs($user)
+            ->get(route('profile.index'))
+            ->assertSee('Email authorisation code', false);
+    }
+
+    public function test_the_profile_still_renders_with_the_form_open_or_closed(): void
+    {
+        // A guard against the disclosure change breaking the page in either state.
+        $user = User::factory()->create();
+
+        $this->actingAs($user)->get(route('profile.index'))->assertOk();
+        $this->actingAs($user)->get(route('profile.index', ['pin' => 1]))->assertOk();
+    }
+
     /**
      * Render a Blade string with the given data.
      */

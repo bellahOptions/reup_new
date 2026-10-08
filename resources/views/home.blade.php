@@ -1,7 +1,7 @@
 @extends('layouts.main')
 
-@section('title', 'Buy airtime, data and pay bills instantly')
-@section('meta_description', 'ReUp is a Nigerian bill-payment platform for airtime, data bundles, cable TV, electricity tokens and exam PINs — settled in seconds from one wallet.')
+@section('title', 'One wallet for everything digital')
+@section('meta_description', 'Pay bills, buy data, get gift cards, top up international numbers, activate eSIMs and grow your social presence — all from one simple ReUp wallet.')
 
 @section('main')
 @php
@@ -64,22 +64,25 @@
 
             <div class="lg:col-span-6">
 
+                {{-- §51.1 approved copy. The headline and supporting text come from
+                     config/copy.php so the approved deck has exactly one source, and the
+                     CTAs use the approved labels ("Get Started" / "Sign In") rather than
+                     a variant invented here. --}}
                 <h1 class="mt-4 text-4xl font-semibold leading-[1.08] tracking-tight text-ink-950 sm:text-5xl lg:text-6xl">
-                    One wallet for every bill you pay.
+                    {{ \App\Support\UiCopy::get('brand.tagline') }}
                 </h1>
 
                 <p class="mt-6 max-w-xl text-lg leading-relaxed text-muted-foreground">
-                    Airtime, data, cable TV, electricity and exam PINs — settled in seconds
-                    at rates that stay transparent. No queues, no hidden charges, no waiting.
+                    {{ \App\Support\UiCopy::get('brand.supporting') }}
                 </p>
 
                 <div class="mt-9 flex flex-col gap-3 sm:flex-row">
                     <a href="{{ route('register') }}" class="btn btn-primary btn-lg">
-                        Create a free account
+                        {{ \App\Support\UiCopy::get('actions.get_started') }}
                         <x-icon name="arrow-right" class="h-4 w-4" />
                     </a>
                     <a href="{{ route('login') }}" class="btn btn-outline btn-lg">
-                        Sign in
+                        {{ \App\Support\UiCopy::get('actions.sign_in') }}
                     </a>
                 </div>
 

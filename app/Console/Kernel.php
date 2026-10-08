@@ -51,6 +51,25 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping();
 
         /*
+         * Bill reminders.
+         *
+         * A reminder notifies; it never debits. `reminders:dispatch` writes a
+         * notification row and nothing else — AutoPay is a separate future feature
+         * that will need its own customer-consent record and its own command.
+         *
+         * Every five minutes rather than every minute: a reminder is a courtesy,
+         * not a settlement, and a five-minute window is imperceptible to a
+         * customer while being five times less work.
+         *
+         * Duplicate prevention does not depend on `withoutOverlapping` — the
+         * command claims each reminder for its due date before writing — so a
+         * missed or overlapping run cannot produce two notifications.
+         */
+        $schedule->command('reminders:dispatch')
+            ->everyFiveMinutes()
+            ->withoutOverlapping();
+
+        /*
          * Heartbeat.
          *
          * Written on every scheduler tick. `schedule:health --check` reads it, so
@@ -61,6 +80,74 @@ class Kernel extends ConsoleKernel
         $schedule->call(function () {
             Cache::put('scheduler:last_run', now(), now()->addHours(6));
         })->everyMinute()->name('scheduler-heartbeat');
+
+        /*
+         * Provider health and float.
+         *
+         * Every five minutes. This is the control that makes "we never charge a
+         * customer for a vend the upstream cannot fund" checkable before the fact
+         * rather than discovered afterwards — and five minutes is a compromise:
+         * frequent enough to notice a wallet running dry during a busy morning,
+         * infrequent enough not to spend the provider's rate limit on monitoring.
+         *
+         * `withoutOverlapping` matters here because a provider that hangs would
+         * otherwise have two probes in flight, and a slow upstream would be probed
+         * twice as hard exactly when it is least able to answer.
+         */
+        $schedule->command('providers:check-balances')
+            ->everyFiveMinutes()
+            ->withoutOverlapping();
+
+        /*
+         * Catalogue and cost refresh.
+         *
+         * Hourly. Costs move on the provider's schedule, not ours, and an hour of
+         * staleness is a bounded exposure: the pricing engine records the cost it
+         * quoted with, so a stale cost produces a smaller margin on orders placed
+         * in that hour rather than an unexplained discrepancy later.
+         *
+         * Not every minute: a full sync is dozens to hundreds of upstream reads and
+         * would be the single largest consumer of every provider's rate limit.
+         */
+        $schedule->command('providers:sync-catalogues')
+            ->hourly()
+            ->withoutOverlapping();
+
+        /*
+         * International catalogue.
+         *
+         * Every six hours rather than hourly, because it is the expensive one — a
+         * country → product type → operator → variation walk against a rate-limited
+         * API — and because international rates move far more slowly than the
+         * catalogue around them. An order is priced from a live FX preview at
+         * checkout, so a six-hour-old catalogue row never becomes the rate a
+         * customer is charged.
+         */
+        $schedule->command('providers:sync-international-products')
+            ->everySixHours()
+            ->withoutOverlapping();
+
+        /*
+         * Gift cards daily.
+         *
+         * A gift card catalogue changes when a vendor changes its discount, which is
+         * a deliberate act rather than a market movement — and every synced variant
+         * needs an operator to map it before it can be sold, so syncing more often
+         * would only queue work faster than it can be done.
+         */
+        $schedule->command('providers:sync-gift-cards')
+            ->daily()
+            ->withoutOverlapping();
+
+        /*
+         * Retention.
+         *
+         * Daily, and never on a schedule that could overlap the probe that is
+         * writing to the same table. The deletion is chunked for that reason too.
+         */
+        $schedule->command('providers:prune-health')
+            ->daily()
+            ->withoutOverlapping();
     }
 
     /**

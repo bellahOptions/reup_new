@@ -58,11 +58,15 @@
 <main class="min-h-screen bg-surface">
     <div class="container-page py-8 md:py-12">
 
-        {{-- Page heading --}}
+        {{-- Page heading (§51.8). The greeting follows the customer's local time and
+             the statement is the approved copy; both come from UiCopy so the language
+             has one reviewable source rather than one per template. --}}
         <header class="mb-8 md:mb-10">
-            <h1 class="mt-2 text-2xl font-semibold md:text-3xl">Welcome back, {{ $user->name }}</h1>
+            <h1 class="mt-2 text-2xl font-semibold md:text-3xl">
+                {{ \App\Support\UiCopy::greeting($localNow) }}, {{ $greetingName }}
+            </h1>
             <p class="mt-2 max-w-2xl text-sm text-muted-foreground md:text-base">
-                Here is what is happening with your account today.
+                {{ \App\Support\UiCopy::get('dashboard.statement') }}
             </p>
 
             {{-- Once the introduction has been dismissed it stays reachable here,
@@ -173,14 +177,49 @@
             </div>
         </div>
 
+        {{-- Service sections (§51.8).
+
+             Rendered from `$catalogue`, which the controller assembles from the
+             database, and which by default contains only services a customer can buy
+             right now. A section with nothing available is not in the list at all:
+             a heading above a card reading "temporarily unavailable" tells a customer
+             nothing and makes a working product look broken.
+
+             Nothing here names a service, asserts that one is available, or shows a
+             price — a template that did would keep offering a service after its last
+             provider had been withdrawn, and would be a second, staler source of truth
+             for the amount a customer is charged (§51.38, §51.42). --}}
+        @foreach($catalogue['sections'] as $section)
+            <section class="mb-8 md:mb-10" aria-labelledby="dashboard-section-{{ $section['group'] }}">
+                <div class="mb-5">
+                    <h2 id="dashboard-section-{{ $section['group'] }}" class="mt-2 text-xl font-semibold">
+                        {{ $section['name'] }}
+                    </h2>
+                    <p class="mt-1 text-sm text-muted-foreground">{{ $section['dashboard_description'] }}</p>
+                </div>
+
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    @foreach($section['services'] as $service)
+                        <div class="card flex flex-col p-5">
+                            <span class="text-sm font-semibold text-foreground">{{ $service['name'] }}</span>
+
+                            @if($service['description'])
+                                <span class="mt-1 text-xs text-muted-foreground">{{ $service['description'] }}</span>
+                            @endif
+                        </div>
+                    @endforeach
+                </div>
+            </section>
+        @endforeach
+
         {{-- Quick actions. `route` is a bare route name from the controller; a
              name that is not registered degrades to '#' rather than throwing. --}}
         <section class="mb-8 md:mb-10">
             <div class="mb-5 flex flex-wrap items-end justify-between gap-3">
                 <div>
-                    <h2 class="mt-2 text-xl font-semibold">Quick actions</h2>
+                    <h2 class="mt-2 text-xl font-semibold">{{ $catalogue['my_reup']['name'] }}</h2>
                 </div>
-                <p class="text-sm text-muted-foreground">Fast access to the services you use most.</p>
+                <p class="text-sm text-muted-foreground">{{ $catalogue['my_reup']['description'] }}</p>
             </div>
 
             @if(! empty($quickActions))
@@ -211,8 +250,8 @@
         <section class="card overflow-hidden">
             <div class="card-header flex-row flex-wrap items-center justify-between gap-4">
                 <div class="min-w-0">
-                    <h2 class="card-title">Recent transactions</h2>
-                    <p class="card-description">Your latest ten movements.</p>
+                    <h2 class="card-title">{{ \App\Support\UiCopy::get('dashboard.recent_payments') }}</h2>
+                    <p class="card-description">{{ \App\Support\UiCopy::get('dashboard.recent_payments_empty') }}</p>
                 </div>
                 <a href="{{ route('transactions.index') }}" class="btn btn-outline btn-sm shrink-0">
                     View all

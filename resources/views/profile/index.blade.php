@@ -718,16 +718,47 @@
                     </dl>
                 </section>
 
-                {{-- Transaction PIN. Required for every purchase, so it needs a
-                     self-service home rather than an admin routine. --}}
-                <div class="card">
+                @php
+                    /*
+                    | The PIN form is shown **on request**, not by default.
+                    |
+                    | Three reasons, and the third is the one that matters:
+                    |
+                    |  1. A four-field security form sitting permanently open on a profile
+                    |     page is visual noise, and it is the loudest thing on the page for
+                    |     the majority of customers who already have a PIN and have no
+                    |     intention of changing it.
+                    |  2. It invites the wrong click. "New PIN / Confirm PIN" reads as
+                    |     something to fill in, and a customer who types a PIN they did not
+                    |     mean to set has changed their own credentials by accident.
+                    |  3. The form — including its CSRF token and the email-code field —
+                    |     is not in the DOM until it is asked for. Server-side gating rather
+                    |     than a CSS-hidden panel, so nothing is merely invisible.
+                    |
+                    | Re-opened automatically when validation failed, because an error
+                    | message rendered inside a collapsed form is an error nobody sees.
+                    */
+                    $pinErrors = ['pin', 'pin_code', 'current_pin', 'pin_otp'];
+                    $pinFormOpen = request()->boolean('pin');
+
+                    foreach ($pinErrors as $pinErrorKey) {
+                        if ($errors->has($pinErrorKey)) {
+                            $pinFormOpen = true;
+                        }
+                    }
+
+                    $hasPin = (bool) auth()->user()->transaction_pin;
+                @endphp
+
+                <div class="card" id="transaction-pin">
                     <div class="card-header">
                         <h2 class="card-title flex items-center gap-2">
                             <x-icon name="lock-closed" class="h-4 w-4 text-ink-500" />
                             Transaction PIN
                         </h2>
                         <p class="card-description">
-                            @if(auth()->user()->transaction_pin)
+                            @if($hasPin)
+                                <span class="font-medium text-emerald-700">Set.</span>
                                 A 4-digit PIN is required for every purchase.
                             @else
                                 <span class="font-medium text-amber-700">Not set — you cannot make purchases until you set one.</span>
@@ -735,94 +766,120 @@
                         </p>
                     </div>
 
-                    <form method="POST" action="{{ route('profile.pin') }}" class="card-content space-y-4">
-                        @csrf
-                        @method('PUT')
+                    @unless($pinFormOpen)
+                        {{-- Collapsed: the status, and one way to act on it. --}}
+                        <div class="card-content">
+                            <a href="{{ route('profile.index', ['pin' => 1]) }}#transaction-pin"
+                               class="btn btn-outline btn-sm">
+                                <x-icon name="lock-closed" class="h-4 w-4" />
+                                {{ $hasPin ? 'Change PIN' : 'Set PIN' }}
+                            </a>
 
-                        @error('pin')
-                            <p class="field-error">{{ $message }}</p>
-                        @enderror
-
-                        @if(auth()->user()->transaction_pin)
-                            <div>
-                                <label for="current_pin" class="label">Current PIN</label>
-                                <input id="current_pin" name="current_pin" type="password"
-                                       inputmode="numeric" maxlength="4" required
-                                       autocomplete="off"
-                                       @input="$event.target.value = $event.target.value.replace(/\D/g,'').slice(0,4)"
-                                       class="input mt-1.5 tracking-[0.5em]">
-                            </div>
-                        @endif
-
-                        <div class="grid gap-4 sm:grid-cols-2">
-                            <div>
-                                <label for="new_pin" class="label">New PIN</label>
-                                <input id="new_pin" name="pin" type="password"
-                                       inputmode="numeric" maxlength="4" required
-                                       autocomplete="new-password"
-                                       @input="$event.target.value = $event.target.value.replace(/\D/g,'').slice(0,4)"
-                                       class="input mt-1.5 tracking-[0.5em]">
-                            </div>
-                            <div>
-                                <label for="new_pin_confirmation" class="label">Confirm PIN</label>
-                                <input id="new_pin_confirmation" name="pin_confirmation" type="password"
-                                       inputmode="numeric" maxlength="4" required
-                                       autocomplete="new-password"
-                                       @input="$event.target.value = $event.target.value.replace(/\D/g,'').slice(0,4)"
-                                       class="input mt-1.5 tracking-[0.5em]">
-                            </div>
+                            @if(! $hasPin)
+                                <p class="mt-2 text-xs text-muted-foreground">
+                                    You will need a 6-digit code emailed to you.
+                                </p>
+                            @endif
                         </div>
+                    @else
+                        <form method="POST" action="{{ route('profile.pin') }}" class="card-content space-y-4">
+                            @csrf
+                            @method('PUT')
 
-                        <p class="text-xs text-muted-foreground">
-                            Avoid 1234 or four identical digits. Five wrong attempts locks
-                            purchases for 15 minutes.
-                        </p>
+                            @error('pin')
+                                <p class="field-error">{{ $message }}</p>
+                            @enderror
 
-                        {{-- Authorisation code. The PIN is what authorises every
-                             purchase, so setting it requires proving control of the
-                             account's email, not just the session. --}}
-                        <div class="rounded-lg border border-border bg-surface p-4">
-                            <label for="pin_code" class="label">Email authorisation code</label>
-                            <p class="mt-1 text-xs text-muted-foreground">
-                                We send a 6-digit code to <strong>{{ auth()->user()->email }}</strong>.
-                                It expires in 10 minutes.
+                            @if($hasPin)
+                                <div>
+                                    <label for="current_pin" class="label">Current PIN</label>
+                                    <input id="current_pin" name="current_pin" type="password"
+                                           inputmode="numeric" maxlength="4" required
+                                           autocomplete="off"
+                                           @input="$event.target.value = $event.target.value.replace(/\D/g,'').slice(0,4)"
+                                           class="input mt-1.5 tracking-[0.5em]">
+                                </div>
+                            @endif
+
+                            <div class="grid gap-4 sm:grid-cols-2">
+                                <div>
+                                    <label for="new_pin" class="label">New PIN</label>
+                                    <input id="new_pin" name="pin" type="password"
+                                           inputmode="numeric" maxlength="4" required
+                                           autocomplete="new-password"
+                                           @input="$event.target.value = $event.target.value.replace(/\D/g,'').slice(0,4)"
+                                           class="input mt-1.5 tracking-[0.5em]">
+                                </div>
+                                <div>
+                                    <label for="new_pin_confirmation" class="label">Confirm PIN</label>
+                                    <input id="new_pin_confirmation" name="pin_confirmation" type="password"
+                                           inputmode="numeric" maxlength="4" required
+                                           autocomplete="new-password"
+                                           @input="$event.target.value = $event.target.value.replace(/\D/g,'').slice(0,4)"
+                                           class="input mt-1.5 tracking-[0.5em]">
+                                </div>
+                            </div>
+
+                            <p class="text-xs text-muted-foreground">
+                                Avoid 1234 or four identical digits. Five wrong attempts locks
+                                purchases for 15 minutes.
                             </p>
 
-                            <div class="mt-3 flex flex-col gap-2 sm:flex-row">
-                                <input id="pin_code" name="pin_code" type="text"
-                                       inputmode="numeric" maxlength="6" required
-                                       autocomplete="one-time-code"
-                                       placeholder="000000"
-                                       @input="$event.target.value = $event.target.value.replace(/\D/g,'').slice(0,6)"
-                                       class="input font-mono tracking-[0.4em] sm:flex-1 @error('pin_code') input-error @enderror">
+                            {{-- Authorisation code. The PIN is what authorises every
+                                 purchase, so setting it requires proving control of the
+                                 account's email, not just the session. --}}
+                            <div class="rounded-lg border border-border bg-surface p-4">
+                                <label for="pin_code" class="label">Email authorisation code</label>
+                                <p class="mt-1 text-xs text-muted-foreground">
+                                    We send a 6-digit code to <strong>{{ auth()->user()->email }}</strong>.
+                                    It expires in 10 minutes.
+                                </p>
+
+                                <div class="mt-3 flex flex-col gap-2 sm:flex-row">
+                                    <input id="pin_code" name="pin_code" type="text"
+                                           inputmode="numeric" maxlength="6" required
+                                           autocomplete="one-time-code"
+                                           placeholder="000000"
+                                           @input="$event.target.value = $event.target.value.replace(/\D/g,'').slice(0,6)"
+                                           class="input font-mono tracking-[0.4em] sm:flex-1 @error('pin_code') input-error @enderror">
+                                </div>
+
+                                @error('pin_code')
+                                    <p class="field-error">{{ $message }}</p>
+                                @enderror
+                                @error('pin_otp')
+                                    <p class="field-error">{{ $message }}</p>
+                                @enderror
+
+                                {{-- Separate form: requesting a code must not submit the
+                                     PIN fields, which would fail validation on the way. --}}
+                                <button type="submit"
+                                        form="requestPinCodeForm"
+                                        class="btn btn-outline btn-sm mt-3">
+                                    <x-icon name="envelope" class="h-4 w-4" />
+                                    Email me a code
+                                </button>
                             </div>
 
-                            @error('pin_code')
-                                <p class="field-error">{{ $message }}</p>
-                            @enderror
-                            @error('pin_otp')
-                                <p class="field-error">{{ $message }}</p>
-                            @enderror
+                            <div class="flex flex-col gap-2 sm:flex-row">
+                                <button type="submit" class="btn btn-primary btn-sm sm:flex-1">
+                                    <x-icon name="lock-closed" class="h-4 w-4" />
+                                    {{ $hasPin ? 'Change PIN' : 'Set PIN' }}
+                                </button>
 
-                            {{-- Separate form: requesting a code must not submit the
-                                 PIN fields, which would fail validation on the way. --}}
-                            <button type="submit"
-                                    form="requestPinCodeForm"
-                                    class="btn btn-outline btn-sm mt-3">
-                                <x-icon name="envelope" class="h-4 w-4" />
-                                Email me a code
-                            </button>
-                        </div>
+                                {{-- Abandoning the form leaves no trace: the PIN is not set
+                                     until a code and a new PIN are both submitted. --}}
+                                <a href="{{ route('profile.index') }}#transaction-pin"
+                                   class="btn btn-outline btn-sm sm:flex-1">
+                                    Cancel
+                                </a>
+                            </div>
+                        </form>
 
-                        <button type="submit" class="btn btn-primary btn-sm w-full">
-                            <x-icon name="lock-closed" class="h-4 w-4" />
-                            {{ auth()->user()->transaction_pin ? 'Change PIN' : 'Set PIN' }}
-                        </button>
-                    </form>
-
-                    <form id="requestPinCodeForm" method="POST" action="{{ route('profile.pin.code') }}">
-                        @csrf
-                    </form>
+                        <form id="requestPinCodeForm" method="POST" action="{{ route('profile.pin.code') }}">
+                            @csrf
+                        </form>
+                    @endunless
                 </div>
                 {{-- Support --}}
                 <section class="card">

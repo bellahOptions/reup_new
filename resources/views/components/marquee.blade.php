@@ -1,5 +1,5 @@
 {{--
-    Announcement marquee.
+    Announcement marquee — right-to-left, endlessly.
 
     Accepts Eloquent models or plain arrays. Renders nothing when there is
     nothing to show — the previous version hardcoded five fake offers as a
@@ -11,6 +11,18 @@
     name falls back to a megaphone rather than rendering nothing, so a title is
     never left visually unanchored — and never renders a raw emoji, which is
     what a previous version did.
+
+    ## Why the content is rendered twice, in two groups
+
+    A seamless loop needs the second copy to be *byte-for-byte* the first, and it
+    needs the distance between the copies to equal the gap between items. So the
+    spacing lives inside each group (`gap` plus a matching `padding-right`) and
+    the track carrying both groups has none — see the `.marquee-*` rules in
+    app.css for the arithmetic, and for why putting the gap on the track instead
+    produces a marquee that hitches once per cycle.
+
+    The second group is `aria-hidden`, because it exists only for the animation:
+    a screen reader should hear each announcement once, not twice.
 --}}
 @props([
     'items' => [],
@@ -45,24 +57,34 @@
             return $item;
         })
         ->values();
+
+    // Clamped rather than cast: a zero or negative duration would freeze the
+    // row mid-scroll, which looks like a broken page rather than a setting.
+    $duration = max(1, (int) $speed);
 @endphp
 
 @if($normalised->isNotEmpty())
     <div class="{{ $pauseOnHover ? 'pause-on-hover' : '' }}">
-        <div class="overflow-hidden">
-            <div class="animate-marquee items-center gap-8 whitespace-nowrap {{ $compact ? 'py-1' : 'py-2' }}"
-                 style="animation-duration: {{ (int) $speed }}s;">
-                {{-- Duplicated once so the translateX(-50%) loop is seamless. --}}
-                @foreach($normalised->concat($normalised) as $item)
-                    <span class="flex shrink-0 items-center gap-2.5">
-                        <x-icon :name="$item['icon']" class="h-4 w-4 text-brand-600" />
+        <div class="marquee">
+            <div class="marquee-track {{ $compact ? 'py-1' : 'py-2' }}"
+                 style="--marquee-duration: {{ $duration }}s;">
+                {{-- Two identical groups. The second is the loop's continuation and
+                     is hidden from assistive technology, so nothing is announced
+                     twice. --}}
+                @foreach([1, 2] as $copy)
+                    <div class="marquee-group whitespace-nowrap" @if($copy === 2) aria-hidden="true" @endif>
+                        @foreach($normalised as $item)
+                            <span class="flex shrink-0 items-center gap-2.5">
+                                <x-icon :name="$item['icon']" class="h-4 w-4 text-brand-600" />
 
-                        @if($item['badge'])
-                            <span class="badge badge-primary">{{ $item['badge'] }}</span>
-                        @endif
+                                @if($item['badge'])
+                                    <span class="badge badge-primary">{{ $item['badge'] }}</span>
+                                @endif
 
-                        <span class="text-sm font-medium text-ink-700">{{ $item['title'] }}</span>
-                    </span>
+                                <span class="text-sm font-medium text-ink-700">{{ $item['title'] }}</span>
+                            </span>
+                        @endforeach
+                    </div>
                 @endforeach
             </div>
         </div>
