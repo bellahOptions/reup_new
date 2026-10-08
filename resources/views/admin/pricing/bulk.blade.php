@@ -14,7 +14,7 @@
         </p>
     </div>
 
-    <form method="POST" action="{{ route('admin.pricing.bulk.update') }}"
+    <form method="POST" action="{{ route('admin.pricing.bulk.update', [], false) }}"
           onsubmit="return confirm('Apply this pricing change? It takes effect immediately for new orders.')">
         @csrf
 

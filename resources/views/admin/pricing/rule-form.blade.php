@@ -18,7 +18,7 @@
     @endif
 
     <form method="POST"
-          action="{{ $editing ? route('admin.pricing.update', $rule) : route('admin.pricing.store') }}"
+          action="{{ $editing ? route('admin.pricing.update', $rule, false) : route('admin.pricing.store', [], false) }}"
           @submit="if (requiresConfirmation && ! confirmed) { $event.preventDefault(); showConfirm = true; }">
         @csrf
         @if($editing)

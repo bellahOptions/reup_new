@@ -221,7 +221,7 @@
                         <p class="card-description">These details appear on receipts and support tickets.</p>
                     </div>
 
-                    <form id="profileForm" method="POST" action="{{ route('profile.update') }}" enctype="multipart/form-data">
+                    <form id="profileForm" method="POST" action="{{ route('profile.update', [], false) }}" enctype="multipart/form-data">
                         @csrf
                         @method('PUT')
 
@@ -608,7 +608,7 @@
                         <p class="card-description">Choose how we reach you. Changes apply immediately.</p>
                     </div>
 
-                    <form method="POST" action="{{ route('profile.notifications') }}">
+                    <form method="POST" action="{{ route('profile.notifications', [], false) }}">
                         @csrf
                         @method('PUT')
 
@@ -782,7 +782,7 @@
                             @endif
                         </div>
                     @else
-                        <form method="POST" action="{{ route('profile.pin') }}" class="card-content space-y-4">
+                        <form method="POST" action="{{ route('profile.pin', [], false) }}" class="card-content space-y-4">
                             @csrf
                             @method('PUT')
 
@@ -876,7 +876,7 @@
                             </div>
                         </form>
 
-                        <form id="requestPinCodeForm" method="POST" action="{{ route('profile.pin.code') }}">
+                        <form id="requestPinCodeForm" method="POST" action="{{ route('profile.pin.code', [], false) }}">
                             @csrf
                         </form>
                     @endunless

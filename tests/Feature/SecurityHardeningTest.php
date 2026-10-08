@@ -8,6 +8,7 @@ use App\Services\ClubKonnectService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Log\Logger;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -320,6 +321,13 @@ class SecurityHardeningTest extends TestCase
         $this->assertStringContainsString("object-src 'none'", $csp);
         $this->assertStringContainsString("frame-ancestors 'self'", $csp);
         $this->assertStringContainsString("form-action 'self'", $csp);
+        // Cloudflare's Web Analytics beacon is injected at the edge, not by
+        // this repository, so the policy has to name its origin explicitly or
+        // every production page logs a script-src violation. It belongs in
+        // script-src only: the beacon POSTs to the same origin's /cdn-cgi/rum,
+        // which `connect-src 'self'` already allows.
+        $this->assertStringContainsString('https://static.cloudflareinsights.com', $csp);
+        $this->assertStringNotContainsString('cloudflareinsights.com', $this->directive($csp, 'connect-src'));
         // Alpine evaluates expressions with `new Function`, and layouts use
         // inline bootstraps — both must stay permitted or the UI dies.
         $this->assertStringContainsString("'unsafe-eval'", $csp);
@@ -362,6 +370,122 @@ class SecurityHardeningTest extends TestCase
         // trusted list): still nothing, because HSTS is only meaningful once
         // the connection actually arrived over TLS.
         $this->get($http)->assertHeaderMissing('Strict-Transport-Security');
+    }
+
+    /**
+     * `form-action 'self'` is measured against the *page* origin, and a browser
+     * counts the port as part of that origin. So an action built by
+     * `route('wallet.process-funding')` — which Laravel 8 renders as an
+     * absolute URL derived from APP_URL — is refused the moment APP_URL names
+     * a different host or port than the one in the address bar, e.g.
+     *
+     *   Sending form data to 'http://127.0.0.1:8000/wallet/fund' violates the
+     *   following Content Security Policy directive: "form-action 'self'".
+     *
+     * That is what happened on the fund-wallet page. The fix is for every form
+     * action to be origin-relative (`route($name, $parameters, false)`), which
+     * is also the only shape that survives being browsed at 127.0.0.1:8000,
+     * localhost:8000 or a forwarded port.
+     */
+    public function test_the_wallet_funding_form_acts_on_the_current_origin(): void
+    {
+        $user = User::factory()->create();
+
+        // The exact string the browser needs: no scheme, no host, no port.
+        $this->assertSame(
+            '/wallet/fund',
+            route('wallet.process-funding', [], false),
+            'The funding form action must be a path, not an absolute URL.'
+        );
+
+        $response = $this->actingAs($user)->get(route('wallet.fund'))->assertOk();
+
+        $action = $this->formAction((string) $response->getContent(), 'fundWalletForm');
+
+        $this->assertSame('/wallet/fund', $action);
+
+        // Belt and braces: nothing on the page may post to an absolute URL at
+        // all, whichever host APP_URL happens to name.
+        foreach ($this->formActions((string) $response->getContent()) as $attribute) {
+            $this->assertStringStartsWith(
+                '/',
+                $attribute,
+                "Form action [{$attribute}] is absolute; form-action 'self' will block it off-origin."
+            );
+
+            foreach ([config('app.url'), 'localhost', '127.0.0.1'] as $host) {
+                if (is_string($host) && $host !== '') {
+                    $authority = rtrim((string) preg_replace('#^https?://#', '', $host), '/');
+
+                    $this->assertStringNotContainsString(
+                        $authority,
+                        $attribute,
+                        "Form action [{$attribute}] embeds the configured host, so it breaks whenever the page is reached on another origin."
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * The runtime assertions above only cover the page they render. This walks
+     * every Blade template so a newly added `<form>` cannot quietly
+     * reintroduce an absolute action that CSP will refuse.
+     */
+    public function test_no_blade_form_action_is_absolute(): void
+    {
+        $files = [];
+
+        foreach (File::allFiles(resource_path('views')) as $file) {
+            if (str_ends_with($file->getFilename(), '.blade.php')) {
+                $files[] = $file->getPathname();
+            }
+        }
+
+        $this->assertNotEmpty($files, 'No Blade templates were found to scan.');
+
+        $offenders = [];
+
+        foreach ($files as $file) {
+            $contents = (string) file_get_contents($file);
+
+            // Multi-line <form ...> tags included: the attributes between
+            // `<form` and `>` are what matters.
+            preg_match_all('/<form\b[^>]*>/i', $contents, $tags);
+
+            foreach ($tags[0] as $tag) {
+                if (! preg_match('/\baction="([^"]*)"/i', $tag, $action)) {
+                    continue;
+                }
+
+                $value = $action[1];
+
+                // No action attribute at all, or an Alpine binding: the form
+                // posts to the current URL, which is the origin by definition.
+                if ($value === '' || str_contains($value, '{{') === false) {
+                    continue;
+                }
+
+                if (! str_contains($value, 'route(')) {
+                    $offenders[] = basename($file) . ': ' . $value;
+                    continue;
+                }
+
+                // route('name', [], false) and route('name', $param, false) are
+                // relative; route('name') and route('name', $param) are not.
+                if (! preg_match('/route\([^)]*,\s*false\s*\)/', $value)
+                    && ! preg_match('/route\([^)]*,\s*\[\],\s*false\s*\)/', $value)) {
+                    $offenders[] = basename($file) . ': ' . $value;
+                }
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $offenders,
+            "These form actions are absolute; add a trailing `, false` to the route() call " .
+            "so form-action 'self' cannot block them:\n  - " . implode("\n  - ", $offenders)
+        );
     }
 
     /* =====================================================================
@@ -506,6 +630,55 @@ class SecurityHardeningTest extends TestCase
     private function jpegClaiming(string $name): UploadedFile
     {
         return UploadedFile::fake()->create($name, 4, 'image/jpeg');
+    }
+
+    /**
+     * A single directive's value from a serialised CSP header, e.g.
+     * `directive($csp, 'connect-src')` -> `" 'self' https://..."`. Empty when
+     * the directive is absent, so a caller cannot accidentally match another
+     * directive's origins.
+     */
+    private function directive(string $csp, string $name): string
+    {
+        foreach (explode(';', $csp) as $part) {
+            $part = trim($part);
+
+            if (str_starts_with($part, $name . ' ')) {
+                return substr($part, strlen($name));
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Every `action="..."` value rendered by a page's forms.
+     *
+     * @return array<int, string>
+     */
+    private function formActions(string $html): array
+    {
+        preg_match_all('/<form\b[^>]*\baction="([^"]*)"/i', $html, $matches);
+
+        return $matches[1];
+    }
+
+    /**
+     * The action of one specific form, located by its id attribute.
+     */
+    private function formAction(string $html, string $id): string
+    {
+        preg_match('/<form\b[^>]*\bid="' . preg_quote($id, '/') . '"[^>]*>/i', $html, $matches);
+
+        $this->assertNotEmpty($matches, "No <form id=\"{$id}\"> was found in the response.");
+
+        $this->assertSame(
+            1,
+            preg_match('/\baction="([^"]*)"/i', $matches[0], $action),
+            "The <form id=\"{$id}\"> has no action attribute."
+        );
+
+        return $action[1];
     }
 
     private function pendingBankTransfer(User $user): Transactions

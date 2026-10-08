@@ -162,7 +162,7 @@
                     </div>
                 </div>
 
-                <form method="POST" action="{{ route('admin.logout') }}" class="mt-1">
+                <form method="POST" action="{{ route('admin.logout', [], false) }}" class="mt-1">
                     @csrf
                     <button type="submit"
                             class="sidebar-link w-full text-red-600 hover:bg-red-50 hover:text-red-700"

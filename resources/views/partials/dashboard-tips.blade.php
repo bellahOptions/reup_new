@@ -70,7 +70,7 @@
             </h2>
             <span class="ml-auto text-xs font-medium tabular-nums text-accent-foreground/80"
                   x-text="(step + 1) + ' of ' + total"></span>
-            <form method="POST" action="{{ route('tips.dismiss') }}">
+            <form method="POST" action="{{ route('tips.dismiss', [], false) }}">
                 @csrf
                 <button type="submit" class="btn btn-ghost btn-sm text-accent-foreground" aria-label="Skip the introduction">
                     <x-icon name="x-mark" class="h-4 w-4" />
@@ -120,7 +120,7 @@
                 </button>
 
                 {{-- Finishing marks the introduction seen so it does not return. --}}
-                <form method="POST" action="{{ route('tips.dismiss') }}" x-show="step === total - 1" x-cloak>
+                <form method="POST" action="{{ route('tips.dismiss', [], false) }}" x-show="step === total - 1" x-cloak>
                     @csrf
                     <button type="submit" class="btn btn-primary btn-sm">
                         Got it

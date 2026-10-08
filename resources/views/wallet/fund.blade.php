@@ -130,8 +130,15 @@
                      }">
 
                     {{-- `data-no-loading`: the Alpine `submitting` flag below
-                         already swaps the button label and disables it. --}}
-                    <form id="fundWalletForm" method="POST" action="{{ route('wallet.process-funding') }}"
+                         already swaps the button label and disables it.
+
+                         The third `route()` argument ($absolute = false) is
+                         load-bearing, not cosmetic: `form-action 'self'` is
+                         measured against the page origin and includes the
+                         port, so an absolute action built from APP_URL is
+                         refused whenever APP_URL and the address bar disagree
+                         (e.g. http://localhost vs http://127.0.0.1:8000). --}}
+                    <form id="fundWalletForm" method="POST" action="{{ route('wallet.process-funding', [], false) }}"
                           data-no-loading
                           @submit="if (outOfRange) { $event.preventDefault(); return; } submitting = true">
                         @csrf

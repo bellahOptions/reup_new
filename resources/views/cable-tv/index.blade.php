@@ -66,7 +66,7 @@
             {{-- ===================== Purchase form ===================== --}}
             <div class="lg:col-span-2">
                 <form id="cableTvForm"
-                      action="{{ route('cable-tv.purchase') }}"
+                      action="{{ route('cable-tv.purchase', [], false) }}"
                       method="POST"
                       class="card"
                       @submit="onSubmit($event)">

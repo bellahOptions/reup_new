@@ -55,7 +55,7 @@
 
         {{-- ============================ Form ============================ --}}
         <div class="lg:col-span-2">
-            <form method="POST" action="{{ route('betting.fund') }}" class="card"
+            <form method="POST" action="{{ route('betting.fund', [], false) }}" class="card"
                   @submit="submitError = ''">
                 @csrf
 

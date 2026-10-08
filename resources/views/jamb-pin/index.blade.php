@@ -62,7 +62,7 @@
             {{-- ===================== Purchase form ===================== --}}
             <div class="lg:col-span-2">
                 <form id="jambForm"
-                      action="{{ route('jamb.purchase') }}"
+                      action="{{ route('jamb.purchase', [], false) }}"
                       method="POST"
                       class="card"
                       @submit="onSubmit($event)">

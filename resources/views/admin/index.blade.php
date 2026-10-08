@@ -183,7 +183,7 @@
                                                 <span>{{ $admin->is_online ? 'Pause' : 'Activate' }}</span>
                                             </button>
 
-                                            <form action="{{ route('admin.admins.destroy', $admin) }}" method="POST" class="inline">
+                                            <form action="{{ route('admin.admins.destroy', $admin, false) }}" method="POST" class="inline">
                                                 @csrf
                                                 @method('DELETE')
                                                 <button type="submit" class="btn btn-ghost btn-sm text-destructive"

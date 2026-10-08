@@ -108,6 +108,24 @@ ClubKonnect/Pairgate and are deliberately excluded — Paystack has never heard 
 them, so polling one would return "not found" and could wrongly close a delivered
 order.
 
+#### A funding attempt that never reached Paystack fails itself
+
+An attempt that dies before the customer is handed to the gateway — a missing
+key, an unreachable API, a rejected initialise call — is written off
+automatically on a **short** window (`--unreached`, default 30 minutes) rather
+than the 24-hour `--lookback` used for a checkout that was actually opened. The
+distinguishing signal is the Paystack access code stored on the transaction
+during `initialize()`: no access code means checkout was never reached, so there
+is no session to complete and no charge in flight. `initiated_at` is *not* used
+for this — it is stamped before Paystack is called.
+
+Two other things close a row out immediately, without waiting for any window:
+a `failed`, `abandoned` or `reversed` verdict from the gateway itself.
+
+This is safe in the direction that matters: `settle()` still credits a row the
+gateway later confirms as paid, even one this sweep has already written off, so
+an early failure can never cost a customer money.
+
 ### Unknown outcomes are not failures
 
 A bill purchase whose provider call timed out is left in the `unknown` state:
@@ -485,6 +503,80 @@ rm public/hot
 `localhost` resolves to IPv6-only `[::1]` on some Windows configurations, while
 `php artisan serve` is reached over IPv4 — so the browser cannot fetch the dev
 assets. The config also sets `server.hmr.host` to match.
+
+### `APP_URL` must match the origin in the address bar, or CSP blocks the forms
+
+`SecurityHeaders` sends `form-action 'self'`, which means a form may only submit
+to the *same origin* as the page. Browsers treat host and port as part of the
+origin, so `localhost:8000`, `127.0.0.1:8000` and `127.0.0.1:8001` are three
+different origins even though they all reach the same `php artisan serve`.
+
+This used to bite when `APP_URL` (`.env`) disagreed with the URL actually being
+browsed: Laravel 8 generates **absolute** URLs from `APP_URL`, so the rendered
+form posted to `http://127.0.0.1:8000/wallet/fund` while the page was on another
+origin, and the browser refused it with:
+
+```
+Sending form data to 'http://127.0.0.1:8000/wallet/fund' violates the
+following Content Security Policy directive: "form-action 'self'". The request
+has been blocked.
+```
+
+Two rules keep this from coming back:
+
+1. `.env`'s `APP_URL` is `http://127.0.0.1:8000`, matching `docs/RUNNING.md`.
+   If you serve on another port or host, change it, or browse the exact URL it
+   names.
+2. **Every `<form action>` in `resources/views` is origin-relative**, written as
+   `route('name', $params, false)` — the `false` is `$absolute = false`. A
+   relative action cannot cross the origin, so the page always submits to
+   itself no matter which host/port you reached it on. Keep new forms in that
+   shape; `SecurityHeadersTest` asserts it.
+
+Note `route('name', [], false)` is *not* a relative-URL switch for the whole
+app: it is per call site. Redirects and the Paystack `callback_url` still need
+absolute URLs, so leave those alone.
+
+### Cloudflare injects a script the repository does not contain
+
+When the production domain is proxied through Cloudflare with **Web Analytics**
+enabled, Cloudflare rewrites every HTML response to append
+
+```html
+<script type="module" crossorigin
+        src="https://static.cloudflareinsights.com/beacon.min.js/v4bc70e2c..."></script>
+```
+
+That tag exists nowhere in this repository — not in the Blade views, not in the
+built assets — so a `grep` for it returns nothing and it only ever appears in
+production. `curl` does not show it either unless you send
+`Accept: text/html` (the User-Agent is irrelevant). CSP applies to the HTML the
+browser actually receives, edge-injected tags included, so before this was
+allowed every production page logged:
+
+```
+Loading the script 'https://static.cloudflareinsights.com/beacon.min.js/v4bc70e2c...'
+violates the following Content Security Policy directive: "script-src ...".
+The action has been blocked.
+```
+
+`SecurityHeaders` therefore lists `https://static.cloudflareinsights.com` in
+`script-src`. Two things worth knowing:
+
+- **`connect-src` needs nothing.** For a proxied domain the beacon sends its
+  data to *your own* origin at `/cdn-cgi/rum`, which `connect-src 'self'`
+  already permits. Adding `cloudflareinsights.com` to `connect-src` is a common
+  but useless fix — verify the blocked URL in the console rather than guessing
+  the destination.
+- The entry is dead weight if Web Analytics is switched off in the Cloudflare
+  dashboard. Remove it then.
+
+To check a live response, ask for HTML as a browser would:
+
+```
+curl -s -H "Accept: text/html" https://reup.com.ng/ | findstr cloudflareinsights
+curl -sI https://reup.com.ng/ | findstr /i content-security-policy
+```
 
 ### `@vite` is provided by this application, not the framework
 

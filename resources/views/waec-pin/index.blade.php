@@ -62,7 +62,7 @@
             {{-- ===================== Purchase form ===================== --}}
             <div class="lg:col-span-2">
                 <form id="waecForm"
-                      action="{{ route('waec-pin.purchase') }}"
+                      action="{{ route('waec-pin.purchase', [], false) }}"
                       method="POST"
                       class="card"
                       @submit="onSubmit($event)">

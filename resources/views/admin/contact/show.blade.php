@@ -127,7 +127,7 @@
                     <p class="card-description">Sent to {{ $message->email }} from the configured support address.</p>
                 </div>
 
-                <form id="replyForm" action="{{ route('admin.contact.reply', $message->id) }}" method="POST"
+                <form id="replyForm" action="{{ route('admin.contact.reply', $message->id, false) }}" method="POST"
                       @submit.prevent="sendReply($event)">
                     @csrf
 

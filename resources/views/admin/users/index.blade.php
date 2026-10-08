@@ -98,7 +98,7 @@
         </div>
 
         <div class="card-content space-y-4">
-            <form id="searchForm" method="GET" action="{{ route('admin.users.index') }}" class="grid grid-cols-1 gap-4 md:grid-cols-4">
+            <form id="searchForm" method="GET" action="{{ route('admin.users.index', [], false) }}" class="grid grid-cols-1 gap-4 md:grid-cols-4">
                 <div class="md:col-span-2">
                     <label class="label mb-2" for="searchInput">Search</label>
                     <input type="text" id="searchInput" name="search" value="{{ request('search') }}"

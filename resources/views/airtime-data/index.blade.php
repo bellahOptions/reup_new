@@ -91,7 +91,7 @@
 
                     <div class="card-content md:p-8">
                         {{-- ================= Airtime ================= --}}
-                        <form id="airtimeForm" action="{{ route('airtime.purchase') }}" method="POST"
+                        <form id="airtimeForm" action="{{ route('airtime.purchase', [], false) }}" method="POST"
                               data-loading-text="Sending airtime&hellip;"
                               class="space-y-6" x-show="service === 'airtime'">
                             @csrf
@@ -165,7 +165,7 @@
                         </form>
 
                         {{-- ================= Data ================= --}}
-                        <form id="dataForm" action="{{ route('data.purchase') }}" method="POST"
+                        <form id="dataForm" action="{{ route('data.purchase', [], false) }}" method="POST"
                               data-loading-text="Sending data&hellip;"
                               class="space-y-6" x-show="service === 'data'" x-cloak>
                             @csrf

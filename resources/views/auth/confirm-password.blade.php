@@ -12,7 +12,7 @@
                 This is a protected area. Please re-enter your password to continue.
             </p>
 
-            <form method="POST" action="{{ route('password.confirm') }}" class="mt-6 space-y-5">
+            <form method="POST" action="{{ route('password.confirm', [], false) }}" class="mt-6 space-y-5">
                 @csrf
 
                 <div>

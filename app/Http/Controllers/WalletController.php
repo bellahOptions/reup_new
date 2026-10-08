@@ -181,6 +181,23 @@ class WalletController extends Controller
             if ($reservation['replay'] && $reservation['transaction']) {
                 $original = $reservation['transaction'];
 
+                /*
+                 * A replay of an attempt that never went through must not trap
+                 * the customer.
+                 *
+                 * The idempotency key exists to stop a *second* charge for work
+                 * that already happened. A failed attempt did not happen: no
+                 * money moved, so there is nothing to be idempotent about, and
+                 * bouncing the customer to the status page of a dead attempt
+                 * leaves them with a failure they cannot retry past. Sending
+                 * them back to the form lets the retry proceed, and a new
+                 * attempt creates its own row.
+                 */
+                if (in_array($original->status, ['failed', 'cancelled'], true)) {
+                    return redirect()->route('wallet.fund')
+                        ->with('error', 'Your previous funding attempt did not go through and no money was taken. Please try again.');
+                }
+
                 return $original->payment_method === 'bank_transfer'
                     ? redirect()->route('wallet.bank-transfer.details', ['ref' => $original->reference])
                     : redirect()->route('wallet.payment.status', ['reference' => $original->reference]);
@@ -339,6 +356,16 @@ class WalletController extends Controller
 
             return redirect()->away($url);
         } catch (Throwable $e) {
+            /*
+             * `report()` as well as the explicit line: report() goes through the
+             * exception handler, so the *class* and the stack trace are recorded
+             * too. The message alone ("Paystack rejected the request: ...") is
+             * not always enough to tell a key problem from an unreachable
+             * callback URL, and this is the one failure a customer reports as
+             * "paystack is not loading" with nothing else to go on.
+             */
+            report($e);
+
             Log::error('Paystack initialisation failed', [
                 'transaction_id' => $transaction->id,
                 'error' => $e->getMessage(),

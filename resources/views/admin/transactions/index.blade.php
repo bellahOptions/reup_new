@@ -132,7 +132,7 @@
         </div>
 
         <div class="card-content">
-            <form method="GET" action="{{ route('admin.transactions.index') }}" id="filterForm" class="space-y-4">
+            <form method="GET" action="{{ route('admin.transactions.index', [], false) }}" id="filterForm" class="space-y-4">
                 <div class="grid grid-cols-1 gap-4 md:grid-cols-4">
                     <div>
                         <label class="label mb-2" for="filterSearch">Search</label>

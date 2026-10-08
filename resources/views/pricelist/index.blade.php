@@ -148,7 +148,7 @@
                      takes {plan_code, phone}; the price is resolved server-side. --}}
                 @auth
                     <div class="card border-brand-200" x-show="selectedPlan" x-cloak>
-                        <form action="{{ route('pricelist.purchase.data') }}" method="POST" @submit="onBuySubmit($event)">
+                        <form action="{{ route('pricelist.purchase.data', [], false) }}" method="POST" @submit="onBuySubmit($event)">
                             @csrf
                             <input type="hidden" name="plan_code" :value="selectedPlan ? selectedPlan.code : ''">
 

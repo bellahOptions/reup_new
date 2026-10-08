@@ -13,7 +13,7 @@
 
 @section('content')
 <div class="mx-auto max-w-3xl">
-    <form action="{{ route('admin.admins.store') }}" method="POST" class="space-y-6">
+    <form action="{{ route('admin.admins.store', [], false) }}" method="POST" class="space-y-6">
         @csrf
 
         {{-- ===================== Basic information ====================== --}}

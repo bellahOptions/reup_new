@@ -78,7 +78,7 @@
             {{-- ===================== Payment form ===================== --}}
             <div class="lg:col-span-2">
                 <form id="electricityForm"
-                      action="{{ route('electricity.pay') }}"
+                      action="{{ route('electricity.pay', [], false) }}"
                       method="POST"
                       class="card"
                       @submit="onSubmit($event)">

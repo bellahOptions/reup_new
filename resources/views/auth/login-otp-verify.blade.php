@@ -30,7 +30,7 @@
             {{-- `data-no-loading`: this form renders its own "Verifying…" state
                  from the Alpine flag below, so the global button lock would only
                  duplicate it. --}}
-            <form method="POST" action="{{ route('login.code.verify.post') }}" class="space-y-5"
+            <form method="POST" action="{{ route('login.code.verify.post', [], false) }}" class="space-y-5"
                   data-no-loading
                   @submit="submitting = true">
                 @csrf
@@ -75,7 +75,7 @@
             </form>
 
             <div class="mt-6 flex items-center justify-between gap-3 border-t border-border pt-5">
-                <form method="POST" action="{{ route('login.code.resend') }}">
+                <form method="POST" action="{{ route('login.code.resend', [], false) }}">
                     @csrf
                     <button type="submit"
                             class="btn btn-ghost btn-sm"

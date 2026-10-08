@@ -56,6 +56,59 @@ class PaystackService
     }
 
     /**
+     * The URL Paystack sends the customer's browser back to after checkout.
+     *
+     * This is the one place where a wrong APP_URL costs money rather than
+     * merely breaking a link, so it is validated before the gateway is called.
+     * `route()` builds an absolute URL from APP_URL, which means:
+     *
+     *   * a stale APP_URL (exported in the supervisor's environment, where it
+     *     silently wins over .env — see docs/RUNNING.md and `env:doctor`) sends
+     *     Paystack's redirect to the wrong host;
+     *   * if that host is localhost or a private address, the customer is
+     *     redirected somewhere their browser cannot reach *after* their card
+     *     has been charged, and the session that owns the callback is gone
+     *     because the cookie belongs to the real domain.
+     *
+     * Paystack itself accepts an unreachable callback_url happily, so this
+     * cannot be caught by looking at the API response. Refusing up front with
+     * a configuration error is the honest failure: it leaves a failed row and
+     * a log line naming the real problem instead of a paid customer staring at
+     * a dead redirect.
+     *
+     * Only production is policed — local development legitimately points at
+     * 127.0.0.1, and `localhost`/`.test` installs must keep working.
+     */
+    public function callbackUrl(): string
+    {
+        $url = route('wallet.paystack.callback');
+
+        if (! app()->environment('production')) {
+            return $url;
+        }
+
+        $host = (string) parse_url($url, PHP_URL_HOST);
+        $scheme = (string) parse_url($url, PHP_URL_SCHEME);
+
+        $unreachable = $host === ''
+            || $scheme !== 'https'
+            || in_array(strtolower($host), ['localhost', '127.0.0.1', '::1', '0.0.0.0'], true)
+            || filter_var($host, FILTER_VALIDATE_IP) !== false
+            || str_ends_with(strtolower($host), '.local')
+            || str_ends_with(strtolower($host), '.test');
+
+        if ($unreachable) {
+            throw new RuntimeException(
+                "Paystack callback_url [{$url}] is not a public https URL. "
+                . 'Set APP_URL in production to the exact public origin customers use '
+                . '(and restart the process that exports it, if it is set in the environment).'
+            );
+        }
+
+        return $url;
+    }
+
+    /**
      * Create a Paystack transaction and return the hosted checkout URL.
      *
      * @throws RuntimeException when the gateway rejects the request.
@@ -66,16 +119,18 @@ class PaystackService
             throw new RuntimeException('Paystack secret key is not configured.');
         }
 
+        $callbackUrl = $this->callbackUrl();
+
         $response = $this->client()->post('https://api.paystack.co/transaction/initialize', [
             'email' => $user->email,
-            'amount' => (int) round(((float) $transaction->total_amount) * 100),
+            'amount' => Money::fromDatabase($transaction->total_amount)->minor(),
             'currency' => 'NGN',
             // The UUID, not the display reference: the reconciler polls
             // /transaction/verify/{this value}, so it has to match exactly what
             // the gateway lodged. `gatewayReference()` falls back to `reference`
             // for rows created before the uuid column existed.
             'reference' => $transaction->gatewayReference(),
-            'callback_url' => route('wallet.paystack.callback'),
+            'callback_url' => $callbackUrl,
             'metadata' => [
                 'user_id' => $user->id,
                 'transaction_id' => $transaction->id,
@@ -99,6 +154,9 @@ class PaystackService
                 // support, and the only handle that survives a reference typo.
                 'paystack_transaction_id' => $data['id'] ?? null,
                 'initialized_at' => now()->toDateTimeString(),
+                // Recorded so support can answer "where were you sent back
+                // to?" long after the fact, when the environment has changed.
+                'callback_url' => $callbackUrl,
             ]),
         ])->save();
 

@@ -23,7 +23,7 @@
 @endphp
 
 <div class="mx-auto max-w-4xl" x-data="{ active: {{ $isActive ? 'true' : 'false' }} }">
-    <form action="{{ isset($announcement) ? route('admin.announcement.update', $announcement->id) : route('admin.announcement.store') }}"
+    <form action="{{ isset($announcement) ? route('admin.announcement.update', $announcement->id, false) : route('admin.announcement.store', [], false) }}"
           method="POST" class="space-y-6">
         @csrf
         @if(isset($announcement))

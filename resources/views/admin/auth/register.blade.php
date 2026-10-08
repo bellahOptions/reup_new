@@ -38,7 +38,7 @@
                         </div>
                     @endif
 
-                    <form method="POST" action="{{ route('admin.register.post') }}" class="mt-6 space-y-5">
+                    <form method="POST" action="{{ route('admin.register.post', [], false) }}" class="mt-6 space-y-5">
                         @csrf
 
                         <div>

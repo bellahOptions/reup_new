@@ -52,7 +52,7 @@
             </p>
         </div>
 
-        <form method="POST" action="{{ route('admin.providers.update', $provider) }}" class="card-body space-y-4">
+        <form method="POST" action="{{ route('admin.providers.update', $provider, false) }}" class="card-body space-y-4">
             @csrf
             @method('PUT')
 
@@ -97,7 +97,7 @@
         </form>
 
         <div class="card-body border-t">
-            <form method="POST" action="{{ route('admin.providers.check', $provider) }}">
+            <form method="POST" action="{{ route('admin.providers.check', $provider, false) }}">
                 @csrf
                 <button type="submit" class="btn btn-outline btn-sm">Check now</button>
                 <span class="ml-2 text-xs text-muted-foreground">
@@ -195,12 +195,12 @@
                             <td class="text-right whitespace-nowrap">
                                 @unless($alert->resolved_at)
                                     @unless($alert->acknowledged_at)
-                                        <form method="POST" action="{{ route('admin.providers.alerts.acknowledge', $alert) }}" class="inline">
+                                        <form method="POST" action="{{ route('admin.providers.alerts.acknowledge', $alert, false) }}" class="inline">
                                             @csrf
                                             <button type="submit" class="link text-xs">Acknowledge</button>
                                         </form>
                                     @endunless
-                                    <form method="POST" action="{{ route('admin.providers.alerts.resolve', $alert) }}" class="inline">
+                                    <form method="POST" action="{{ route('admin.providers.alerts.resolve', $alert, false) }}" class="inline">
                                         @csrf
                                         <button type="submit" class="link text-xs">Resolve</button>
                                     </form>

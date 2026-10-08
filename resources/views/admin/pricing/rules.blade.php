@@ -112,7 +112,7 @@
                                 <a href="{{ route('admin.pricing.edit', $rule) }}" class="link text-xs">Edit</a>
                                 <a href="{{ route('admin.pricing.versions', $rule) }}" class="link ml-2 text-xs">History</a>
 
-                                <form method="POST" action="{{ route('admin.pricing.toggle', $rule) }}" class="inline">
+                                <form method="POST" action="{{ route('admin.pricing.toggle', $rule, false) }}" class="inline">
                                     @csrf
                                     @method('PUT')
                                     <button type="submit" class="link ml-2 text-xs">
@@ -120,7 +120,7 @@
                                     </button>
                                 </form>
 
-                                <form method="POST" action="{{ route('admin.pricing.destroy', $rule) }}"
+                                <form method="POST" action="{{ route('admin.pricing.destroy', $rule, false) }}"
                                       class="inline"
                                       onsubmit="return confirm('Delete this pricing rule? Its version history will go with it.')">
                                     @csrf

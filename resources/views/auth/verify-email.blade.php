@@ -45,7 +45,7 @@
         </div>
 
         <div class="card-footer items-center justify-between gap-3">
-            <form method="POST" action="{{ route('verification.send') }}">
+            <form method="POST" action="{{ route('verification.send', [], false) }}">
                 @csrf
                 <button type="submit" class="btn btn-outline btn-sm">
                     <x-icon name="arrow-path" class="h-4 w-4" />
@@ -55,7 +55,7 @@
 
             {{-- Logout is POST-only; this used to be a GET <a href>, which threw
                  MethodNotAllowedHttpException. --}}
-            <form method="POST" action="{{ route('logout') }}">
+            <form method="POST" action="{{ route('logout', [], false) }}">
                 @csrf
                 <button type="submit" class="btn btn-ghost btn-sm text-muted-foreground">
                     <x-icon name="arrow-right-on-rectangle" class="h-4 w-4" />

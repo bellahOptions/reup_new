@@ -7,10 +7,13 @@ use App\Models\User;
 use App\Models\Wallet;
 use App\Models\WalletLedger;
 use App\Services\PaystackService;
+use App\Services\SecurityService;
 use App\Services\WalletService;
 use App\Support\Money;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
@@ -104,6 +107,203 @@ class PaystackSettlementTest extends TestCase
     /* =====================================================================
      | 1. Successful payment
      |=================================================================== */
+
+    /**
+     * A production install must never hand Paystack a callback the customer's
+     * browser cannot reach. Paystack accepts an unreachable `callback_url`
+     * without complaint, so the failure only shows up *after* the card is
+     * charged — which is what this guard exists to prevent.
+     */
+    public function test_initialisation_refuses_a_non_public_callback_url_in_production(): void
+    {
+        $this->app->detectEnvironment(fn () => 'production');
+
+        $user = $this->user();
+        $transaction = $this->pendingFunding($user, '1500.50');
+
+        // The value a stale/exported APP_URL produces — note Paystack itself
+        // would have accepted this.
+        $this->forceOrigin('http://localhost');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('not a public https URL');
+
+        app(PaystackService::class)->initialize($transaction, $user);
+    }
+
+    public function test_initialisation_refuses_a_plain_http_callback_url_in_production(): void
+    {
+        $this->app->detectEnvironment(fn () => 'production');
+
+        $user = $this->user();
+        $transaction = $this->pendingFunding($user, '1500.50');
+
+        $this->forceOrigin('http://reup.com.ng');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('not a public https URL');
+
+        app(PaystackService::class)->initialize($transaction, $user);
+    }
+
+    public function test_initialisation_refuses_a_private_ip_callback_url_in_production(): void
+    {
+        $this->app->detectEnvironment(fn () => 'production');
+
+        $user = $this->user();
+        $transaction = $this->pendingFunding($user, '1500.50');
+
+        $this->forceOrigin('https://192.168.1.10');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('not a public https URL');
+
+        app(PaystackService::class)->initialize($transaction, $user);
+    }
+
+    /**
+     * The guard must not fire where a loopback origin is correct, and it must
+     * send the *correct* callback when the origin is genuinely public.
+     */
+    public function test_a_public_https_callback_url_is_accepted_in_production_and_sent_to_paystack(): void
+    {
+        $this->app->detectEnvironment(fn () => 'production');
+
+        $this->forceOrigin('https://reup.com.ng');
+
+        Http::fake([
+            'api.paystack.co/transaction/initialize' => Http::response([
+                'status' => true,
+                'message' => 'Authorization URL created',
+                'data' => [
+                    'authorization_url' => 'https://checkout.paystack.com/abc123',
+                    'access_code' => 'abc123',
+                    'reference' => 'abc123',
+                ],
+            ]),
+        ]);
+
+        $user = $this->user();
+        $transaction = $this->pendingFunding($user, '1500.50');
+
+        $url = app(PaystackService::class)->initialize($transaction, $user);
+
+        $this->assertSame('https://checkout.paystack.com/abc123', $url);
+
+        Http::assertSent(function ($request) {
+            return $request['callback_url'] === 'https://reup.com.ng/wallet/paystack/callback'
+                && $request['amount'] === 150050;
+        });
+
+        $this->assertSame(
+            'https://reup.com.ng/wallet/paystack/callback',
+            $transaction->fresh()->meta['callback_url'] ?? null
+        );
+    }
+
+    public function test_local_development_still_points_the_callback_at_loopback(): void
+    {
+        // The suite runs as `testing`, i.e. not production: no guard.
+        $this->assertSame(
+            route('wallet.paystack.callback'),
+            app(PaystackService::class)->callbackUrl()
+        );
+    }
+
+    /**
+     * Pin the origin the URL generator builds from, for the duration of one
+     * test. `config()` alone is not enough: `UrlGenerator` caches its root the
+     * first time a URL is generated, so a later config change would be ignored.
+     */
+    private function forceOrigin(string $origin): void
+    {
+        URL::forceRootUrl(rtrim($origin, '/'));
+        URL::forceScheme(str_starts_with($origin, 'https://') ? 'https' : 'http');
+    }
+
+    /* =====================================================================
+     | Retrying an attempt that failed
+     |=================================================================== */
+
+    /**
+     * A customer who retries a funding attempt that never went through must be
+     * able to try again. The idempotency key exists to stop a *second* charge
+     * for work that already happened; a failed attempt is not work that
+     * happened, so a replay of it must not pin the customer to the status page
+     * of a dead attempt.
+     */
+    public function test_a_replayed_failed_attempt_sends_the_customer_back_to_the_form(): void
+    {
+        $user = User::factory()->create();
+        $failed = $this->pendingFunding($user, '1500.50');
+
+        $failed->forceFill([
+            'status' => 'failed',
+            'payment_status' => 'failed',
+            'status_message' => 'Could not start payment session.',
+            'completed_at' => now(),
+        ])->save();
+
+        $key = $this->reserveFunding($user, '1500.50', $failed);
+
+        $response = $this->actingAs($user)->post(route('wallet.process-funding'), [
+            'amount' => '1500.50',
+            'payment_method' => 'paystack',
+            'idempotency_key' => $key,
+        ]);
+
+        $response->assertRedirect(route('wallet.fund'));
+        $response->assertSessionHas('error');
+
+        // No second row was created for the retry.
+        $this->assertSame(1, Transactions::where('user_id', $user->id)->count());
+    }
+
+    /**
+     * The guard is only for failures. A replay of an attempt that is still in
+     * flight must keep returning the original outcome, which is the whole point
+     * of the key.
+     */
+    public function test_a_replayed_live_attempt_still_returns_the_original_outcome(): void
+    {
+        $user = User::factory()->create();
+        $live = $this->pendingFunding($user, '1500.50');
+
+        $key = $this->reserveFunding($user, '1500.50', $live);
+
+        $this->actingAs($user)->post(route('wallet.process-funding'), [
+            'amount' => '1500.50',
+            'payment_method' => 'paystack',
+            'idempotency_key' => $key,
+        ])->assertRedirect(route('wallet.payment.status', ['reference' => $live->reference]));
+
+        $this->assertSame(1, Transactions::where('user_id', $user->id)->count());
+    }
+
+    /**
+     * Reserve a funding key exactly as the controller would, pointing at an
+     * existing transaction.
+     */
+    private function reserveFunding(User $user, string $amount, Transactions $transaction): string
+    {
+        $key = 'funding-key-' . Str::random(12);
+
+        $security = app(SecurityService::class);
+
+        $reservation = $security->reserve(
+            $key,
+            'wallet_funding',
+            $user,
+            $security->requestHash($user, [
+                'amount' => Money::fromNaira($amount)->toDecimalString(),
+                'method' => 'paystack',
+            ])
+        );
+
+        $security->complete($reservation['record'], $transaction, ['outcome' => 'initiated']);
+
+        return $key;
+    }
 
     public function test_a_successful_gateway_payment_credits_the_exact_amount(): void
     {

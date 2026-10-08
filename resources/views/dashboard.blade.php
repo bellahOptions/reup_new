@@ -72,7 +72,7 @@
             {{-- Once the introduction has been dismissed it stays reachable here,
                  so it is a one-time greeting rather than a one-time opportunity. --}}
             @if(! $showTips)
-                <form method="POST" action="{{ route('tips.replay') }}" class="mt-3">
+                <form method="POST" action="{{ route('tips.replay', [], false) }}" class="mt-3">
                     @csrf
                     <button type="submit" class="link inline-flex items-center gap-1.5 text-xs font-medium">
                         <x-icon name="arrow-path" class="h-3.5 w-3.5" />
@@ -261,7 +261,7 @@
 
             {{-- GET filter form. It submits only the three params the controller
                  validates — type, status, date — and nothing else. --}}
-            <form method="GET" action="{{ route('dashboard') }}"
+            <form method="GET" action="{{ route('dashboard', [], false) }}"
                   class="grid grid-cols-1 gap-3 border-b border-border bg-surface px-5 py-4 sm:grid-cols-2 lg:grid-cols-4">
                 <div>
                     <label class="label" for="dashboard-type">Type</label>

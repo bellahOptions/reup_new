@@ -28,7 +28,7 @@
             </div>
         </div>
 
-        <form action="{{ route('admin.admins.update', $admin) }}" method="POST">
+        <form action="{{ route('admin.admins.update', $admin, false) }}" method="POST">
             @csrf
             @method('PUT')
             

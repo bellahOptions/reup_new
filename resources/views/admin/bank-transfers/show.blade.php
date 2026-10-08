@@ -156,7 +156,7 @@
             </div>
 
             <div class="card-content space-y-6">
-                <form id="approveForm" action="{{ route('admin.bank-transfers.approve', $transfer->id) }}" method="POST" class="space-y-3">
+                <form id="approveForm" action="{{ route('admin.bank-transfers.approve', $transfer->id, false) }}" method="POST" class="space-y-3">
                     @csrf
                     <div>
                         <label for="approveRemarks" class="label mb-2">Approval remarks (optional)</label>
@@ -170,7 +170,7 @@
                     </button>
                 </form>
 
-                <form id="rejectForm" action="{{ route('admin.bank-transfers.reject', $transfer->id) }}" method="POST"
+                <form id="rejectForm" action="{{ route('admin.bank-transfers.reject', $transfer->id, false) }}" method="POST"
                       class="space-y-3 border-t border-border pt-6">
                     @csrf
                     <div>
@@ -189,7 +189,7 @@
                     </button>
                 </form>
 
-                <form id="fraudForm" action="{{ route('admin.bank-transfers.mark-fraudulent', $transfer->id) }}" method="POST"
+                <form id="fraudForm" action="{{ route('admin.bank-transfers.mark-fraudulent', $transfer->id, false) }}" method="POST"
                       class="space-y-3 border-t border-border pt-6">
                     @csrf
                     <div>

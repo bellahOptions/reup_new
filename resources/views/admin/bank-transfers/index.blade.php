@@ -77,7 +77,7 @@
         </div>
 
         <div class="card-content">
-            <form method="GET" action="{{ route('admin.bank-transfers.index') }}" class="space-y-4">
+            <form method="GET" action="{{ route('admin.bank-transfers.index', [], false) }}" class="space-y-4">
                 <div class="grid grid-cols-1 gap-4 md:grid-cols-4">
                     <div>
                         <label class="label mb-2" for="transferStatus">Status</label>

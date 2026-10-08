@@ -65,12 +65,12 @@
                             </td>
                             <td class="text-right whitespace-nowrap">
                                 @unless($alert->acknowledged_at)
-                                    <form method="POST" action="{{ route('admin.providers.alerts.acknowledge', $alert) }}" class="inline">
+                                    <form method="POST" action="{{ route('admin.providers.alerts.acknowledge', $alert, false) }}" class="inline">
                                         @csrf
                                         <button type="submit" class="link text-xs">Acknowledge</button>
                                     </form>
                                 @endunless
-                                <form method="POST" action="{{ route('admin.providers.alerts.resolve', $alert) }}" class="inline">
+                                <form method="POST" action="{{ route('admin.providers.alerts.resolve', $alert, false) }}" class="inline">
                                     @csrf
                                     <button type="submit" class="link text-xs">Resolve</button>
                                 </form>
@@ -171,7 +171,7 @@
                                 @endif
                             </td>
                             <td class="text-right whitespace-nowrap">
-                                <form method="POST" action="{{ route('admin.providers.check', $row['provider']) }}" class="inline">
+                                <form method="POST" action="{{ route('admin.providers.check', $row['provider'], false) }}" class="inline">
                                     @csrf
                                     <button type="submit" class="link text-xs">Check now</button>
                                 </form>

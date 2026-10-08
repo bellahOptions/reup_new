@@ -10,7 +10,7 @@
                 </p>
             </div>
 
-            <form method="POST" action="{{ route('register') }}" class="space-y-5">
+            <form method="POST" action="{{ route('register', [], false) }}" class="space-y-5">
                 @csrf
 
                 {{-- Referral attribution. Carried through as a hidden field so it

@@ -11,7 +11,7 @@
             <p class="text-sm text-gray-600 mt-1">Fill in the details below to create a new admin account</p>
         </div>
 
-        <form action="{{ route('admin.admins.store') }}" method="POST">
+        <form action="{{ route('admin.admins.store', [], false) }}" method="POST">
             @csrf
             
             <div class="space-y-6">

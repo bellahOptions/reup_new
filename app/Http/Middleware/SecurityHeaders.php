@@ -43,10 +43,29 @@ use Symfony\Component\HttpFoundation\Response;
  *   * `frame-ancestors 'self'` is the modern half of the SAMEORIGIN clickjack
  *     defence.
  *
- * The enumerated origins are exactly what the views actually reference:
- * Google Fonts (partials/head), Google Tag Manager + Analytics (same file),
- * Chart.js on jsdelivr (admin dashboard) and Quill on cdn.quilljs.com (admin
- * terms editor). The Vite dev server origin is added automatically while
+ * `form-action 'self'` has a consequence that is easy to trip over: the
+ * directive is measured against the *page* origin, and a browser counts the
+ * port as part of that origin. Every `<form action>` in resources/views must
+ * therefore be origin-relative — `route($name, $parameters, false)` — because
+ * Laravel 8 renders `route()` as an absolute URL built from APP_URL. A form
+ * whose action names a different host or port than the address bar is refused
+ * outright ("Sending form data to 'http://127.0.0.1:8000/wallet/fund'
+ * violates ... form-action 'self'"), which is exactly what happened on the
+ * fund-wallet page while APP_URL was `http://localhost` and the page was
+ * being browsed at `127.0.0.1:8000`. Redirects and the Paystack
+ * `callback_url` still need absolute URLs, so this applies to form actions
+ * only; SecurityHardeningTest asserts the invariant across every template.
+ *
+ * The enumerated origins are what the views actually reference — Google Fonts
+ * (partials/head), Google Tag Manager + Analytics (same file), Chart.js on
+ * jsdelivr (admin dashboard) and Quill on cdn.quilljs.com (admin terms editor)
+ * — plus one origin nothing in this repository references at all:
+ * static.cloudflareinsights.com, the Cloudflare Web Analytics beacon that the
+ * edge injects into HTML responses when the domain is proxied through
+ * Cloudflare. Grepping the codebase for it finds nothing, and `curl` without
+ * `Accept: text/html` does not reproduce the injection either, so it is easy
+ * to leave out and then discover only in production, where it blocks and logs
+ * on every page. The Vite dev server origin is added automatically while
  * `npm run dev` is running so the HMR client is not blocked in development.
  *
  * ## HSTS
@@ -133,6 +152,21 @@ class SecurityHeaders
             'https://www.googletagmanager.com',
             'https://cdn.jsdelivr.net',
             'https://cdn.quilljs.com',
+            // Cloudflare Web Analytics. Nothing in this repository references
+            // it: when the domain is proxied through Cloudflare with Web
+            // Analytics (or the RUM beacon) enabled, the edge *injects*
+            //   <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v...">
+            // into the HTML on the way out. Grepping the codebase therefore
+            // finds nothing, and the tag only exists in production — which is
+            // exactly why it was missing here and every production page logged
+            //   Loading the script 'https://static.cloudflareinsights.com/beacon.min.js/...'
+            //   violates ... "script-src ...". The action has been blocked.
+            // It is deliberately NOT added to connect-src: a proxied domain
+            // receives the beacon's data at its own /cdn-cgi/rum endpoint, so
+            // `connect-src 'self'` already covers it. See docs/RUNNING.md.
+            // If Web Analytics is ever switched off in the Cloudflare
+            // dashboard, delete this line — it stops being needed.
+            'https://static.cloudflareinsights.com',
         ];
 
         $style = [

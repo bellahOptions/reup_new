@@ -155,7 +155,7 @@
                         <p class="card-description">Tell us what happened and include a reference if you have one.</p>
                     </div>
 
-                    <form id="contactForm" action="{{ route('contact.submit') }}" method="POST" class="card-content space-y-5">
+                    <form id="contactForm" action="{{ route('contact.submit', [], false) }}" method="POST" class="card-content space-y-5">
                         @csrf
 
                         @if($errors->any())

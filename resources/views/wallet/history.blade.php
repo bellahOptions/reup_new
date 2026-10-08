@@ -96,7 +96,7 @@
         </div>
 
         {{-- Filters: a real GET form against WalletController::history(). --}}
-        <form method="GET" action="{{ route('wallet.history') }}" class="card mb-6">
+        <form method="GET" action="{{ route('wallet.history', [], false) }}" class="card mb-6">
             <div class="card-content grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <div class="lg:col-span-2">
                     <label class="label" for="search">Search</label>

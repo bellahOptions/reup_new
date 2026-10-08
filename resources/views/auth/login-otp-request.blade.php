@@ -15,7 +15,7 @@
                 </p>
             </div>
 
-            <form method="POST" action="{{ route('login.code.send') }}" class="space-y-5">
+            <form method="POST" action="{{ route('login.code.send', [], false) }}" class="space-y-5">
                 @csrf
 
                 <div>

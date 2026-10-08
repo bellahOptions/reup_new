@@ -45,6 +45,7 @@ class ReconcilePaystackPayments extends Command
 {
     protected $signature = 'payments:reconcile
                             {--minutes=10 : Age in minutes after which a pending payment is polled}
+                            {--unreached=30 : Age in minutes after which a payment that never reached checkout is failed}
                             {--lookback=1440 : Give up on payments older than this many minutes}
                             {--limit=50 : Maximum transactions to poll per run}
                             {--dry-run : Report what would change without writing}';
@@ -61,6 +62,25 @@ class ReconcilePaystackPayments extends Command
 
         $minAge = max(1, (int) $this->option('minutes'));
         $lookback = max($minAge + 1, (int) $this->option('lookback'));
+
+        /*
+         * A payment that never reached checkout gets a much shorter rope.
+         *
+         * The lookback window exists to give a customer who *opened* Paystack's
+         * checkout a fair chance to finish, and webhook/callback a fair chance
+         * to arrive. An attempt that never got an authorization URL back has no
+         * such chance: the customer was never handed to the gateway, so there is
+         * no session to complete, no charge in flight and nothing for a webhook
+         * to report. Leaving it pending for a day is what makes a failed funding
+         * attempt look like money in limbo.
+         *
+         * Floored at 3x the poll window so every one of these rows is polled
+         * against Paystack at least twice before it is written off — if the
+         * gateway does know the reference, it settles on the polling branch
+         * below instead.
+         */
+        $unreached = max(3 * $minAge, (int) $this->option('unreached'));
+
         $dryRun = (bool) $this->option('dry-run');
 
         $counts = ['credited' => 0, 'failed' => 0, 'unchanged' => 0, 'unreachable' => 0];
@@ -71,37 +91,79 @@ class ReconcilePaystackPayments extends Command
         $stale = collect();
 
         /*
-         * Age out anything still pending beyond the lookback window. Without
-         * this, a payment that Paystack will never confirm — the customer closed
-         * the checkout tab and no charge was ever attempted — stays "pending"
-         * on the dashboard forever, which is worse than an honest failure: it
-         * makes the customer think money is in flight.
+         * Age out anything still pending beyond its window. Without this, a
+         * payment that Paystack will never confirm — the customer never reached
+         * checkout, or closed it and walked away — stays "pending" on the
+         * dashboard forever, which is worse than an honest failure: it makes the
+         * customer think money is in flight.
          *
-         * This is checked FIRST, and any row it claims is removed from the poll
-         * set, so every pending row is covered by exactly one of the two
+         * Two windows, because the two situations are not alike:
+         *
+         *   * never reached checkout -> `--unreached` (default 30m). The
+         *     customer was never handed to the gateway, so there is no session
+         *     to complete and no charge in flight. This is the common shape of
+         *     "the funding attempt failed": the attempt is definitively dead the
+         *     moment it happens, and only the webhook grace period is needed
+         *     before saying so.
+         *   * reached checkout -> the full `--lookback`, because a customer may
+         *     still be typing their card details, and Paystack may still deliver
+         *     a webhook for a payment that succeeded.
+         *
+         * This is checked FIRST, and every row it claims is removed from the
+         * poll set, so each pending row is covered by exactly one of the two
          * branches. Checking them as separate ranges previously left a gap: a
          * row older than the poll window but newer than the expiry threshold
          * matched neither condition and was silently ignored forever.
          *
-         * Only rows the gateway has never heard of are expired — which is what
-         * the lookback window buys: by default a payment gets a full day of
-         * polling before it is written off, and a row the gateway knows about is
-         * normally settled by the branch below long before it reaches here. The
-         * status is therefore re-read under a lock and only a still-pending row
-         * is expired, so a webhook arriving mid-run always wins.
+         * The status is re-read under a lock and only a still-pending row is
+         * expired, so a webhook arriving mid-run always wins — and `settle()`
+         * credits a row the gateway confirms even if this has already written it
+         * off, so an early expiry can never cost a customer their money.
          */
         $cutoff = now()->subMinutes($lookback);
+        $unreachedCutoff = now()->subMinutes($unreached);
 
-        $stale = Transactions::query()
+        /*
+         * One fetch, partitioned in PHP.
+         *
+         * Two age-bounded queries were the obvious shape and the wrong one: the
+         * sets have to be exactly disjoint or a row is either counted twice or
+         * missed at the boundary between them, and getting that right in SQL
+         * couples the two windows together. Fetching everything pending and
+         * past the *shorter* window, then splitting on the access code and the
+         * row's age, has no boundary to get wrong.
+         */
+        $cutoff = now()->subMinutes($lookback);
+        $unreachedCutoff = now()->subMinutes($unreached);
+
+        $eligible = Transactions::query()
             ->where('payment_method', 'paystack')
             ->whereIn('status', ['pending', 'processing'])
-            ->where('created_at', '<', $cutoff)
+            ->where('created_at', '<', $unreachedCutoff)
             ->get();
 
+        $stale = $eligible
+            ->filter(function (Transactions $transaction) use ($cutoff) {
+                if (! $this->reachedCheckout($transaction)) {
+                    // Never handed to the gateway: past the short window is enough.
+                    return true;
+                }
+
+                // Checkout was opened, so it gets the full lookback window.
+                return $transaction->created_at->lt($cutoff);
+            })
+            ->values();
+
         foreach ($stale as $transaction) {
+            $reached = $this->reachedCheckout($transaction);
+
+            $message = $reached
+                ? 'Expired: the payment was never completed. No money left your account.'
+                : 'Failed: this attempt never reached the payment page. No money left your account.';
+
             if ($dryRun) {
                 $counts['failed']++;
-                $this->line("  <fg=red>x</> {$transaction->reference} — would expire (older than {$lookback}m)");
+                $this->line("  <fg=red>x</> {$transaction->reference} — would fail (" . ($reached ? "checkout opened, older than {$lookback}m" : "never reached checkout, older than {$unreached}m") . ')');
                 continue;
             }
 
@@ -112,7 +174,7 @@ class ReconcilePaystackPayments extends Command
              *   * `payment_status` must still be pending, so a settlement that
              *     moved it cannot be overwritten.
              */
-            $expired = DB::transaction(function () use ($transaction) {
+            $expired = DB::transaction(function () use ($transaction, $message) {
                 $locked = Transactions::whereKey($transaction->getKey())->lockForUpdate()->first();
 
                 if (! $locked || $locked->status !== 'pending' || $locked->payment_status !== 'pending') {
@@ -122,7 +184,7 @@ class ReconcilePaystackPayments extends Command
                 $locked->forceFill([
                     'status' => 'failed',
                     'payment_status' => 'failed',
-                    'status_message' => 'Expired: the payment was never completed. No money left your account.',
+                    'status_message' => $message,
                     'completed_at' => now(),
                 ])->save();
 
@@ -131,7 +193,13 @@ class ReconcilePaystackPayments extends Command
 
             if ($expired) {
                 $counts['failed']++;
-                $this->line("  <fg=red>x</> {$transaction->reference} — expired (older than {$lookback}m)");
+                $this->line("  <fg=red>x</> {$transaction->reference} — failed (" . ($reached ? 'checkout abandoned' : 'never reached checkout') . ')');
+
+                Log::info('Paystack funding attempt resolved as failed without reaching the gateway', [
+                    'transaction_id' => $transaction->id,
+                    'reference' => $transaction->reference,
+                    'reached_checkout' => $reached,
+                ]);
             } else {
                 $counts['unchanged']++;
                 $this->line("  <fg=gray>-</> {$transaction->reference} — settled while expiring; left alone");
@@ -221,22 +289,36 @@ class ReconcilePaystackPayments extends Command
                 continue;
             }
 
-            // 'failed' is terminal at Paystack. 'abandoned' means the customer
-            // opened checkout and walked away; 'ongoing'/'pending'/'processing'
-            // are still in flight and must not be closed out.
-            if ($status === 'failed') {
+            /*
+             * Terminal gateway verdicts close the row out immediately rather
+             * than waiting for an expiry window:
+             *
+             *   * 'failed'     — the charge was attempted and refused.
+             *   * 'abandoned'  — the customer opened checkout and walked away
+             *                    without paying. Paystack will not collect on
+             *                    that session, so this is settled business
+             *                    rather than something to keep "pending".
+             *   * 'reversed'   — the charge was returned, so no funds remain
+             *                    with us to credit.
+             *
+             * 'ongoing' / 'pending' / 'processing' are still in flight and must
+             * not be closed out. A 'success' is credited on the branch above.
+             */
+            if (in_array($status, ['failed', 'abandoned', 'reversed'], true)) {
                 if (! $dryRun) {
                     $transaction->forceFill([
                         'status' => 'failed',
                         'payment_status' => 'failed',
-                        'status_message' => $gatewayData['gateway_response'] ?? 'Payment failed at the gateway.',
+                        'status_message' => $status === 'abandoned'
+                            ? 'The payment page was closed before payment was made. No money left your account.'
+                            : ($gatewayData['gateway_response'] ?? 'Payment failed at the gateway.'),
                         'api_response' => $gatewayData,
                         'completed_at' => now(),
                     ])->save();
                 }
 
                 $counts['failed']++;
-                $this->line("  <fg=red>x</> {$transaction->reference} — failed at gateway");
+                $this->line("  <fg=red>x</> {$transaction->reference} — {$status} at gateway");
                 continue;
             }
 
@@ -251,5 +333,31 @@ class ReconcilePaystackPayments extends Command
         );
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Did this attempt ever get handed to Paystack's checkout?
+     *
+     * The access code is only ever written from a successful `initialize()`
+     * response, so its presence is the durable record that the customer was
+     * actually sent to the payment page. Its absence — including a row whose
+     * metadata was never merged because initialisation threw — means the
+     * attempt never reached the gateway.
+     *
+     * Note `initiated_at` is deliberately NOT used for this: it is stamped when
+     * the funding row is created, before Paystack is called, so it says nothing
+     * about whether checkout was reached.
+     */
+    private function reachedCheckout(Transactions $transaction): bool
+    {
+        $meta = $transaction->meta;
+
+        if (! is_array($meta)) {
+            return false;
+        }
+
+        return ! empty($meta['paystack_access_code'])
+            || ! empty($meta['paystack_transaction_id'])
+            || ! empty($meta['paystack_initialized_at']);
     }
 }

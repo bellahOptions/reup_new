@@ -134,7 +134,7 @@
                                             Edit
                                         </a>
 
-                                        <form action="{{ route('admin.announcement.toggle-status', $announcement->id) }}" method="POST" class="inline">
+                                        <form action="{{ route('admin.announcement.toggle-status', $announcement->id, false) }}" method="POST" class="inline">
                                             @csrf
                                             <button type="submit" class="btn btn-ghost btn-sm"
                                                     title="{{ $announcement->is_active ? 'Deactivate' : 'Activate' }}">
@@ -143,7 +143,7 @@
                                             </button>
                                         </form>
 
-                                        <form action="{{ route('admin.announcement.destroy', $announcement->id) }}" method="POST" class="inline">
+                                        <form action="{{ route('admin.announcement.destroy', $announcement->id, false) }}" method="POST" class="inline">
                                             @csrf
                                             @method('DELETE')
                                             <button type="submit" class="btn btn-ghost btn-sm text-destructive"

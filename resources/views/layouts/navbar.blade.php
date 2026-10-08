@@ -170,7 +170,7 @@
                                 @endif
 
                                 <div class="my-1.5 h-px bg-border"></div>
-                                <form method="POST" action="{{ route('logout') }}">
+                                <form method="POST" action="{{ route('logout', [], false) }}">
                                     @csrf
                                     <button type="submit" class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50">
                                         <x-icon name="arrow-right-on-rectangle" class="h-4 w-4" /> Log out
