@@ -642,11 +642,24 @@ class BillPaymentService
      *     vended order is given away.
      *
      * @param  int  $actorId  the administrator, or 0 for the scheduled sweep
+     * @param  bool  $confirmSuccess  settle on the provider's word without a second signal
+     * @param  bool  $allowPending  also accept a row the *admin* is asking about
+     *                              while it still reads `pending`. The scheduled
+     *                              sweep keeps the narrow default: it exists to
+     *                              clear `unknown` rows, and widening it would
+     *                              have it second-guessing purchases that are
+     *                              still legitimately in flight.
      * @return array{resolved:bool,verdict:string}
      */
-    public function resolveUnknown(Transactions $transaction, int $actorId, bool $confirmSuccess = false): array
-    {
-        if ($transaction->status !== 'unknown') {
+    public function resolveUnknown(
+        Transactions $transaction,
+        int $actorId,
+        bool $confirmSuccess = false,
+        bool $allowPending = false
+    ): array {
+        $acceptable = $allowPending ? ['unknown', 'pending', 'processing'] : ['unknown'];
+
+        if (! in_array($transaction->status, $acceptable, true)) {
             return ['resolved' => false, 'verdict' => 'not_unknown'];
         }
 

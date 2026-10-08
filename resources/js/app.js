@@ -14,6 +14,11 @@ import './feedback';
 // page's x-data is evaluated.
 import './wallet-funding';
 
+// Admin transaction modal actions. Imported globally rather than only on the
+// admin page because the modal's markup is injected with innerHTML, which never
+// executes <script> — the handlers have to already be on `window`.
+import './admin-transactions';
+
 import Alpine from 'alpinejs';
 
 window.Alpine = Alpine;

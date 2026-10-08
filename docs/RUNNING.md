@@ -630,6 +630,37 @@ having their own copy. If Bachs is ever removed, delete `BachsService`,
 `BachsController`, the two routes and the config block — nothing in the Paystack
 path depends on them.
 
+#### Refreshing one transaction by hand
+
+The admin console has a **Refresh status** action on every transaction, for the
+case the sweeps cannot cover: an operator looking at one row and needing an
+answer now. It asks the same two questions the sweep does, in the same order
+(`App\Services\PaymentStatusResolver`):
+
+1. **Did it ever reach a gateway?** Read from our own record of the gateway's
+   reply — the Paystack access code or the Bachs checkout id. If not, the
+   attempt is marked failed with **no network call at all**: the customer was
+   never handed to a payment page, so no charge can exist. This is the "user or
+   device network interrupted it" case.
+2. **If it did, ask the gateway** using the reference we gave it (the UUID).
+   `success` settles and credits; `failed` / `abandoned` / `reversed` marks it
+   failed; anything still live leaves the row untouched.
+
+The three outcomes are distinguished deliberately, and the UI colours them by
+whether anything *changed* rather than by whether the request succeeded:
+
+| Outcome | Meaning |
+| --- | --- |
+| `settled` / `failed` | The row was resolved. |
+| `pending` | A real status was read and it is still in flight. Nothing written. |
+| `unreachable` | The gateway could not be reached, or does not know the reference. **Nothing written** — this is not a verdict. |
+
+It is safe to press repeatedly: it goes through `settle()`, so a payment is
+credited at most once. Bill purchases are answered by the vending provider
+instead (`BillPaymentService::resolveUnknown`), and bank transfers are reported
+as not queryable — a dedicated virtual account has no per-transaction lookup,
+so the inbound transfer is matched by the webhook.
+
 ### `@vite` is provided by this application, not the framework
 
 Laravel 8 has no `@vite` directive; it arrived in Laravel 9.19. `App\Support\Vite`

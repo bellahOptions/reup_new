@@ -339,24 +339,32 @@
     </div>
 
     {{-- ===================== Transaction detail modal ================= --}}
+    {{-- On a phone this is a bottom sheet, not a centred dialog: a centred box
+         with a fixed 90vh cap puts its header above the fold on a short screen,
+         so the only way to close it is the backdrop — which is a tap target the
+         user has to guess at. Anchored to the bottom with the height capped
+         against the *dynamic* viewport (dvh, so mobile browser chrome is
+         accounted for), the header and the close button are always on screen.
+         From `sm` up there is room for the centred dialog. --}}
     <div x-show="detailsId !== null" x-cloak
-         class="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/50 p-4"
+         class="fixed inset-0 z-50 flex items-end justify-center bg-ink-950/50 sm:items-center sm:p-4"
+         data-refresh-url-template="{{ route('admin.transactions.refresh-status', ['transaction' => '__ID__']) }}"
          @keydown.escape.window="closeTransactionModal()"
          @click.self="closeTransactionModal()">
-        <div class="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-border bg-white shadow-overlay"
+        <div class="flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-t-2xl border border-border bg-white shadow-overlay sm:max-h-[90vh] sm:max-w-4xl sm:rounded-xl"
              role="dialog" aria-modal="true" aria-labelledby="transactionModalTitle">
-            <div class="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
+            <div class="flex shrink-0 items-start justify-between gap-3 border-b border-border px-4 py-3 sm:px-5 sm:py-4">
                 <div class="min-w-0">
                     <h3 id="transactionModalTitle" class="card-title">Transaction details</h3>
                     <p id="modalSubtitle" class="card-description">Loading&hellip;</p>
                 </div>
-                <button type="button" class="btn btn-ghost btn-icon" aria-label="Close dialog"
+                <button type="button" class="btn btn-ghost btn-icon -mr-1 shrink-0" aria-label="Close dialog"
                         @click="closeTransactionModal()">
                     <x-icon name="x-mark" class="h-5 w-5" />
                 </button>
             </div>
 
-            <div id="transactionModalContent" class="scrollbar-slim overflow-y-auto p-5">
+            <div id="transactionModalContent" class="scrollbar-slim overflow-y-auto overscroll-contain p-4 sm:p-5">
                 {{-- Filled over AJAX from admin.transactions.show --}}
             </div>
         </div>
@@ -411,6 +419,20 @@
                 .then((html) => {
                     if (!html || html.trim() === '') throw new Error('The server returned an empty response.');
                     if (box) box.innerHTML = html;
+
+                    // Fill the shell's subtitle from the loaded content. It used
+                    // to sit on "Loading…" for the life of the dialog, which read
+                    // as a stuck request even after everything had arrived.
+                    const subtitle = document.getElementById('modalSubtitle');
+                    const reference = box
+                        ? box.querySelector('[data-transaction-reference]')?.dataset.transactionReference
+                        : null;
+
+                    if (subtitle) {
+                        subtitle.textContent = reference
+                            ? `Reference: ${reference}`
+                            : 'Loaded';
+                    }
                 })
                 .catch((error) => {
                     if (!box) return;

@@ -10,8 +10,10 @@ use App\Models\User;
 use App\Models\AdminLog;
 use App\Models\WalletLedger;
 use App\Services\BillPaymentService;
+use App\Services\PaymentStatusResolver;
 use App\Services\WalletService;
 use App\Support\Money;
+use App\Support\RefreshStatusResult;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -20,6 +22,7 @@ class TransactionController extends Controller
     public function __construct(
         private readonly WalletService $wallets,
         private readonly BillPaymentService $bills,
+        private readonly PaymentStatusResolver $statusResolver,
     ) {
     }
 
@@ -614,76 +617,55 @@ public function show(Request $request, Transactions $transaction)
         }
     }
 
-    public function updateStatus(Request $request, Transactions $transaction)
+    /**
+     * Re-check a transaction against the gateway and settle it.
+     *
+     * The admin console's "Refresh status" action. Everything about the
+     * decision lives in PaymentStatusResolver; this only records who asked and
+     * reports the answer.
+     *
+     * A refresh that changed nothing is a 200, not an error: "Paystack still
+     * reports it as pending" and "we could not reach Paystack" are both real
+     * answers an operator needs to see, and neither is a failed request. The
+     * `outcome` field is what the UI branches on.
+     */
+    public function refreshStatus(Transactions $transaction)
     {
-        $validated = $request->validate([
-            'status' => 'required|in:pending,processing,success,failed,cancelled,unknown',
-            'status_message' => 'nullable|string|max:500',
-        ]);
-
         $actorId = (int) Auth::id();
-        $before = ['status' => $transaction->status, 'payment_status' => $transaction->payment_status];
+        $before = [
+            'status' => $transaction->status,
+            'payment_status' => $transaction->payment_status,
+        ];
 
-        $credited = false;
-        $movement = null;
-
-        DB::transaction(function () use ($transaction, $validated, $actorId, &$credited, &$movement) {
-            $locked = Transactions::whereKey($transaction->getKey())->lockForUpdate()->firstOrFail();
-
-            /*
-             * A credit is only issued when a *pending* funding row is being
-             * moved to success. Re-issuing it for a row that was already
-             * successful — or for a debit — is what let this endpoint mint money
-             * from the admin console.
-             */
-            $shouldCredit = $validated['status'] === 'success'
-                && $locked->status !== 'success'
-                && $locked->type === 'credit'
-                && $locked->service_type === 'funding'
-                && ! in_array($locked->payment_status, ['refunded', 'reversed'], true);
-
-            if ($shouldCredit && $locked->user) {
-                $amount = Money::fromDatabase($locked->amount);
-
-                $movement = $this->wallets->credit(
-                    user: $locked->user,
-                    amount: $amount,
-                    countsAsFunding: true,
-                    entryType: WalletLedger::ENTRY_ADMIN_ADJUSTMENT,
-                    description: 'Funding approved by administrator',
-                    transaction: $locked,
-                    metadata: ['admin_id' => $actorId],
-                    actorId: $actorId,
-                );
-
-                $credited = true;
-            }
-
-            $locked->forceFill([
-                'status' => $validated['status'],
-                'status_message' => $validated['status_message'],
-                'completed_at' => $validated['status'] === 'success' ? now() : null,
-                'payment_reference' => $credited
-                    ? ($locked->payment_reference ?: ('ADMIN-STATUS-' . $locked->id))
-                    : $locked->payment_reference,
-                'balance_after' => $movement['balance_after'] ?? $locked->balance_after,
-            ])->save();
-
-            AdminLog::log($actorId, 'update_transaction_status', [
-                'transaction_id' => $locked->id,
-                'user_id' => $locked->user_id,
-                'before' => $before,
-                'after' => ['status' => $validated['status'], 'payment_status' => $locked->payment_status],
-                'credited' => $credited,
-                'message' => $validated['status_message'],
+        try {
+            $result = $this->statusResolver->refresh($transaction, $actorId);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Admin transaction refresh failed', [
+                'transaction_id' => $transaction->id,
+                'admin_id' => $actorId,
+                'error' => $e->getMessage(),
             ]);
-        });
+
+            return response()->json([
+                'success' => false,
+                'outcome' => RefreshStatusResult::OUTCOME_UNREACHABLE,
+                'message' => 'The status check failed: ' . $e->getMessage(),
+            ], 500);
+        }
+
+        AdminLog::log($actorId, 'refresh_transaction_status', [
+            'transaction_id' => $transaction->id,
+            'user_id' => $transaction->user_id,
+            'before' => $before,
+            'after' => ['status' => $result->status, 'payment_status' => $result->paymentStatus],
+            'outcome' => $result->outcome,
+            'message' => $result->message,
+        ]);
 
         return response()->json([
             'success' => true,
-            'message' => $credited
-                ? 'Transaction status updated and the wallet credited.'
-                : 'Transaction status updated successfully',
-        ]);
+            'changed' => $result->changed(),
+        ] + $result->toArray());
     }
+
 }

@@ -295,6 +295,29 @@ The endpoint returns either `{status: "redirect", redirect: <gateway url>}` or
 unresponsive provider still produces a readable outcome. A plain, non-JSON POST
 still gets a real redirect, so a browser without JavaScript is not broken by it.
 
+### Markup injected with `innerHTML` never runs its scripts
+
+The admin transaction modal fetches its body over AJAX and assigns it to
+`innerHTML`. Two separate things go wrong when that body carries its own
+JavaScript, and they happened together:
+
+* **`innerHTML` does not execute `<script>`.** Injected markup is inert. Only
+  the HTML parser runs scripts, so any handler defined in the fetched partial
+  simply does not exist on the page.
+* **`@push('scripts')` is not emitted by a partial.** The stack is rendered by
+  the *layout*; fetching the partial directly means nothing renders it, and the
+  script body is flushed into the markup as **literal text**. An operator
+  opening the modal was shown the source code of their own buttons.
+
+So the modal's action handlers live in `resources/js/admin-transactions.js`,
+imported globally from `app.js` so they are on `window` before the modal can be
+opened. If you add a control to an AJAX-injected partial, put its handler in the
+bundle — never in a `@push` inside that partial.
+
+Anything the partial needs to know about itself (its URLs, its reference) is
+published as a `data-*` attribute and read from the host page, because the
+partial is rendered separately from the page that displays it.
+
 ## Verifying a change
 
 ```

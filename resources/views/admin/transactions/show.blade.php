@@ -1,107 +1,112 @@
 
-<div class="space-y-6">
+{{-- `data-transaction-reference` is read by viewTransactionDetails() to fill the
+     shell's subtitle. Without it the header stayed on "Loading…" forever,
+     because nothing replaced it once the content arrived. --}}
+<div class="space-y-6" data-transaction-reference="{{ $transaction->reference }}">
     <!-- Header -->
-    <div class="flex items-center justify-between">
-        <div>
-            <h1 class="text-2xl font-bold text-gray-900">Transaction Details</h1>
-            <p class="text-gray-600 mt-1">Reference: {{ $transaction->reference }}</p>
+    {{-- Stacks on a phone. Side by side, the four action buttons squeezed the
+         heading into a few characters per line and then overflowed the sheet. --}}
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div class="min-w-0">
+            <h1 class="text-xl font-bold text-gray-900 sm:text-2xl">Transaction Details</h1>
+            <p class="mt-1 break-all text-sm text-gray-600">Reference: {{ $transaction->reference }}</p>
         </div>
-        <div class="flex items-center space-x-3">
+        <div class="flex flex-wrap items-center gap-2">
             @if($transaction->status === 'pending')
                 <button onclick="updateTransactionStatus({{ $transaction->id }}, 'success')" 
-                        class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors">
+                        class="flex-1 rounded-lg bg-green-600 px-4 py-2 font-medium text-white transition-colors hover:bg-green-700 sm:flex-none">
                     Mark as Success
                 </button>
                 <button onclick="updateTransactionStatus({{ $transaction->id }}, 'failed')" 
-                        class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors">
+                        class="flex-1 rounded-lg bg-red-600 px-4 py-2 font-medium text-white transition-colors hover:bg-red-700 sm:flex-none">
                     Mark as Failed
                 </button>
             @endif
             <button onclick="closeTransactionModal()" 
-                    class="px-4 py-2 border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium rounded-lg transition-colors">
+                    class="flex-1 rounded-lg border border-gray-300 px-4 py-2 font-medium text-gray-700 transition-colors hover:bg-gray-50 sm:flex-none">
                 Close
             </button>
         </div>
     </div>
 
     <!-- Status Badge -->
-    <div class="flex items-center">
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
         @if($transaction->status === 'pending')
-            <span class="inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold bg-yellow-100 text-yellow-800">
-                <span class="w-2 h-2 bg-yellow-500 rounded-full mr-2"></span>
+            <span class="inline-flex items-center rounded-full bg-yellow-100 px-3 py-1.5 text-sm font-semibold text-yellow-800 sm:px-4 sm:py-2">
+                <span class="mr-2 h-2 w-2 rounded-full bg-yellow-500"></span>
                 Pending
             </span>
         @elseif($transaction->status === 'processing')
-            <span class="inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold bg-blue-100 text-blue-800">
-                <svg class="w-3 h-3 mr-2 animate-spin" fill="currentColor" viewBox="0 0 20 20">
+            <span class="inline-flex items-center rounded-full bg-blue-100 px-3 py-1.5 text-sm font-semibold text-blue-800 sm:px-4 sm:py-2">
+                <svg class="mr-2 h-3 w-3 animate-spin" fill="currentColor" viewBox="0 0 20 20">
                     <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/>
                 </svg>
                 Processing
             </span>
         @elseif($transaction->status === 'success')
-            <span class="inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold bg-green-100 text-green-800">
-                <svg class="w-3 h-3 mr-2" fill="currentColor" viewBox="0 0 20 20">
+            <span class="inline-flex items-center rounded-full bg-green-100 px-3 py-1.5 text-sm font-semibold text-green-800 sm:px-4 sm:py-2">
+                <svg class="mr-2 h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
                     <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
                 </svg>
                 Success
             </span>
         @elseif($transaction->status === 'failed')
-            <span class="inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold bg-red-100 text-red-800">
-                <svg class="w-3 h-3 mr-2" fill="currentColor" viewBox="0 0 20 20">
+            <span class="inline-flex items-center rounded-full bg-red-100 px-3 py-1.5 text-sm font-semibold text-red-800 sm:px-4 sm:py-2">
+                <svg class="mr-2 h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
                     <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
                 </svg>
                 Failed
             </span>
         @else
-            <span class="inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold bg-gray-100 text-gray-800">
+            <span class="inline-flex items-center rounded-full bg-gray-100 px-3 py-1.5 text-sm font-semibold text-gray-800 sm:px-4 sm:py-2">
                 Cancelled
             </span>
         @endif
         @if($transaction->status_message)
-        <p class="ml-3 text-sm text-gray-600">{{ $transaction->status_message }}</p>
+        <p class="w-full text-sm text-gray-600 sm:w-auto">{{ $transaction->status_message }}</p>
         @endif
     </div>
 
     <!-- Main Details -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <!-- Transaction Details -->
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
             <h3 class="text-lg font-bold text-gray-900 mb-4">Transaction Information</h3>
             <div class="space-y-4">
-                <div class="flex justify-between items-center">
+                <div class="flex items-start justify-between gap-3">
                     <span class="text-sm font-medium text-gray-600">Transaction ID</span>
                     <span class="font-mono text-sm font-bold text-gray-900">#{{ $transaction->id }}</span>
                 </div>
-                <div class="flex justify-between items-center">
+                <div class="flex items-start justify-between gap-3">
                     <span class="text-sm font-medium text-gray-600">Reference</span>
-                    <span class="font-mono text-sm font-bold text-gray-900">{{ $transaction->reference }}</span>
+                    <span class="break-all text-right font-mono text-sm font-bold text-gray-900">{{ $transaction->reference }}</span>
                 </div>
-                <div class="flex justify-between items-center">
+                <div class="flex items-start justify-between gap-3">
                     <span class="text-sm font-medium text-gray-600">Service Type</span>
                     <span class="text-sm font-bold text-gray-900">{{ ucwords(str_replace('-', ' ', $transaction->service_type)) }}</span>
                 </div>
-                <div class="flex justify-between items-center">
+                <div class="flex items-start justify-between gap-3">
                     <span class="text-sm font-medium text-gray-600">Type</span>
                     <span class="text-sm font-bold text-gray-900">{{ ucfirst($transaction->type) }}</span>
                 </div>
-                <div class="flex justify-between items-center">
+                <div class="flex items-start justify-between gap-3">
                     <span class="text-sm font-medium text-gray-600">Description</span>
                     <span class="text-sm text-gray-900 text-right">{{ $transaction->description }}</span>
                 </div>
-                <div class="flex justify-between items-center">
+                <div class="flex items-start justify-between gap-3">
                     <span class="text-sm font-medium text-gray-600">Payment Method</span>
                     <span class="text-sm font-bold text-gray-900">{{ ucfirst(str_replace('_', ' ', $transaction->payment_method)) }}</span>
                 </div>
-                <div class="flex justify-between items-center">
+                <div class="flex items-start justify-between gap-3">
                     <span class="text-sm font-medium text-gray-600">Provider</span>
                     <span class="text-sm font-bold text-gray-900">{{ $transaction->provider }}</span>
                 </div>
-                <div class="flex justify-between items-center">
+                <div class="flex items-start justify-between gap-3">
                     <span class="text-sm font-medium text-gray-600">Created</span>
                     <span class="text-sm text-gray-900">{{ $transaction->created_at->format('M d, Y h:i A') }}</span>
                 </div>
                 @if($transaction->completed_at)
-                <div class="flex justify-between items-center">
+                <div class="flex items-start justify-between gap-3">
                     <span class="text-sm font-medium text-gray-600">Completed</span>
                     <span class="text-sm text-gray-900">{{ $transaction->completed_at->format('M d, Y h:i A') }}</span>
                 </div>
@@ -110,45 +115,45 @@
         </div>
 
         <!-- Financial Details -->
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
             <h3 class="text-lg font-bold text-gray-900 mb-4">Financial Information</h3>
             <div class="space-y-4">
-                <div class="flex justify-between items-center">
+                <div class="flex items-start justify-between gap-3">
                     <span class="text-sm font-medium text-gray-600">Amount</span>
                     <span class="text-xl font-bold text-gray-900">₦{{ number_format($transaction->amount, 2) }}</span>
                 </div>
                 @if($transaction->service_fee > 0)
-                <div class="flex justify-between items-center">
+                <div class="flex items-start justify-between gap-3">
                     <span class="text-sm font-medium text-gray-600">Service Fee</span>
                     <span class="text-sm font-bold text-gray-900">₦{{ number_format($transaction->service_fee, 2) }}</span>
                 </div>
                 @endif
-                <div class="flex justify-between items-center">
+                <div class="flex items-start justify-between gap-3">
                     <span class="text-sm font-medium text-gray-600">Total Amount</span>
                     <span class="text-lg font-bold text-gray-900">₦{{ number_format($transaction->total_amount, 2) }}</span>
                 </div>
                 @if($transaction->balance_before)
-                <div class="flex justify-between items-center">
+                <div class="flex items-start justify-between gap-3">
                     <span class="text-sm font-medium text-gray-600">Balance Before</span>
                     <span class="text-sm font-bold text-gray-900">₦{{ number_format($transaction->balance_before, 2) }}</span>
                 </div>
                 @endif
                 @if($transaction->balance_after)
-                <div class="flex justify-between items-center">
+                <div class="flex items-start justify-between gap-3">
                     <span class="text-sm font-medium text-gray-600">Balance After</span>
                     <span class="text-sm font-bold text-gray-900">₦{{ number_format($transaction->balance_after, 2) }}</span>
                 </div>
                 @endif
                 <div class="pt-4 border-t border-gray-200">
                     <h4 class="text-sm font-medium text-gray-900 mb-2">Payment Status</h4>
-                    <div class="flex justify-between items-center">
+                    <div class="flex items-start justify-between gap-3">
                         <span class="text-sm text-gray-600">Status</span>
                         <span class="text-sm font-bold {{ $transaction->payment_status === 'success' ? 'text-green-600' : 'text-red-600' }}">
                             {{ ucfirst($transaction->payment_status) }}
                         </span>
                     </div>
                     @if($transaction->paid_at)
-                    <div class="flex justify-between items-center mt-2">
+                    <div class="mt-2 flex items-start justify-between gap-3">
                         <span class="text-sm text-gray-600">Paid At</span>
                         <span class="text-sm text-gray-900">{{ $transaction->paid_at->format('M d, Y h:i A') }}</span>
                     </div>
@@ -158,7 +163,7 @@
         </div>
 
         <!-- User Information -->
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:col-span-2">
+        <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6 lg:col-span-2">
             <h3 class="text-lg font-bold text-gray-900 mb-4">User Information</h3>
             <div class="flex items-center space-x-4">
                 @if($transaction->user)
@@ -189,7 +194,7 @@
 
         <!-- Additional Information -->
         @if($transaction->recipient || $transaction->meta)
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:col-span-2">
+        <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6 lg:col-span-2">
             <h3 class="text-lg font-bold text-gray-900 mb-4">Additional Information</h3>
             <div class="space-y-4">
                 @if($transaction->recipient)
@@ -235,132 +240,34 @@
     </div>
 
     <!-- Action Buttons -->
-    <div class="flex items-center justify-end space-x-3 pt-6 border-t border-gray-200">
+    {{-- Wraps, and goes full width on a phone. A single right-aligned row of
+         these was wider than the sheet and pushed the first button off screen. --}}
+    <div class="flex flex-wrap items-center justify-end gap-2 border-t border-gray-200 pt-4">
+        {{-- Asks the gateway what actually happened and settles or fails the row
+             accordingly. Safe to press repeatedly: it credits at most once, and
+             a gateway that cannot be reached changes nothing. --}}
+        <button type="button" id="refreshStatusButton" onclick="refreshTransactionStatus({{ $transaction->id }})"
+                class="flex-1 rounded-lg border border-gray-300 px-4 py-2 font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 sm:flex-none">
+            <span data-refresh-label>Refresh status</span>
+        </button>
         @if($transaction->status === 'pending')
         <button onclick="forceSuccess({{ $transaction->id }})" 
-                class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors">
+                class="flex-1 rounded-lg bg-green-600 px-4 py-2 font-medium text-white transition-colors hover:bg-green-700 sm:flex-none">
             Force Success
         </button>
         <button onclick="forceFailed({{ $transaction->id }})" 
-                class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors">
+                class="flex-1 rounded-lg bg-red-600 px-4 py-2 font-medium text-white transition-colors hover:bg-red-700 sm:flex-none">
             Force Failed
         </button>
         <button onclick="cancelTransaction({{ $transaction->id }})" 
-                class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white font-medium rounded-lg transition-colors">
+                class="flex-1 rounded-lg bg-gray-600 px-4 py-2 font-medium text-white transition-colors hover:bg-gray-700 sm:flex-none">
             Cancel Transaction
         </button>
         @endif
         <button onclick="closeTransactionModal()" 
-                class="px-4 py-2 border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium rounded-lg transition-colors">
+                class="flex-1 rounded-lg border border-gray-300 px-4 py-2 font-medium text-gray-700 transition-colors hover:bg-gray-50 sm:flex-none">
             Close
         </button>
     </div>
 </div>
 
-@push('scripts')
-<script>
-function updateTransactionStatus(transactionId, status) {
-    if (!confirm(`Are you sure you want to mark this transaction as ${status}?`)) return;
-    
-    fetch(`/admin/transactions/${transactionId}/status`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-        },
-        body: JSON.stringify({
-            status: status,
-            status_message: `Status changed to ${status} by admin`
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert('Transaction status updated successfully!');
-            viewTransactionDetails(transactionId); // Reload the modal
-        } else {
-            alert('Failed to update status: ' + (data.message || 'Unknown error'));
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('Failed to update transaction status');
-    });
-}
-
-function forceSuccess(transactionId) {
-    if (!confirm('Are you sure you want to force this transaction as successful? This will credit the user\'s wallet if applicable.')) return;
-    
-    fetch(`/admin/transactions/${transactionId}/force-success`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-        }
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert('Transaction marked as successful!');
-            viewTransactionDetails(transactionId); // Reload the modal
-        } else {
-            alert('Failed: ' + data.message);
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('Failed to update transaction');
-    });
-}
-
-function forceFailed(transactionId) {
-    if (!confirm('Are you sure you want to force this transaction as failed?')) return;
-    
-    fetch(`/admin/transactions/${transactionId}/force-failed`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-        }
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert('Transaction marked as failed!');
-            viewTransactionDetails(transactionId); // Reload the modal
-        } else {
-            alert('Failed: ' + data.message);
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('Failed to update transaction');
-    });
-}
-
-function cancelTransaction(transactionId) {
-    if (!confirm('Are you sure you want to cancel this transaction? If payment was successful, user will be refunded.')) return;
-    
-    fetch(`/admin/transactions/${transactionId}/cancel`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-        }
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert('Transaction cancelled successfully!');
-            viewTransactionDetails(transactionId); // Reload the modal
-        } else {
-            alert('Failed: ' + data.message);
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('Failed to cancel transaction');
-    });
-}
-</script>
-@endpush

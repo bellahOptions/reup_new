@@ -97,6 +97,7 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'admin'])->group(fun
         Route::get('/{transaction}', [TransactionController::class, 'show'])->name('show');
 
         Route::middleware('admin:manage_transactions')->group(function () {
+            Route::put('/{transaction}/refresh-status', [TransactionController::class, 'refreshStatus'])->name('refresh-status');
             Route::put('/{transaction}/force-success', [TransactionController::class, 'forceSuccess'])->name('force-success');
             Route::put('/{transaction}/force-failed', [TransactionController::class, 'forceFailed'])->name('force-failed');
             Route::put('/{transaction}/cancel', [TransactionController::class, 'cancel'])->name('cancel');
