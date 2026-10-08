@@ -11,6 +11,7 @@ use Illuminate\Log\Logger;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Monolog\Handler\TestHandler;
@@ -370,6 +371,38 @@ class SecurityHardeningTest extends TestCase
         // trusted list): still nothing, because HSTS is only meaningful once
         // the connection actually arrived over TLS.
         $this->get($http)->assertHeaderMissing('Strict-Transport-Security');
+    }
+
+    public function test_production_form_action_allows_the_owned_apex_and_www_origins(): void
+    {
+        $this->app->detectEnvironment(fn () => 'production');
+
+        $https = preg_replace('#^http://#', 'https://', route('login'));
+
+        $response = $this->get($https)->assertOk();
+        $formAction = $this->directive((string) $response->headers->get('Content-Security-Policy'), 'form-action');
+
+        $this->assertStringContainsString("'self'", $formAction);
+        $this->assertStringContainsString('https://reup.com.ng', $formAction);
+        $this->assertStringContainsString('https://www.reup.com.ng', $formAction);
+    }
+
+    public function test_html_responses_get_the_current_application_csp_even_if_one_was_set_earlier(): void
+    {
+        $this->app->detectEnvironment(fn () => 'production');
+
+        Route::get('/_test/stale-csp', function () {
+            return response('<form method="POST" action="https://reup.com.ng/wallet/fund"></form>')
+                ->header('Content-Type', 'text/html; charset=UTF-8')
+                ->header('Content-Security-Policy', "default-src 'self'; form-action 'self';");
+        });
+
+        $response = $this->get('/_test/stale-csp')->assertOk();
+        $formAction = $this->directive((string) $response->headers->get('Content-Security-Policy'), 'form-action');
+
+        $this->assertStringContainsString("'self'", $formAction);
+        $this->assertStringContainsString('https://reup.com.ng', $formAction);
+        $this->assertStringContainsString('https://www.reup.com.ng', $formAction);
     }
 
     /**

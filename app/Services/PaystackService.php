@@ -242,65 +242,113 @@ class PaystackService
                 }
             }
 
-            $user = $locked->user;
-
-            if (! $user) {
-                throw new RuntimeException('Funding transaction ' . $locked->id . ' has no associated user.');
-            }
-
-            $amount = Money::fromDatabase($locked->amount);
-
-            /*
-             * The credit carries the transaction it settles, so the immutable
-             * ledger entry and the transaction row reference each other. The
-             * reference is also stamped onto `payment_reference`, whose unique
-             * index is the last line of defence against a double credit.
-             */
-            $movement = $this->wallets->credit(
-                user: $user,
-                amount: $amount,
-                countsAsFunding: true,
-                entryType: WalletLedger::ENTRY_CREDIT,
-                description: 'Wallet funding — ' . ($locked->payment_method === 'bank_transfer' ? 'Bank transfer' : 'Card'),
-                transaction: $locked,
-                metadata: [
-                    'channel' => $gatewayData['channel'] ?? null,
-                    'gateway' => 'paystack',
-                ],
-            );
-
-            $locked->forceFill([
-                'status' => 'success',
-                'payment_status' => 'success',
-                'balance_before' => $movement['balance_before'],
-                'balance_after' => $movement['balance_after'],
-                'paid_at' => now(),
-                'completed_at' => now(),
-                'api_response' => $gatewayData,
-                'payment_reference' => $locked->payment_reference
-                    ?: (string) ($gatewayData['reference'] ?? $locked->gatewayReference()),
-                'meta' => array_merge($locked->meta ?? [], [
-                    'channel' => $gatewayData['channel'] ?? null,
-                    'gateway_response' => $gatewayData['gateway_response'] ?? null,
-                    'currency' => $gatewayData['currency'] ?? null,
-                    'settled_at' => now()->toDateTimeString(),
-                    'ledger_entry_id' => $movement['ledger']->id,
-                ]),
-            ])->save();
-
-            /*
-             * Referral reward, after the funding is committed above.
-             *
-             * Deliberately placed here rather than in the webhook controller so
-             * it fires for every route that settles funding — webhook, browser
-             * callback and the payments:reconcile sweep all pass through settle().
-             * It is idempotent and swallows its own duplicate-key races, so a
-             * failure here cannot cost the customer their credit.
-             */
-            $this->rewardReferrer($user, $locked);
-
-            return ['status' => 'settled', 'transaction' => $locked];
+            return $this->creditFunding($locked, [
+                'channel' => $gatewayData['channel'] ?? null,
+                'reference' => $gatewayData['reference'] ?? null,
+                'currency' => $gatewayData['currency'] ?? null,
+                'gateway_response' => $gatewayData['gateway_response'] ?? null,
+                'gateway' => 'paystack',
+                'raw' => $gatewayData,
+            ]);
         });
+    }
+
+    /**
+     * Credit a funding row that another gateway has already verified.
+     *
+     * The only public door into `creditFunding`, for BachsService. It exists so
+     * a second gateway can settle funding without reimplementing the exactly-
+     * once credit — the row lock, the `payment_reference` unique index and the
+     * ledger entry all stay in one place.
+     *
+     * The caller is responsible for having validated the amount and currency
+     * against the locked row first; this does not re-validate because it has no
+     * gateway payload to validate against.
+     *
+     * @param  array{channel:?string,reference:?string,currency:?string,gateway_response:?string,gateway:string,raw:array<string,mixed>|null}  $verdict
+     * @return array{status:string,transaction:Transactions}
+     */
+    public function creditVerifiedFunding(Transactions $locked, array $verdict): array
+    {
+        return $this->creditFunding($locked, $verdict);
+    }
+
+    /**
+     * The crediting half of settlement, shared by every gateway.
+     *
+     * This was extracted out of `settle()` when Bachs was added as a fallback:
+     * the money-moving sequence must be byte-for-byte identical no matter which
+     * gateway reported the payment, and a second copy of it is exactly how the
+     * two providers drift apart on something financial. Callers do their own
+     * payload validation first, then hand the normalised values here.
+     *
+     * Must be called inside a transaction with the row already locked: the
+     * caller owns the lock, this owns the credit.
+     *
+     * @param  array{channel:?string,reference:?string,currency:?string,gateway_response:?string,gateway:string,raw:array<string,mixed>|null}  $verdict
+     * @return array{status:string,transaction:Transactions}
+     */
+    private function creditFunding(Transactions $locked, array $verdict): array
+    {
+        $user = $locked->user;
+
+        if (! $user) {
+            throw new RuntimeException('Funding transaction ' . $locked->id . ' has no associated user.');
+        }
+
+        $amount = Money::fromDatabase($locked->amount);
+
+        /*
+         * The credit carries the transaction it settles, so the immutable
+         * ledger entry and the transaction row reference each other. The
+         * reference is also stamped onto `payment_reference`, whose unique
+         * index is the last line of defence against a double credit.
+         */
+        $movement = $this->wallets->credit(
+            user: $user,
+            amount: $amount,
+            countsAsFunding: true,
+            entryType: WalletLedger::ENTRY_CREDIT,
+            description: 'Wallet funding — ' . ($locked->payment_method === 'bank_transfer' ? 'Bank transfer' : 'Card'),
+            transaction: $locked,
+            metadata: [
+                'channel' => $verdict['channel'],
+                'gateway' => $verdict['gateway'],
+            ],
+        );
+
+        $locked->forceFill([
+            'status' => 'success',
+            'payment_status' => 'success',
+            'balance_before' => $movement['balance_before'],
+            'balance_after' => $movement['balance_after'],
+            'paid_at' => now(),
+            'completed_at' => now(),
+            'api_response' => $verdict['raw'],
+            'payment_reference' => $locked->payment_reference
+                ?: (string) ($verdict['reference'] ?: $locked->gatewayReference()),
+            'meta' => array_merge($locked->meta ?? [], [
+                'channel' => $verdict['channel'],
+                'gateway' => $verdict['gateway'],
+                'gateway_response' => $verdict['gateway_response'],
+                'currency' => $verdict['currency'],
+                'settled_at' => now()->toDateTimeString(),
+                'ledger_entry_id' => $movement['ledger']->id,
+            ]),
+        ])->save();
+
+        /*
+         * Referral reward, after the funding is committed above.
+         *
+         * Deliberately placed here rather than in a webhook controller so it
+         * fires for every route that settles funding — webhook, browser
+         * callback and the payments:reconcile sweep all pass through here.
+         * It is idempotent and swallows its own duplicate-key races, so a
+         * failure here cannot cost the customer their credit.
+         */
+        $this->rewardReferrer($user, $locked);
+
+        return ['status' => 'settled', 'transaction' => $locked];
     }
 
     /**

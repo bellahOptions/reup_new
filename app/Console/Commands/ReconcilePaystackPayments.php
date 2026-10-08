@@ -336,17 +336,18 @@ class ReconcilePaystackPayments extends Command
     }
 
     /**
-     * Did this attempt ever get handed to Paystack's checkout?
+     * Did this attempt ever get handed to a card gateway's checkout?
      *
-     * The access code is only ever written from a successful `initialize()`
-     * response, so its presence is the durable record that the customer was
-     * actually sent to the payment page. Its absence — including a row whose
-     * metadata was never merged because initialisation threw — means the
-     * attempt never reached the gateway.
+     * The access code (Paystack) or checkout id (Bachs) is only ever written
+     * from a successful `initialize()` response, so its presence is the durable
+     * record that the customer was actually sent to a payment page. Its absence
+     * — including a row whose metadata was never merged because initialisation
+     * threw, and a row where *both* gateways refused — means the attempt never
+     * reached a gateway.
      *
      * Note `initiated_at` is deliberately NOT used for this: it is stamped when
-     * the funding row is created, before Paystack is called, so it says nothing
-     * about whether checkout was reached.
+     * the funding row is created, before any gateway is called, so it says
+     * nothing about whether checkout was reached.
      */
     private function reachedCheckout(Transactions $transaction): bool
     {
@@ -356,8 +357,18 @@ class ReconcilePaystackPayments extends Command
             return false;
         }
 
-        return ! empty($meta['paystack_access_code'])
-            || ! empty($meta['paystack_transaction_id'])
-            || ! empty($meta['paystack_initialized_at']);
+        foreach ([
+            'paystack_access_code',
+            'paystack_transaction_id',
+            'paystack_initialized_at',
+            'bachs_checkout_id',
+            'bachs_checkout_url',
+        ] as $key) {
+            if (! empty($meta[$key])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -5,17 +5,19 @@ namespace App\Http\Middleware;
 use App\Support\Vite;
 use Closure;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Baseline browser-hardening response headers.
  *
  * Registered in the global stack (see App\Http\Kernel::$middleware) so every
  * response carries them, including error pages, JSON and streamed downloads.
- * A header already set by the controller is never overwritten: the proof
- * download in Admin\BankTransferController sets its own Content-Type and
- * Content-Disposition, and the payment-proof stream relies on the `nosniff`
- * set here but must keep its own disposition.
+ * Ordinary HTML responses always receive the policy generated here, even if a
+ * stale controller/middleware layer set an older one first. File/stream
+ * responses are different: the proof download in Admin\BankTransferController
+ * sets its own sandbox CSP and must keep it.
  *
  * ## Why this Content-Security-Policy shape
  *
@@ -124,7 +126,7 @@ class SecurityHeaders
             }
         }
 
-        if (! $response->headers->has('Content-Security-Policy')) {
+        if ($this->shouldApplyApplicationCsp($response)) {
             $response->headers->set('Content-Security-Policy', $this->contentSecurityPolicy());
         }
 
@@ -138,6 +140,25 @@ class SecurityHeaders
         }
 
         return $response;
+    }
+
+    /**
+     * HTML pages use this application's CSP as the source of truth. Non-HTML
+     * file/stream responses may intentionally carry a narrower sandbox policy.
+     */
+    private function shouldApplyApplicationCsp(Response $response): bool
+    {
+        if (! $response->headers->has('Content-Security-Policy')) {
+            return true;
+        }
+
+        if ($response instanceof StreamedResponse || $response instanceof BinaryFileResponse) {
+            return false;
+        }
+
+        $contentType = strtolower((string) $response->headers->get('Content-Type', ''));
+
+        return $contentType === '' || str_contains($contentType, 'text/html');
     }
 
     /**
@@ -204,7 +225,7 @@ class SecurityHeaders
             "object-src 'none'",
             "frame-ancestors 'self'",
             "frame-src 'self'",
-            "form-action 'self'",
+            "form-action " . implode(' ', $this->formActionSources()),
             "manifest-src 'self'",
             "script-src " . implode(' ', $script),
             "style-src " . implode(' ', $style),
@@ -216,6 +237,63 @@ class SecurityHeaders
         ];
 
         return implode('; ', $directives) . ';';
+    }
+
+    /**
+     * Forms should render origin-relative actions, but production has both the
+     * apex and www host live. If a stale compiled view or cached edge response
+     * still contains an absolute action for the other owned host, browsers
+     * otherwise block the wallet funding POST before Paystack can be started.
+     *
+     * @return array<int,string>
+     */
+    private function formActionSources(): array
+    {
+        $sources = ["'self'"];
+
+        if (app()->environment('production')) {
+            foreach ($this->ownedHttpsOrigins() as $origin) {
+                $sources[] = $origin;
+            }
+        }
+
+        return array_values(array_unique($sources));
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    private function ownedHttpsOrigins(): array
+    {
+        $origins = ['https://reup.com.ng', 'https://www.reup.com.ng'];
+
+        $configured = (string) config('app.url');
+        $host = parse_url($configured, PHP_URL_HOST);
+
+        if (is_string($host) && $this->isPublicHostname($host)) {
+            $origins[] = 'https://' . $host;
+
+            if (str_starts_with($host, 'www.')) {
+                $origins[] = 'https://' . substr($host, 4);
+            } else {
+                $origins[] = 'https://www.' . $host;
+            }
+        }
+
+        return array_values(array_unique(array_filter($origins, function ($origin) {
+            return is_string($origin) && preg_match('#^https://[A-Za-z0-9.-]+(?::\d+)?$#', $origin);
+        })));
+    }
+
+    private function isPublicHostname(string $host): bool
+    {
+        $host = strtolower($host);
+
+        return $host !== ''
+            && ! in_array($host, ['localhost', '127.0.0.1', '::1', '0.0.0.0'], true)
+            && filter_var($host, FILTER_VALIDATE_IP) === false
+            && ! str_ends_with($host, '.local')
+            && ! str_ends_with($host, '.test');
     }
 
     /**

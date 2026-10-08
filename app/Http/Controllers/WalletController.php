@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Transactions;
 use App\Models\User;
+use App\Services\BachsService;
 use App\Services\PaystackService;
 use App\Services\SecurityService;
 use App\Services\WalletService;
@@ -21,6 +22,7 @@ class WalletController extends Controller
     public function __construct(
         private readonly WalletService $wallets,
         private readonly PaystackService $paystack,
+        private readonly BachsService $bachs,
         private readonly SecurityService $security,
     ) {
     }
@@ -126,7 +128,12 @@ class WalletController extends Controller
             'min_amount' => config('wallet.minimum_funding', 100),
             'max_amount' => config('wallet.maximum_funding', 1000000),
             'recent_funding' => $recentFunding,
-            'paystack_enabled' => $this->paystack->isConfigured(),
+            /*
+             * Card is only offered when at least one card gateway can actually
+             * serve it. Bachs alone is enough: it is the fallback for exactly
+             * the case where Paystack is not configured or reachable.
+             */
+            'paystack_enabled' => $this->paystack->isConfigured() || $this->bachs->isConfigured(),
         ]);
     }
 
@@ -243,7 +250,7 @@ class WalletController extends Controller
 
         return $validated['payment_method'] === 'bank_transfer'
             ? $this->initiateBankTransfer($transaction)
-            : $this->initiatePaystackPayment($transaction);
+            : $this->initiateCardPayment($transaction);
     }
 
     /**
@@ -349,21 +356,29 @@ class WalletController extends Controller
         ];
     }
 
-    private function initiatePaystackPayment(Transactions $transaction)
+    /**
+     * Start a card payment, falling back to Bachs when Paystack cannot.
+     *
+     * Order matters. Paystack is the primary rail: it is the one that settles
+     * to the account the rest of this application already reconciles against
+     * (`payments:reconcile`, the webhook, the balance card in the admin
+     * console), so it is always tried first and Bachs is only reached when
+     * Paystack genuinely refuses to produce a checkout URL.
+     *
+     * This is not a customer-facing choice. The funding form still offers
+     * "Card"; a second radio button would ask the customer to make a decision
+     * they have no information to make, and the fee is identical either way.
+     *
+     * If both gateways fail the transaction is failed as before, so the
+     * attempt resolves itself rather than sitting pending.
+     */
+    private function initiateCardPayment(Transactions $transaction)
     {
         try {
             $url = $this->paystack->initialize($transaction, $transaction->user);
 
             return redirect()->away($url);
         } catch (Throwable $e) {
-            /*
-             * `report()` as well as the explicit line: report() goes through the
-             * exception handler, so the *class* and the stack trace are recorded
-             * too. The message alone ("Paystack rejected the request: ...") is
-             * not always enough to tell a key problem from an unreachable
-             * callback URL, and this is the one failure a customer reports as
-             * "paystack is not loading" with nothing else to go on.
-             */
             report($e);
 
             Log::error('Paystack initialisation failed', [
@@ -371,16 +386,75 @@ class WalletController extends Controller
                 'error' => $e->getMessage(),
             ]);
 
-            $transaction->forceFill([
-                'status' => 'failed',
-                'payment_status' => 'failed',
-                'status_message' => 'Could not start payment session.',
-                'completed_at' => now(),
-            ])->save();
-
-            return redirect()->route('wallet.fund')
-                ->with('error', 'We could not start the card payment session. Please try again or use bank transfer.');
+            return $this->fallbackToBachs($transaction);
         }
+    }
+
+    /**
+     * Try the fallback gateways, or fail the attempt.
+     *
+     * Everything a customer sees about the outcome happens here, so the funding
+     * page never has to explain "Paystack" to anyone.
+     */
+    private function fallbackToBachs(Transactions $transaction)
+    {
+        if (! $this->bachs->isConfigured()) {
+            return $this->failCardAttempt(
+                $transaction,
+                'Could not start payment session.',
+                'We could not start the card payment session. Please try again or use bank transfer.'
+            );
+        }
+
+        try {
+            $url = $this->bachs->initialize($transaction, $transaction->user);
+
+            /*
+             * The gateway is recorded on the row because settlement has to know
+             * which provider's vocabulary to validate against. Silence here was
+             * the alternative — the customer would be charged by a merchant
+             * name they do not recognise with nothing in the app explaining why,
+             * and support would have no way to tell which rail took the money.
+             */
+            Log::info('Card funding fell back to Bachs after Paystack refused', [
+                'transaction_id' => $transaction->id,
+                'reference' => $transaction->reference,
+            ]);
+
+            return redirect()->away($url);
+        } catch (Throwable $e) {
+            report($e);
+
+            Log::error('Bachs initialisation failed', [
+                'transaction_id' => $transaction->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return $this->failCardAttempt(
+                $transaction,
+                'Could not start payment session: ' . $e->getMessage(),
+                'We could not start the card payment session. Please try again, or fund by bank transfer.'
+            );
+        }
+    }
+
+    /**
+     * Mark a card attempt dead and send the customer back to the form.
+     *
+     * The row is failed rather than left pending: nothing reached a gateway, so
+     * there is nothing to reconcile, and `payments:reconcile` would otherwise
+     * have to age it out.
+     */
+    private function failCardAttempt(Transactions $transaction, string $internal, string $customerMessage)
+    {
+        $transaction->forceFill([
+            'status' => 'failed',
+            'payment_status' => 'failed',
+            'status_message' => $internal,
+            'completed_at' => now(),
+        ])->save();
+
+        return redirect()->route('wallet.fund')->with('error', $customerMessage);
     }
 
     /**

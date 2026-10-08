@@ -83,6 +83,34 @@ return [
     ],
 
     /*
+    |----------------------------------------------------------------------
+    | Bachs — fallback card gateway
+    |----------------------------------------------------------------------
+    | Used only when Paystack refuses to start a checkout (see
+    | WalletController::initiateCardPayment). It is deliberately not a
+    | selectable payment method: the customer picks "Card", and the app
+    | decides which gateway serves it.
+    |
+    | Sandbox is the default so a key pasted in without the base URL cannot
+    | accidentally charge real cards, and `enabled` defaults to false so the
+    | fallback stays dark until someone deliberately switches it on.
+    |
+    | `payment_method_type` is the corridor Bachs is told to offer. NGN_CARD
+    | is the naira card rail; if that corridor is not enabled on the account,
+    | Bachs refuses the checkout (CHECKOUT_RESTRICTION_LEAVES_NO_PAYMENT_METHOD
+    | / ACCOUNT_NOT_ACTIVATED) and the fallback fails closed to the funding
+    | form with an error, rather than showing the customer an empty page.
+    | Ask support@bachs.io to confirm the corridor before enabling this.
+    */
+    'bachs' => [
+        'enabled' => env('BACHS_ENABLED', false),
+        'secret_key' => env('BACHS_SECRET_KEY'),
+        'webhook_secret' => env('BACHS_WEBHOOK_SECRET'),
+        'base_url' => env('BACHS_BASE_URL', 'https://sandbox-api.bachs.io'),
+        'payment_method_type' => env('BACHS_PAYMENT_METHOD_TYPE', 'NGN_CARD'),
+    ],
+
+    /*
     |--------------------------------------------------------------------------
     | Support / operations addresses
     |--------------------------------------------------------------------------

@@ -56,7 +56,7 @@ everything under Composer.
 
 | Schedule | Command | Why |
 | --- | --- | --- |
-| every minute | `payments:reconcile` | Resolves Paystack payments the webhook never confirmed, and expires payments that were abandoned |
+| every minute | `payments:reconcile` | Resolves card payments a webhook never confirmed, and fails payments that were abandoned or never reached a gateway |
 | hourly | `payments:review-unconfirmed` | Asks providers about purchases whose outcome is unknown, and reports the ones that still are |
 | every minute | *(heartbeat)* | Writes `scheduler:last_run`, which `schedule:health` reads |
 
@@ -577,6 +577,58 @@ To check a live response, ask for HTML as a browser would:
 curl -s -H "Accept: text/html" https://reup.com.ng/ | findstr cloudflareinsights
 curl -sI https://reup.com.ng/ | findstr /i content-security-policy
 ```
+
+### Card payments fall back to Bachs when Paystack will not start
+
+The funding page offers one "Card" option, but there are two card gateways
+behind it:
+
+1. **Paystack** — always tried first. It is the rail the rest of this
+   application reconciles against (`payments:reconcile`, the admin balance
+   card, the bank-transfer DVA flow).
+2. **Bachs** — used **only** when Paystack fails to produce a checkout URL: a
+   missing or invalid key, their API down, a rejected initialise call.
+
+The customer is never asked to choose. Paying through the fallback happens under
+a merchant name they will not recognise, so the gateway is recorded on the
+transaction (`meta.gateway = bachs`, plus `meta.bachs_checkout_id`) and logged
+(`Card funding fell back to Bachs after Paystack refused`) — that log line is how
+support explains an unfamiliar descriptor on a customer's statement.
+
+It is off until deliberately switched on, and fails closed:
+
+```
+BACHS_ENABLED=false          # unset = the fallback never runs
+BACHS_SECRET_KEY=            # sk_sandbox_... / sk_live_...
+BACHS_BASE_URL=https://sandbox-api.bachs.io
+BACHS_WEBHOOK_SECRET=        # POST /bachs/webhook returns 503 without it
+BACHS_PAYMENT_METHOD_TYPE=NGN_CARD
+```
+
+Three things are worth knowing before enabling it:
+
+* **The corridor must be live on the account.** `NGN_CARD` is the naira card
+  rail. If it is not enabled, Bachs refuses the checkout
+  (`CHECKOUT_RESTRICTION_LEAVES_NO_PAYMENT_METHOD` or `ACCOUNT_NOT_ACTIVATED`)
+  and the customer gets the funding form back with an error rather than an
+  unpayable page. Confirm the corridor with support@bachs.io first; a sandbox
+  key has every method, so a sandbox pass does not prove production will work.
+* **Register the webhook** in the Bachs developer portal against
+  `https://<your-domain>/bachs/webhook`, subscribed to `collection.succeeded`,
+  `collection.failed` and `collection.underpaid`. The webhook is the
+  authoritative settlement path; `POST /bachs/webhook` answers **503** until
+  `BACHS_WEBHOOK_SECRET` is set, so a forgotten secret is loud rather than
+  silently uncredited.
+* **Money is a decimal string here, kobo is not.** Bachs takes `"5000.00"`
+  where Paystack takes `500000`. `Money` bridges the two, and the conversion is
+  asserted in `BachsFallbackTest`.
+
+The fallback is additive in one direction only: Paystack's own behaviour is
+unchanged, because both gateways hand their validated result to the *same*
+crediting routine (`PaystackService::creditVerifiedFunding`) rather than each
+having their own copy. If Bachs is ever removed, delete `BachsService`,
+`BachsController`, the two routes and the config block — nothing in the Paystack
+path depends on them.
 
 ### `@vite` is provided by this application, not the framework
 

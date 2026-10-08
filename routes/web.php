@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\AirtimeDataController;
+use App\Http\Controllers\BachsController;
 use App\Http\Controllers\BettingController;
 use App\Http\Controllers\CableTvController;
 use App\Http\Controllers\ChatController;
@@ -67,6 +68,42 @@ Route::get('/robots.txt', function () {
 Route::post('/paystack/webhook', [PaystackController::class, 'webhook'])
     ->middleware('throttle:120,1')
     ->name('paystack.webhook');
+
+/*
+|--------------------------------------------------------------------------
+| Bachs gateway endpoints (fallback card rail)
+|--------------------------------------------------------------------------
+| Same shape as Paystack's: the webhook is server-to-server, so it sits outside
+| `auth` and is exempt from CSRF, authenticated by HMAC over the raw body
+| (X-Bachs-Signature / X-Bachs-Signature-V2). It refuses to run at all unless
+| BACHS_WEBHOOK_SECRET is set.
+|
+| Paste this path into the Bachs developer portal as the destination for
+| `collection.succeeded` (and `collection.failed` / `collection.underpaid`):
+| https://your-domain/bachs/webhook
+*/
+Route::post('/bachs/webhook', [BachsController::class, 'webhook'])
+    ->middleware('throttle:120,1')
+    ->name('bachs.webhook');
+
+/*
+|--------------------------------------------------------------------------
+| Bachs browser callback
+|--------------------------------------------------------------------------
+| Deliberately OUTSIDE the auth group, unlike the Paystack callback next to the
+| wallet routes. The customer's session cookie belongs to our domain and does
+| not survive the round trip through Bachs' checkout, so requiring a session
+| here would throw away a genuinely completed payment and send the customer to
+| a login page instead of their credited wallet.
+|
+| Correctness does not come from the session: the charge is verified with Bachs
+| server-to-server, matched against the transaction's own checkout id, and
+| amount- and currency-checked before anything is credited. Replaying this URL
+| with someone else's checkout id credits that transaction and gains the
+| attacker nothing.
+*/
+Route::get('/wallet/bachs/callback', [BachsController::class, 'callback'])
+    ->name('wallet.bachs.callback');
 
 /*
 |--------------------------------------------------------------------------
