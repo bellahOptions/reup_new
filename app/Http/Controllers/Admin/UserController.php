@@ -7,6 +7,7 @@ use App\Models\AdminLog;
 use App\Models\Transactions;
 use App\Models\User;
 use App\Services\WalletService;
+use App\Support\Money;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -173,12 +174,25 @@ class UserController extends Controller
     /**
      * Manual wallet adjustment.
      *
-     * Rewritten because the previous version:
-     *   - called `Transaction::create()` (the model is `Transactions`), which
-     *     fatal-errored on every use;
-     *   - wrote to `$wallet->total_withdrawn`, a column that does not exist;
-     *   - referenced `Auth` without importing the facade;
-     *   - mutated the balance outside a transaction with no row lock.
+     * ## Why this now goes through WalletService
+     *
+     * The previous revision had already stopped being fatal (`Transaction` vs
+     * `Transactions`, a nonexistent `total_withdrawn` column) but it still
+     * mutated the balance itself: it read and wrote `wallets.balance` directly,
+     * reimplemented the overdraft check, reimplemented `total_funded` and
+     * `total_spent`, and wrote a transaction row **without a ledger entry**.
+     * That made an administrative adjustment the one movement in the
+     * application with no immutable record — exactly the movement that most
+     * needs one, because it is not tied to any customer action.
+     *
+     * Now every action is expressed as a WalletService adjustment, which locks
+     * the row, validates the overdraft and writes the ledger entry inside one
+     * database transaction, attributed to the administrator who made it.
+     *
+     * `set` is expressed as a *delta* against the locked balance rather than an
+     * absolute write. The customer-visible result is the same, but the ledger
+     * stays a chain of movements instead of containing a step that only makes
+     * sense relative to a balance the ledger does not know about.
      */
     public function updateWallet(Request $request, User $user)
     {
@@ -190,73 +204,100 @@ class UserController extends Controller
             'reason' => 'required|string|min:5|max:500',
         ]);
 
-        $amount = round((float) $validated['amount'], 2);
+        $requested = Money::fromNaira($validated['amount']);
+        $actorId = (int) Auth::id();
 
-        $result = DB::transaction(function () use ($user, $validated, $amount) {
+        if ($requested->isZero()) {
+            return back()->withErrors(['amount' => 'An adjustment of zero would change nothing.']);
+        }
+
+        $result = DB::transaction(function () use ($user, $validated, $requested, $actorId) {
             $wallet = $this->wallets->lockForUser($user);
-            $before = (float) $wallet->balance;
+            $before = Money::fromDatabase($wallet->balance);
 
-            match ($validated['action']) {
-                'add' => $wallet->balance = $before + $amount,
-                'deduct' => $wallet->balance = $before - $amount,
-                'set' => $wallet->balance = $amount,
+            // A single signed delta, so `add`, `deduct` and `set` are one code
+            // path and one class of ledger entry.
+            $delta = match ($validated['action']) {
+                'add' => $requested,
+                'deduct' => $requested->negated(),
+                'set' => $requested->minus($before),
             };
 
-            if ((float) $wallet->balance < 0) {
-                throw new \RuntimeException('That deduction would put the wallet below zero.');
+            if ($delta->isZero()) {
+                // `set` to the balance it already has. Nothing to record.
+                return ['before' => $before, 'after' => $before, 'transaction' => null, 'changed' => false];
             }
-
-            $after = (float) $wallet->balance;
-
-            if ($validated['action'] === 'add') {
-                $wallet->total_funded = (float) $wallet->total_funded + $amount;
-            }
-            if ($validated['action'] === 'deduct') {
-                $wallet->total_spent = (float) $wallet->total_spent + $amount;
-            }
-
-            $wallet->transaction_count = (int) $wallet->transaction_count + 1;
-            $wallet->save();
 
             $transaction = Transactions::create([
                 'user_id' => $user->id,
                 'reference' => $this->wallets->generateReference('ADJ'),
-                'type' => $validated['action'] === 'add' ? 'credit' : 'debit',
+                'type' => $delta->isPositive() ? 'credit' : 'debit',
                 'service_type' => 'manual_adjustment',
                 'description' => 'Manual balance adjustment — ' . $validated['reason'],
-                'amount' => $amount,
-                'service_fee' => 0,
-                'total_amount' => $amount,
-                'balance_before' => $before,
-                'balance_after' => $after,
+                'amount' => $delta->absolute()->toDecimalString(),
+                'service_fee' => '0.00',
+                'total_amount' => $delta->absolute()->toDecimalString(),
                 'payment_method' => 'manual',
                 'payment_status' => 'success',
                 'status' => 'success',
                 'provider' => 'admin',
                 'completed_at' => now(),
                 'meta' => [
-                    'admin_id' => Auth::id(),
+                    'admin_id' => $actorId,
                     'action' => $validated['action'],
                     'reason' => $validated['reason'],
+                    'balance_before' => $before->toDecimalString(),
                 ],
             ]);
 
-            AdminLog::log(Auth::id(), 'adjust_wallet', [
+            $movement = $this->wallets->adjust(
+                user: $user,
+                amount: $delta,
+                actorId: $actorId,
+                reason: 'Administrative adjustment (' . $validated['action'] . '): ' . $validated['reason'],
+                metadata: [
+                    'action' => $validated['action'],
+                    'transaction_id' => $transaction->id,
+                    'transaction_reference' => $transaction->reference,
+                    'balance_before' => $before->toDecimalString(),
+                ],
+            );
+
+            $transaction->forceFill([
+                'balance_before' => $movement['balance_before'],
+                'balance_after' => $movement['balance_after'],
+            ])->save();
+
+            AdminLog::log($actorId, 'adjust_wallet', [
                 'user_id' => $user->id,
                 'action' => $validated['action'],
-                'amount' => $amount,
-                'balance_before' => $before,
-                'balance_after' => $after,
+                'amount' => $requested->toDecimalString(),
+                'delta' => $delta->toDecimalString(),
+                'balance_before' => $movement['balance_before'],
+                'balance_after' => $movement['balance_after'],
+                'ledger_entry_id' => $movement['ledger']->id,
                 'reason' => $validated['reason'],
             ]);
 
-            return ['before' => $before, 'after' => $after, 'transaction' => $transaction];
+            return [
+                'before' => $before,
+                // Exact, from the value object the movement returned, rather
+                // than reconstructed from a float.
+                'after' => $movement['after'],
+                'transaction' => $transaction,
+                'changed' => true,
+            ];
         });
+
+        if (! $result['changed']) {
+            return redirect()->route('admin.users.show', $user)
+                ->with('success', 'The wallet already held that amount; nothing was changed.');
+        }
 
         return redirect()->route('admin.users.show', $user)->with(
             'success',
-            'Wallet adjusted from ₦' . number_format($result['before'], 2)
-            . ' to ₦' . number_format($result['after'], 2) . '.'
+            'Wallet adjusted from ' . $result['before']->format()
+            . ' to ' . $result['after']->format() . '.'
         );
     }
 
@@ -288,7 +329,7 @@ class UserController extends Controller
 
         $wallet = $user->wallet;
 
-        if ($wallet && (float) $wallet->balance > 0) {
+        if ($wallet && Money::fromDatabase($wallet->balance)->isPositive()) {
             return back()->with('error', 'This customer still holds a wallet balance. Zero the balance before deleting the account.');
         }
 

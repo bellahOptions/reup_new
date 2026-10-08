@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\AdminLog;
 use App\Models\Transactions;
+use App\Models\WalletLedger;
 use App\Services\WalletService;
+use App\Support\Money;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -156,25 +158,51 @@ class BankTransferController extends Controller
                 throw new \RuntimeException('Transfer has no associated customer.');
             }
 
-            $movement = $this->wallets->credit($locked->user, (float) $locked->amount);
+            $amount = Money::fromDatabase($locked->amount);
+
+            /*
+             * The credit is recorded against this transfer, so the ledger entry
+             * and the funding row reference each other and the approval is
+             * attributed to the administrator who made it. `payment_reference`
+             * is stamped as well: its unique index makes a second approval of
+             * the same transfer impossible even if the status check were raced.
+             */
+            $movement = $this->wallets->credit(
+                user: $locked->user,
+                amount: $amount,
+                countsAsFunding: true,
+                entryType: WalletLedger::ENTRY_CREDIT,
+                description: 'Bank transfer approved',
+                transaction: $locked,
+                metadata: [
+                    'approved_by' => Auth::id(),
+                    'approval_remarks' => $validated['remarks'] ?? null,
+                ],
+                actorId: Auth::id(),
+            );
 
             $locked->forceFill([
                 'status' => 'success',
                 'payment_status' => 'success',
-                'status_message' => 'Approved by admin' . ($validated['remarks'] ? ': ' . $validated['remarks'] : '.'),
+                'status_message' => 'Approved by admin' . (($validated['remarks'] ?? null) ? ': ' . $validated['remarks'] : '.'),
+                'balance_before' => $movement['balance_before'],
                 'balance_after' => $movement['balance_after'],
+                'payment_reference' => $locked->payment_reference ?: ('BANK-APPROVED-' . $locked->id),
                 'completed_at' => now(),
                 'meta' => array_merge($locked->meta ?? [], [
                     'approved_by' => Auth::id(),
                     'approved_at' => now()->toDateTimeString(),
                     'approval_remarks' => $validated['remarks'] ?? null,
+                    'ledger_entry_id' => $movement['ledger']->id,
                 ]),
             ])->save();
 
             AdminLog::log(Auth::id(), 'approve_bank_transfer', [
                 'transaction_id' => $locked->id,
                 'user_id' => $locked->user_id,
-                'amount' => (float) $locked->amount,
+                'amount' => $amount->toDecimalString(),
+                'balance_before' => $movement['balance_before'],
+                'balance_after' => $movement['balance_after'],
                 'remarks' => $validated['remarks'] ?? null,
             ]);
 
@@ -187,7 +215,7 @@ class BankTransferController extends Controller
 
         return redirect()->route('admin.bank-transfers.index')->with(
             'success',
-            'Transfer approved. ₦' . number_format((float) $outcome['transaction']->amount, 2) . ' credited.'
+            'Transfer approved. ' . Money::fromDatabase($outcome['transaction']->amount)->format() . ' credited.'
         );
     }
 
@@ -321,6 +349,14 @@ class BankTransferController extends Controller
                 'Content-Disposition' => ($inline ? 'inline' : 'attachment') . '; filename="' . $name . '"',
                 // Never let a browser sniff an uploaded file into something executable.
                 'X-Content-Type-Options' => 'nosniff',
+                /*
+                 * Rendered inline, but with scripts, forms, plugins and framing
+                 * all disabled. Even if a payload ever got past the upload
+                 * validation, a browser holding this header will not execute it
+                 * — so viewing a proof cannot become a stored-XSS vector against
+                 * the administrator reading it.
+                 */
+                'Content-Security-Policy' => "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox",
             ]
         );
     }

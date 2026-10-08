@@ -5,6 +5,7 @@ namespace App\Services\Providers;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use RuntimeException;
 
 /**
@@ -465,10 +466,51 @@ class PairgateProvider implements BillProvider
 
             return $body;
         } catch (\Throwable $e) {
-            Log::error('Pairgate request failed', ['path' => $path, 'error' => $e->getMessage()]);
+            /*
+             * The raw transport message embeds the request URL (and therefore
+             * the reference), and on an authentication failure it can carry the
+             * `Authorization` header value. It is scrubbed before it is logged,
+             * and the caller only ever sees a fixed string.
+             *
+             * `EXCEPTION` is classified retryable by ProviderManager — a request
+             * that never completed provably did not vend — so nothing about the
+             * pipeline's behaviour depends on the message text.
+             */
+            Log::error('Pairgate request failed', [
+                'path' => $path,
+                'error' => $this->scrub((string) $e->getMessage()),
+            ]);
 
-            return ['status' => 'EXCEPTION', 'message' => $e->getMessage()];
+            return [
+                'status' => 'EXCEPTION',
+                'message' => 'Could not reach the alternative provider.',
+            ];
         }
+    }
+
+    /**
+     * Strip anything credential-shaped out of a transport message.
+     *
+     * A `ConnectionException` from Guzzle/Laravel quotes the full request URL,
+     * so a query string (which for other adapters carries `UserID`/`APIKey`) and
+     * any `Bearer`/`token=`-style fragment are removed before the text reaches a
+     * log file. Truncated as well: a cURL error body can be arbitrarily long.
+     */
+    private function scrub(string $message): string
+    {
+        // Any query string at all — cheaper and safer than enumerating the
+        // parameter names each provider uses.
+        $message = preg_replace('~\?[^\s\'"]+~', '?[redacted]', $message) ?? $message;
+
+        // Bearer tokens, API keys and the Pairgate secret, however they appear.
+        foreach ([
+            '/(Bearer\s+)[A-Za-z0-9\-\._~+\/]+=*/i',
+            '/((?:api[_-]?key|secret|token|password)["\']?\s*[:=]\s*["\']?)[A-Za-z0-9\-\._~+\/]{6,}/i',
+        ] as $pattern) {
+            $message = preg_replace($pattern, '$1[redacted]', $message) ?? $message;
+        }
+
+        return Str::limit($message, 500, '…');
     }
 
     /**
@@ -826,5 +868,70 @@ class PairgateProvider implements BillProvider
         }
 
         return null;
+    }
+
+    /**
+     * Ask Pairgate what happened to an order.
+     *
+     * ## Why this can honestly return `unknown`
+     *
+     * Pairgate has no documented order-status endpoint, and the documented
+     * reference query takes Pairgate's own `reference_code` — which for an
+     * order that timed out mid-request may never have been received by us. When
+     * the code is absent there is genuinely nothing to ask, and the honest
+     * answer is `unknown`.
+     *
+     * That is not a deficiency to work around. Pairgate's asynchronous products
+     * (electricity, exam pins) settle by webhook, and
+     * `PairgateWebhookController` is what ultimately resolves them — a webhook
+     * that arrives later flips the row to success or refunds it. An UNKNOWN row
+     * is therefore *resolvable*, as long as nobody has rashly refunded it in the
+     * meantime, which is exactly why the pipeline does not.
+     *
+     * @param  string  $reference  our reference, which Pairgate echoes back
+     * @param  array<string,mixed>  $params  expects an optional `reference_code`
+     */
+    public function orderStatus(string $reference, array $params = []): string
+    {
+        if (! $this->isConfigured()) {
+            return 'unknown';
+        }
+
+        $referenceCode = (string) ($params['reference_code'] ?? '');
+
+        if ($referenceCode === '') {
+            return 'unknown';
+        }
+
+        try {
+            $response = $this->client(self::PROBE_TIMEOUT)
+                ->get($this->url('/transaction/verify'), ['reference_code' => $referenceCode]);
+        } catch (\Throwable $e) {
+            Log::warning('Pairgate status query failed', [
+                'reference' => $reference,
+                'error' => $e->getMessage(),
+            ]);
+
+            return 'unknown';
+        }
+
+        if (! $response->successful()) {
+            return 'unknown';
+        }
+
+        $body = $response->json();
+
+        if (! is_array($body)) {
+            return 'unknown';
+        }
+
+        $status = strtoupper((string) (data_get($body, 'data.status') ?? $body['status'] ?? ''));
+
+        return match ($status) {
+            'SUCCESS', 'SUCCESSFUL', 'COMPLETED', 'DELIVERED' => 'success',
+            'FAILED', 'CANCELLED', 'REVERSED', 'REFUNDED' => 'failed',
+            'PENDING', 'PROCESSING', 'ORDER_RECEIVED', 'IN_PROGRESS' => 'pending',
+            default => 'unknown',
+        };
     }
 }

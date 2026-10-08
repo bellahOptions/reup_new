@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Transactions;
 use App\Services\BillPaymentService;
+use App\Support\Money;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -153,6 +154,15 @@ class PairgateWebhookController extends Controller
         $token = $request->input('pin');
         $referenceCode = (string) $request->input('reference_code', '');
 
+        /*
+         * Note on amounts: unlike the failure path below, a success delivery is
+         * NOT amount-checked. For exam PINs Pairgate sends one webhook per PIN
+         * with the *per-PIN* price, not the order total, so comparing that
+         * figure against the transaction would refuse every legitimate delivery.
+         * The delivery is authenticated by HMAC and resolved by reference
+         * before reaching here, which is what actually establishes that it
+         * belongs to this transaction.
+         */
         return DB::transaction(function () use ($transaction, $request, $token, $referenceCode) {
             $locked = Transactions::whereKey($transaction->getKey())->lockForUpdate()->firstOrFail();
 
@@ -162,7 +172,7 @@ class PairgateWebhookController extends Controller
              * is, and only a human can tell which. Touching the row here would
              * either hide a refund or pay for the same order twice.
              */
-            if ($locked->payment_status === 'refunded') {
+            if (in_array($locked->payment_status, ['refunded', 'reversed'], true)) {
                 Log::critical('Pairgate reported success for a refunded transaction — needs review', [
                     'transaction_id' => $locked->id,
                     'reference' => $locked->reference,
@@ -223,12 +233,15 @@ class PairgateWebhookController extends Controller
 
         // Only refund the row this delivery is actually about. The charge the
         // customer paid is `amount`; our fee is not part of Pairgate's figure.
-        if (is_numeric($amount) && abs((float) $amount - (float) $transaction->amount) > 0.01) {
+        // Compared exactly, in integer kobo — a one-kobo difference is a
+        // different order, not a rounding artefact.
+        if (is_numeric($amount)
+            && ! Money::fromDatabase($transaction->amount)->equals(Money::fromNaira($amount))) {
             Log::critical('Pairgate webhook amount mismatch — refusing to refund automatically', [
                 'transaction_id' => $transaction->id,
                 'reference' => $transaction->reference,
-                'expected' => (float) $transaction->amount,
-                'reported' => (float) $amount,
+                'expected' => (string) $transaction->amount,
+                'reported' => (string) $amount,
             ]);
 
             // 200: a retry cannot resolve a mismatch. A human has to look.
@@ -238,18 +251,23 @@ class PairgateWebhookController extends Controller
         $refunded = DB::transaction(function () use ($transaction, $reason, $request) {
             $locked = Transactions::whereKey($transaction->getKey())->lockForUpdate()->firstOrFail();
 
-            if ($locked->payment_status === 'refunded') {
+            if (in_array($locked->payment_status, ['refunded', 'reversed'], true)) {
                 return false;
             }
 
-            $this->bills->refund($locked, $reason);
+            /*
+             * `refund()` re-reads the row under its own lock and refuses a
+             * second reversal, so this is idempotent even if Pairgate delivers
+             * the same failure twice concurrently. It also writes the ledger
+             * entry and marks the row refunded, so there is no second place for
+             * the status to be set from.
+             */
+            if (! $this->bills->refund($locked, $reason)) {
+                return false;
+            }
 
             $locked->forceFill([
-                'status' => 'failed',
-                'payment_status' => 'refunded',
-                'status_message' => $reason,
                 'api_response' => $request->all(),
-                'completed_at' => now(),
                 'meta' => array_merge($locked->meta ?? [], [
                     'webhook' => [
                         'status' => 'failed',

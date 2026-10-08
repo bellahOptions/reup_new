@@ -8,11 +8,21 @@ use Illuminate\Support\Facades\Auth;
 use App\Models\Transactions;
 use App\Models\User;
 use App\Models\AdminLog;
+use App\Models\WalletLedger;
+use App\Services\BillPaymentService;
+use App\Services\WalletService;
+use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class TransactionController extends Controller
 {
+    public function __construct(
+        private readonly WalletService $wallets,
+        private readonly BillPaymentService $bills,
+    ) {
+    }
+
     // Display all transactions
     public function index(Request $request)
     {
@@ -125,6 +135,15 @@ public function show(Request $request, Transactions $transaction)
             return back()->withErrors(['error' => 'Only failed transactions can be retried.']);
         }
 
+        /*
+         * A retry of a *refunded* transaction must not happen: the customer has
+         * their money back, so re-running the purchase would either fail again
+         * or vendor goods that have already been paid back.
+         */
+        if (in_array($transaction->payment_status, ['refunded', 'reversed'], true)) {
+            return back()->withErrors(['error' => 'That transaction was refunded and cannot be retried.']);
+        }
+
         // Create a new transaction based on the failed one
         $newTransaction = $transaction->replicate();
         $newTransaction->reference = 'RETRY-' . $transaction->reference;
@@ -132,6 +151,7 @@ public function show(Request $request, Transactions $transaction)
         $newTransaction->status_message = 'Retry of failed transaction';
         $newTransaction->api_reference = null;
         $newTransaction->api_response = null;
+        $newTransaction->payment_reference = null;
         $newTransaction->paid_at = null;
         $newTransaction->completed_at = null;
         $newTransaction->save();
@@ -145,7 +165,26 @@ public function show(Request $request, Transactions $transaction)
         return back()->with('success', 'Transaction retry initiated. New transaction ID: ' . $newTransaction->id);
     }
 
-    // Refund transaction
+    /**
+     * Refund a settled debit.
+     *
+     * ## What was wrong before
+     *
+     * The previous implementation:
+     *
+     *   * incremented `wallets.balance` directly, with no row lock, no ledger
+     *     entry, and no `total_spent` correction;
+     *   * wrote `balance_before`/`balance_after` from an unlocked read, so those
+     *     columns recorded a balance that may never have existed;
+     *   * had **no idempotency guard at all** — pressing the button twice paid
+     *     the customer twice, because the only check was the original
+     *     transaction's status, which the refund does not change.
+     *
+     * Now the whole thing runs inside one transaction, the original row is
+     * re-read under a lock, a transaction that is already refunded is refused,
+     * and the refund carries a `payment_reference` whose unique index makes a
+     * second refund impossible even under a race.
+     */
     public function refund(Request $request, $id)
     {
         $transaction = Transactions::findOrFail($id);
@@ -158,62 +197,119 @@ public function show(Request $request, Transactions $transaction)
             return back()->withErrors(['error' => 'Only successful transactions can be refunded.']);
         }
 
-        $request->validate([
-            'reason' => 'required|string|max:500',
+        $validated = $request->validate([
+            'reason' => 'required|string|min:5|max:500',
         ]);
 
-        // Create refund transaction
-        $refundTransaction = Transactions::create([
-            'user_id' => $transaction->user_id,
-            'reference' => 'REFUND-' . $transaction->reference,
-            'type' => 'credit',
-            'service_type' => 'refund',
-            'description' => 'Refund for transaction ' . $transaction->reference . ': ' . $request->reason,
-            'amount' => $transaction->amount,
-            'service_fee' => 0,
-            'total_amount' => $transaction->amount,
-            'balance_before' => $transaction->user->wallet->balance,
-            'balance_after' => $transaction->user->wallet->balance + $transaction->amount,
-            'recipient' => $transaction->user->email,
-            'provider' => 'manual',
-            'payment_method' => 'refund',
-            'payment_status' => 'success',
-            'status' => 'success',
-            'status_message' => 'Refund processed: ' . $request->reason,
-            'api_reference' => null,
-            'meta' => json_encode([
-                'original_transaction_id' => $transaction->id,
-                'original_reference' => $transaction->reference,
-                'refund_reason' => $request->reason,
-                'admin_id' => Auth::id()
-            ]),
-            'paid_at' => now(),
-            'completed_at' => now(),
-        ]);
+        $amount = Money::fromDatabase($transaction->total_amount);
+        $actorId = (int) Auth::id();
 
-        // Update user wallet
-        $user = $transaction->user;
-        if ($user && $user->wallet) {
-            $user->wallet->increment('balance', $transaction->amount);
+        try {
+            $result = DB::transaction(function () use ($transaction, $validated, $amount, $actorId) {
+                $locked = Transactions::whereKey($transaction->getKey())->lockForUpdate()->firstOrFail();
+
+                if (in_array($locked->payment_status, ['refunded', 'reversed'], true)) {
+                    return ['status' => 'already_refunded', 'transaction' => $locked];
+                }
+
+                if ($locked->status !== 'success' || $locked->type !== 'debit') {
+                    return ['status' => 'not_refundable', 'transaction' => $locked];
+                }
+
+                $user = $locked->user;
+
+                if (! $user) {
+                    return ['status' => 'no_user', 'transaction' => $locked];
+                }
+
+                // The refund record first, so the immutable ledger entry can
+                // reference it.
+                $refundTransaction = Transactions::create([
+                    'user_id' => $locked->user_id,
+                    'reference' => 'REFUND-' . $locked->reference,
+                    'type' => 'credit',
+                    'service_type' => 'refund',
+                    'description' => 'Refund for transaction ' . $locked->reference . ': ' . $validated['reason'],
+                    'amount' => $amount->toDecimalString(),
+                    'service_fee' => '0.00',
+                    'total_amount' => $amount->toDecimalString(),
+                    'recipient' => $user->email,
+                    'provider' => 'manual',
+                    'payment_method' => 'wallet',
+                    'payment_status' => 'success',
+                    'status' => 'success',
+                    'status_message' => 'Refund processed: ' . $validated['reason'],
+                    // Unique: a second refund of the same charge cannot insert.
+                    'payment_reference' => 'ADMIN-REFUND-OF-' . $locked->id,
+                    // Display reference is unique too, and this prefix is
+                    // deterministic — a retry collides here as well.
+                    'meta' => [
+                        'original_transaction_id' => $locked->id,
+                        'original_reference' => $locked->reference,
+                        'refund_reason' => $validated['reason'],
+                        'admin_id' => $actorId,
+                    ],
+                    'paid_at' => now(),
+                    'completed_at' => now(),
+                ]);
+
+                $movement = $this->wallets->refund(
+                    user: $user,
+                    amount: $amount,
+                    description: 'Refund — ' . $validated['reason'],
+                    transaction: $refundTransaction,
+                    metadata: [
+                        'original_transaction_id' => $locked->id,
+                        'admin_id' => $actorId,
+                    ],
+                    actorId: $actorId,
+                );
+
+                $refundTransaction->forceFill([
+                    'balance_before' => $movement['balance_before'],
+                    'balance_after' => $movement['balance_after'],
+                ])->save();
+
+                $locked->forceFill([
+                    'status_message' => 'Refunded: ' . $validated['reason'],
+                    'payment_status' => 'refunded',
+                    'meta' => array_merge($locked->meta ?? [], [
+                        'refunded' => true,
+                        'refund_transaction_id' => $refundTransaction->id,
+                        'refunded_by' => $actorId,
+                        'refunded_at' => now()->toDateTimeString(),
+                    ]),
+                ])->save();
+
+                AdminLog::log($actorId, 'refund_transaction', [
+                    'transaction_id' => $locked->id,
+                    'refund_transaction_id' => $refundTransaction->id,
+                    'amount' => $amount->toDecimalString(),
+                    'balance_before' => $movement['balance_before'],
+                    'balance_after' => $movement['balance_after'],
+                    'status_before' => $locked->status,
+                    'status_after' => 'refunded',
+                    'reason' => $validated['reason'],
+                ]);
+
+                return ['status' => 'refunded', 'transaction' => $refundTransaction];
+            });
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::critical('Admin refund failed', [
+                'transaction_id' => $transaction->id,
+                'admin_id' => $actorId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return back()->withErrors(['error' => 'The refund could not be completed. No money moved.']);
         }
 
-        // Update original transaction
-        $transaction->update([
-            'status_message' => 'Refunded: ' . $request->reason,
-            'meta' => json_encode(array_merge(
-                json_decode($transaction->meta, true) ?? [],
-                ['refunded' => true, 'refund_transaction_id' => $refundTransaction->id]
-            ))
-        ]);
-
-        AdminLog::log(Auth::id(), 'refund_transaction', [
-            'transaction_id' => $transaction->id,
-            'refund_transaction_id' => $refundTransaction->id,
-            'amount' => $transaction->amount,
-            'reason' => $request->reason
-        ]);
-
-        return back()->with('success', 'Transaction refunded successfully. Refund ID: ' . $refundTransaction->id);
+        return match ($result['status']) {
+            'refunded' => back()->with('success', 'Transaction refunded successfully. Refund ID: ' . $result['transaction']->id),
+            'already_refunded' => back()->withErrors(['error' => 'That transaction has already been refunded.']),
+            'no_user' => back()->withErrors(['error' => 'That transaction has no customer attached.']),
+            default => back()->withErrors(['error' => 'That transaction is not in a refundable state.']),
+        };
     }
 
     /**
@@ -337,123 +433,257 @@ public function show(Request $request, Transactions $transaction)
     }
 
     public function forceSuccess($id)
-{
-    $transaction = Transactions::findOrFail($id);
-    
-    DB::beginTransaction();
-    try {
-        $transaction->update([
-            'status' => 'success',
-            'payment_status' => 'success',
-            'status_message' => 'Forcefully marked as successful by admin',
-            'completed_at' => now(),
-        ]);
-        
-        // If it's a funding transaction, credit user wallet
-        if ($transaction->service_type === 'funding' && $transaction->user) {
-            $user = $transaction->user;
-            if ($user->wallet) {
-                $user->wallet->increment('balance', $transaction->amount);
-                $user->wallet->increment('total_funded', $transaction->amount);
-                
-                $transaction->update([
-                    'balance_after' => $user->wallet->fresh()->balance
-                ]);
+    {
+        $transaction = Transactions::findOrFail($id);
+
+        $actorId = (int) Auth::id();
+        $before = [
+            'status' => $transaction->status,
+            'payment_status' => $transaction->payment_status,
+        ];
+
+        DB::beginTransaction();
+
+        try {
+            $locked = Transactions::whereKey($transaction->getKey())->lockForUpdate()->firstOrFail();
+
+            /*
+             * A funding row that is already settled must not be credited again.
+             * The previous version incremented the balance unconditionally, so
+             * pressing the button twice minted the amount twice.
+             */
+            $alreadySettled = $locked->status === 'success';
+
+            $movement = null;
+
+            if ($locked->service_type === 'funding' && ! $alreadySettled) {
+                $user = $locked->user;
+
+                if (! $user) {
+                    DB::rollBack();
+
+                    return response()->json(['success' => false, 'message' => 'That transaction has no customer attached.'], 422);
+                }
+
+                $amount = Money::fromDatabase($locked->amount);
+
+                $movement = $this->wallets->credit(
+                    user: $user,
+                    amount: $amount,
+                    countsAsFunding: true,
+                    entryType: WalletLedger::ENTRY_ADMIN_ADJUSTMENT,
+                    description: 'Funding forced successful by administrator',
+                    transaction: $locked,
+                    metadata: ['admin_id' => $actorId],
+                    actorId: $actorId,
+                );
             }
+
+            $locked->forceFill([
+                'status' => 'success',
+                'payment_status' => 'success',
+                'status_message' => 'Forcefully marked as successful by admin',
+                'completed_at' => now(),
+                'payment_reference' => $movement
+                    ? ($locked->payment_reference ?: ('ADMIN-FORCED-' . $locked->id))
+                    : $locked->payment_reference,
+                'balance_after' => $movement['balance_after'] ?? $locked->balance_after,
+            ])->save();
+
+            AdminLog::log($actorId, 'force_transaction_success', [
+                'transaction_id' => $locked->id,
+                'user_id' => $locked->user_id,
+                'before' => $before,
+                'after' => ['status' => 'success', 'payment_status' => 'success'],
+                'already_settled' => $alreadySettled,
+                'credited' => $movement !== null,
+                'amount' => (string) $locked->amount,
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => $alreadySettled
+                    ? 'Transaction was already successful; no further credit was made.'
+                    : 'Transaction marked as successful',
+            ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            \Illuminate\Support\Facades\Log::error('Admin force-success failed', [
+                'transaction_id' => $transaction->id,
+                'admin_id' => $actorId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json(['success' => false, 'message' => 'Failed: ' . $e->getMessage()], 500);
         }
-        
-        DB::commit();
-        return response()->json(['success' => true, 'message' => 'Transaction marked as successful']);
-        
-    } catch (\Exception $e) {
-        DB::rollBack();
-        return response()->json(['success' => false, 'message' => 'Failed: ' . $e->getMessage()], 500);
     }
-}
 
-public function forceFailed($id)
-{
-    $transaction = Transactions::findOrFail($id);
-    
-    $transaction->update([
-        'status' => 'failed',
-        'status_message' => 'Forcefully marked as failed by admin',
-    ]);
-    
-    return response()->json(['success' => true, 'message' => 'Transaction marked as failed']);
-}
+    public function forceFailed($id)
+    {
+        $transaction = Transactions::findOrFail($id);
 
-public function cancel($id)
-{
-    $transaction = Transactions::findOrFail($id);
-    
-    DB::beginTransaction();
-    try {
-        $transaction->update([
-            'status' => 'cancelled',
-            'status_message' => 'Cancelled by admin',
+        $before = ['status' => $transaction->status, 'payment_status' => $transaction->payment_status];
+
+        /*
+         * Forcing a settled debit to `failed` does NOT move money: the customer
+         * keeps what they paid for until an administrator issues the refund
+         * explicitly. Doing it implicitly here is how a wallet gets credited for
+         * goods that were actually delivered.
+         */
+        $transaction->forceFill([
+            'status' => 'failed',
+            'status_message' => 'Forcefully marked as failed by admin',
+        ])->save();
+
+        AdminLog::log(Auth::id(), 'force_transaction_failed', [
+            'transaction_id' => $transaction->id,
+            'user_id' => $transaction->user_id,
+            'before' => $before,
+            'after' => ['status' => 'failed'],
+            'refund_issued' => false,
         ]);
-        
-        // If payment was successful, refund user
-        if ($transaction->payment_status === 'success' && $transaction->user) {
-            $user = $transaction->user;
-            if ($user->wallet) {
-                $user->wallet->increment('balance', $transaction->amount);
-                
-                // Log refund transaction
-                Transactions::create([
-                    'user_id' => $user->id,
-                    'reference' => Transactions::generateReference('RFND'),
-                    'type' => 'credit',
-                    'service_type' => 'refund',
-                    'description' => 'Refund for cancelled transaction: ' . $transaction->reference,
-                    'amount' => $transaction->amount,
-                    'balance_before' => $user->wallet->balance - $transaction->amount,
-                    'balance_after' => $user->wallet->balance,
-                    'status' => 'success',
-                    'payment_status' => 'success',
-                    'completed_at' => now(),
-                    'meta' => json_encode(['original_transaction_id' => $transaction->id])
-                ]);
+
+        return response()->json(['success' => true, 'message' => 'Transaction marked as failed']);
+    }
+
+    /**
+     * Cancel a transaction, reversing a settled debit if there was one.
+     *
+     * The reversal goes through WalletService, so it is locked, ledgered and
+     * idempotent. The previous implementation incremented the balance by hand
+     * and wrote a refund row with `balance_before` computed as
+     * `balance - amount` *after* the increment — which produced a before/after
+     * pair that was wrong by exactly one amount.
+     */
+    public function cancel($id)
+    {
+        $transaction = Transactions::findOrFail($id);
+
+        $actorId = (int) Auth::id();
+
+        DB::beginTransaction();
+
+        try {
+            $locked = Transactions::whereKey($transaction->getKey())->lockForUpdate()->firstOrFail();
+
+            $alreadyReversed = in_array($locked->payment_status, ['refunded', 'reversed'], true);
+            $reversible = $locked->type === 'debit'
+                && in_array($locked->status, ['success', 'processing', 'unknown'], true)
+                && ! $alreadyReversed;
+
+            $reason = 'Cancelled by admin';
+
+            $locked->forceFill([
+                'status' => 'cancelled',
+                'status_message' => $reason,
+            ])->save();
+
+            if ($reversible && $locked->user) {
+                $this->bills->refund(
+                    transaction: $locked,
+                    reason: $reason,
+                    entryType: WalletLedger::ENTRY_REVERSAL,
+                    actorId: $actorId,
+                );
             }
-        }
-        
-        DB::commit();
-        return response()->json(['success' => true, 'message' => 'Transaction cancelled successfully']);
-        
-    } catch (\Exception $e) {
-        DB::rollBack();
-        return response()->json(['success' => false, 'message' => 'Failed: ' . $e->getMessage()], 500);
-    }
-}
 
-public function updateStatus(Request $request, Transactions $transaction)
-{
-    $request->validate([
-        'status' => 'required|in:pending,processing,success,failed,cancelled',
-        'status_message' => 'nullable|string|max:500',
-    ]);
+            AdminLog::log($actorId, 'cancel_transaction', [
+                'transaction_id' => $locked->id,
+                'user_id' => $locked->user_id,
+                'amount' => (string) $locked->amount,
+                'reversed' => $reversible,
+                'already_reversed' => $alreadyReversed,
+            ]);
 
-    $oldStatus = $transaction->status;
-    
-    $transaction->update([
-        'status' => $request->status,
-        'status_message' => $request->status_message,
-        'completed_at' => $request->status === 'success' ? now() : null,
-    ]);
+            DB::commit();
 
-    // If transaction is now successful and it's a credit transaction, update user wallet
-    if ($request->status === 'success' && $transaction->type === 'credit' && $transaction->service_type === 'funding') {
-        $user = $transaction->user;
-        if ($user && $user->wallet) {
-            $user->wallet->increment('balance', $transaction->amount);
-            $user->wallet->increment('total_funded', $transaction->amount);
+            return response()->json(['success' => true, 'message' => 'Transaction cancelled successfully']);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            \Illuminate\Support\Facades\Log::error('Admin cancel failed', [
+                'transaction_id' => $transaction->id,
+                'admin_id' => $actorId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json(['success' => false, 'message' => 'Failed: ' . $e->getMessage()], 500);
         }
     }
 
-    return response()->json([
-        'success' => true,
-        'message' => 'Transaction status updated successfully'
-    ]);
-}
+    public function updateStatus(Request $request, Transactions $transaction)
+    {
+        $validated = $request->validate([
+            'status' => 'required|in:pending,processing,success,failed,cancelled,unknown',
+            'status_message' => 'nullable|string|max:500',
+        ]);
+
+        $actorId = (int) Auth::id();
+        $before = ['status' => $transaction->status, 'payment_status' => $transaction->payment_status];
+
+        $credited = false;
+        $movement = null;
+
+        DB::transaction(function () use ($transaction, $validated, $actorId, &$credited, &$movement) {
+            $locked = Transactions::whereKey($transaction->getKey())->lockForUpdate()->firstOrFail();
+
+            /*
+             * A credit is only issued when a *pending* funding row is being
+             * moved to success. Re-issuing it for a row that was already
+             * successful — or for a debit — is what let this endpoint mint money
+             * from the admin console.
+             */
+            $shouldCredit = $validated['status'] === 'success'
+                && $locked->status !== 'success'
+                && $locked->type === 'credit'
+                && $locked->service_type === 'funding'
+                && ! in_array($locked->payment_status, ['refunded', 'reversed'], true);
+
+            if ($shouldCredit && $locked->user) {
+                $amount = Money::fromDatabase($locked->amount);
+
+                $movement = $this->wallets->credit(
+                    user: $locked->user,
+                    amount: $amount,
+                    countsAsFunding: true,
+                    entryType: WalletLedger::ENTRY_ADMIN_ADJUSTMENT,
+                    description: 'Funding approved by administrator',
+                    transaction: $locked,
+                    metadata: ['admin_id' => $actorId],
+                    actorId: $actorId,
+                );
+
+                $credited = true;
+            }
+
+            $locked->forceFill([
+                'status' => $validated['status'],
+                'status_message' => $validated['status_message'],
+                'completed_at' => $validated['status'] === 'success' ? now() : null,
+                'payment_reference' => $credited
+                    ? ($locked->payment_reference ?: ('ADMIN-STATUS-' . $locked->id))
+                    : $locked->payment_reference,
+                'balance_after' => $movement['balance_after'] ?? $locked->balance_after,
+            ])->save();
+
+            AdminLog::log($actorId, 'update_transaction_status', [
+                'transaction_id' => $locked->id,
+                'user_id' => $locked->user_id,
+                'before' => $before,
+                'after' => ['status' => $validated['status'], 'payment_status' => $locked->payment_status],
+                'credited' => $credited,
+                'message' => $validated['status_message'],
+            ]);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => $credited
+                ? 'Transaction status updated and the wallet credited.'
+                : 'Transaction status updated successfully',
+        ]);
+    }
 }

@@ -122,8 +122,9 @@ class DashboardController extends Controller
 
              // Get ClubKonnect balance
     $clubKonnectBalance = $this->getClubKonnectBalance();
-    
-    Log::info('ClubKonnect Balance Data', $clubKonnectBalance);
+
+    // No payload dump here: it carries the provider account's phone number.
+    // The outcome is already logged inside getClubKonnectBalance().
 
         // Combine all stats
         $stats = array_merge($stats, [
@@ -493,8 +494,14 @@ class DashboardController extends Controller
     {
         try {
             $balanceData = $this->clubKonnectService->checkBalance();
-            
-            Log::info('ClubKonnect Balance Response', ['data' => $balanceData]);
+
+            // Log the outcome, not the payload: the provider's balance
+            // response carries its account phone number, and a failure body can
+            // echo the request credentials.
+            Log::info('ClubKonnect balance checked', [
+                'success' => isset($balanceData['balance']) && is_numeric($balanceData['balance']),
+                'status' => $balanceData['status'] ?? null,
+            ]);
             
             if (isset($balanceData['balance']) && is_numeric($balanceData['balance'])) {
                 return [
@@ -529,13 +536,17 @@ class DashboardController extends Controller
             }
             
         } catch (\Exception $e) {
-            Log::error('Failed to fetch ClubKonnect balance: ' . $e->getMessage());
-            
+            // The transport message can embed the request URL (and therefore
+            // the credentials) — log the class, return a fixed string.
+            Log::error('Failed to fetch ClubKonnect balance', [
+                'exception' => get_class($e),
+            ]);
+
             return [
                 'success' => false,
                 'balance' => 0,
                 'currency' => 'NGN',
-                'error' => 'Connection error: ' . $e->getMessage()
+                'error' => 'ClubKonnect is unreachable right now.',
             ];
         }
     }

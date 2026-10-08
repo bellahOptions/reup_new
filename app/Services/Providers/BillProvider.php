@@ -74,4 +74,22 @@ interface BillProvider
 
     /** A token or PIN returned by the provider, when the product issues one. */
     public function issuedToken(?array $response): ?string;
+
+    /**
+     * Ask the provider what happened to an order we already sent.
+     *
+     * This exists for exactly one situation: a purchase call that timed out or
+     * whose response could not be parsed. In that case ReUp does not know
+     * whether the customer was vended, and **guessing is not acceptable** —
+     * refunding a vended order gives away goods, and re-sending an unvended one
+     * charges twice. The only correct move is to ask.
+     *
+     * @param  string  $reference  the reference ReUp sent, and any provider
+     *                             order reference already known
+     * @param  array<string,mixed>  $params
+     * @return string one of: 'success' | 'failed' | 'pending' | 'unknown'
+     *                `unknown` means the provider could not tell us either —
+     *                not that the order failed.
+     */
+    public function orderStatus(string $reference, array $params = []): string;
 }

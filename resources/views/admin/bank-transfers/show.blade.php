@@ -23,9 +23,13 @@
     };
 
     $proofPath = $meta['proof_path'] ?? null;
-    $proofUrl = $proofPath ? Storage::url($proofPath) : null;
+    // The proof lives on the private disk; `Storage::url()` on the default
+    // (`local`) disk returns a bogus `/payment-proofs/...` path that resolves to
+    // nothing, so the preview is read through the authorised admin route
+    // instead — the same one the index view already uses.
+    $proofUrl = $proofPath ? route('admin.bank-transfers.proof.view', $transfer->id) : null;
 
-    $extension = $proofUrl ? strtolower(pathinfo($proofUrl, PATHINFO_EXTENSION)) : null;
+    $extension = $proofPath ? strtolower(pathinfo($proofPath, PATHINFO_EXTENSION)) : null;
     $isImage = in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true);
     $isPdf = $extension === 'pdf';
 @endphp
@@ -136,7 +140,7 @@
                     </div>
                 @else
                     <div class="rounded-lg border border-border bg-surface p-4 text-sm">
-                        File uploaded: {{ basename($proofUrl) }}
+                        File uploaded: {{ basename((string) $proofPath) }}
                     </div>
                 @endif
             </div>

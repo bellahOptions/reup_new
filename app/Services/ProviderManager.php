@@ -281,7 +281,26 @@ class ProviderManager
     /**
      * Classify a provider response.
      *
-     * @return string one of: success | retryable | fatal
+     * ## The four outcomes
+     *
+     *   * **success**   — the provider vended. Money and goods both moved.
+     *   * **retryable** — the request provably did not reach the customer's
+     *     account, and the provider itself told us so. Safe to send to another
+     *     provider, because that provider has never seen this order.
+     *   * **unknown**   — we sent the request and never learned the outcome
+     *     (a transport timeout, a connection reset, a 502 from an intermediary,
+     *     an unparseable body). The order may have been fulfilled. Retrying it
+     *     elsewhere can vend twice and charge the customer once.
+     *   * **fatal**     — the provider rejected it outright and deterministically
+     *     (bad meter number, invalid phone, duplicate reference, business rule).
+     *     Another provider rejects it identically, so retrying only wastes time.
+     *
+     * **UNKNOWN is not FAILED and is not RETRYABLE.** Treating a timeout as
+     * retryable is the single most expensive mistake available in this pipeline:
+     * a customer in a vending outage gets two electricity tokens for one
+     * payment, and the platform cannot tell which one to claw back.
+     *
+     * @return string one of: success | retryable | unknown | fatal
      */
     public function classify(BillProvider $provider, ?array $response): string
     {
@@ -289,32 +308,66 @@ class ProviderManager
             return 'success';
         }
 
+        /*
+         * A null response means the adapter could not get an answer at all.
+         * That is the definition of unknown: it is not a rejection.
+         */
+        if ($response === null) {
+            return 'unknown';
+        }
+
         $status = strtoupper((string) ($response['status'] ?? ''));
+
+        if (in_array($status, self::UNKNOWN_STATUSES, true)) {
+            return 'unknown';
+        }
 
         // Conditions another provider may not share. Everything here means the
         // request never reached the customer's account — rejected for float,
-        // unreachable, rate limited, unknown identifier, or refused before any
-        // charge — so passing it to the next provider cannot double-vend.
+        // unreachable, rate limited, refused before any charge — so passing it
+        // to the next provider cannot double-vend.
         //
-        // Deliberately absent: DUPLICATE_REFERENCE (a second vendor has not seen
-        // that reference, so retrying would vend twice) and the validation
-        // errors, which another provider rejects identically.
-        $retryable = [
-            'INSUFFICIENT_BALANCE',
-            'API_ERROR',
-            'EXCEPTION',
-            'INVALID_RESPONSE',
-            'NOT_CONFIGURED',
-            'SERVICE_UNAVAILABLE',
-            'TIMEOUT',
-            'AUTH_ERROR',
-            'RATE_LIMITED',
-            'PLAN_NOT_FOUND',
-            'INVALID_PROVIDER',
-            'INVALID_AMOUNT',
-            'UNSUPPORTED',
-        ];
-
-        return in_array($status, $retryable, true) ? 'retryable' : 'fatal';
+        // Deliberately absent:
+        //   * DUPLICATE_REFERENCE — a second vendor has not seen that reference,
+        //     so retrying would vend twice;
+        //   * the validation errors, which another provider rejects identically;
+        //   * anything in UNKNOWN_STATUSES above.
+        return in_array($status, self::RETRYABLE_STATUSES, true) ? 'retryable' : 'fatal';
     }
+
+    /**
+     * Provider conditions that mean "we do not know whether this vended".
+     *
+     * A transport timeout is the canonical case: the request left this process,
+     * the provider may have processed it, and the answer was lost. Auth errors
+     * and unparseable bodies are included because both leave the request's fate
+     * undetermined — an unparseable body in particular may be a successful vend
+     * whose response we could not decode.
+     */
+    private const UNKNOWN_STATUSES = [
+        'TIMEOUT',
+        'GATEWAY_TIMEOUT',
+        'CONNECTION_RESET',
+        'INVALID_RESPONSE',
+        'UNPARSEABLE_RESPONSE',
+        'MALFORMED_RESPONSE',
+        'AUTH_ERROR',
+        'UNKNOWN',
+    ];
+
+    /**
+     * Provider conditions where the request provably did not vend.
+     */
+    private const RETRYABLE_STATUSES = [
+        'INSUFFICIENT_BALANCE',
+        'API_ERROR',
+        'SERVICE_UNAVAILABLE',
+        'RATE_LIMITED',
+        'NOT_CONFIGURED',
+        'INVALID_PROVIDER',
+        'PLAN_NOT_FOUND',
+        'UNSUPPORTED',
+        'INVALID_AMOUNT',
+        'EXCEPTION',
+    ];
 }

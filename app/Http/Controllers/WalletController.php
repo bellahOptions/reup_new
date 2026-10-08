@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use App\Models\Transactions;
 use App\Models\User;
 use App\Services\PaystackService;
+use App\Services\SecurityService;
 use App\Services\WalletService;
+use App\Support\Money;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +21,7 @@ class WalletController extends Controller
     public function __construct(
         private readonly WalletService $wallets,
         private readonly PaystackService $paystack,
+        private readonly SecurityService $security,
     ) {
     }
 
@@ -38,19 +41,24 @@ class WalletController extends Controller
 
         $monthStart = now()->startOfMonth();
 
+        /*
+         * Summed as integer kobo through `Money` rather than cast to float. A
+         * float cast of a large decimal sum is how a dashboard total ends up
+         * one kobo away from the sum of the rows beneath it.
+         */
         $monthlyStats = [
-            'spent' => (float) Transactions::where('user_id', $user->id)
+            'spent' => Money::fromDatabase(Transactions::where('user_id', $user->id)
                 ->where('type', 'debit')->where('status', 'success')
-                ->where('created_at', '>=', $monthStart)->sum('amount'),
-            'funded' => (float) Transactions::where('user_id', $user->id)
+                ->where('created_at', '>=', $monthStart)->sum('amount'))->toFloat(),
+            'funded' => Money::fromDatabase(Transactions::where('user_id', $user->id)
                 ->where('type', 'credit')->whereIn('service_type', ['funding', 'wallet_funding'])
                 ->where('status', 'success')
-                ->where('created_at', '>=', $monthStart)->sum('amount'),
+                ->where('created_at', '>=', $monthStart)->sum('amount'))->toFloat(),
             'transactions' => Transactions::where('user_id', $user->id)
                 ->where('status', 'success')
                 ->where('created_at', '>=', $monthStart)->count(),
-            'today_volume' => (float) Transactions::where('user_id', $user->id)
-                ->where('status', 'success')->whereDate('created_at', today())->sum('amount'),
+            'today_volume' => Money::fromDatabase(Transactions::where('user_id', $user->id)
+                ->where('status', 'success')->whereDate('created_at', today())->sum('amount'))->toFloat(),
         ];
 
         return view('wallet.index', compact('wallet', 'recentTransactions', 'monthlyStats'));
@@ -136,37 +144,85 @@ class WalletController extends Controller
                 'max:' . config('wallet.maximum_funding', 1000000),
             ],
             'payment_method' => 'required|in:paystack,bank_transfer',
+            // Optional: the funding form supplies one so a double submit cannot
+            // create two funding rows pointing at the same intent.
+            'idempotency_key' => 'nullable|string|min:8|max:64|regex:/^[A-Za-z0-9\-_]+$/',
         ]);
 
         $user = Auth::user();
-        $wallet = $this->wallets->forUser($user);
 
-        $amount = round((float) $validated['amount'], 2);
+        /*
+         * The amount is parsed once, exactly, into integer kobo. `round()` on a
+         * float is what let a ₦1,000.005 request become an unrepresentable
+         * amount, and the fee was computed from that same float.
+         */
+        $amount = Money::fromNaira($validated['amount']);
         $fee = $this->calculateFee($amount, $validated['payment_method']);
-        $total = $amount + $fee;
+        $total = $amount->plus($fee);
 
-        $transaction = Transactions::create([
-            'user_id' => $user->id,
-            'reference' => $this->wallets->generateReference('FND'),
-            'type' => 'credit',
-            'service_type' => 'funding',
-            'description' => 'Wallet funding — ' . ($validated['payment_method'] === 'paystack' ? 'Card' : 'Bank transfer'),
-            'amount' => $amount,
-            'service_fee' => $fee,
-            'total_amount' => $total,
-            'balance_before' => (float) $wallet->balance,
-            'recipient' => $user->email,
-            'provider' => $validated['payment_method'],
-            'payment_method' => $validated['payment_method'],
-            'payment_status' => 'pending',
-            'status' => 'pending',
-            'meta' => [
-                'funding_amount' => $amount,
-                'processing_fee' => $fee,
-                'total_payable' => $total,
-                'initiated_at' => now()->toDateTimeString(),
-            ],
-        ]);
+        /*
+         * Replay protection for the funding intent itself. The key is optional
+         * (older forms do not send one), but when it is present a repeat submit
+         * returns the original funding row rather than creating a second one.
+         */
+        $idempotencyKey = $validated['idempotency_key'] ?? null;
+
+        if ($idempotencyKey) {
+            $reservation = $this->security->reserve(
+                $idempotencyKey,
+                'wallet_funding',
+                $user,
+                $this->security->requestHash($user, [
+                    'amount' => $amount->toDecimalString(),
+                    'method' => $validated['payment_method'],
+                ])
+            );
+
+            if ($reservation['replay'] && $reservation['transaction']) {
+                $original = $reservation['transaction'];
+
+                return $original->payment_method === 'bank_transfer'
+                    ? redirect()->route('wallet.bank-transfer.details', ['ref' => $original->reference])
+                    : redirect()->route('wallet.payment.status', ['reference' => $original->reference]);
+            }
+        }
+
+        try {
+            $transaction = DB::transaction(function () use ($user, $amount, $fee, $total, $validated, $idempotencyKey) {
+                return Transactions::create([
+                    'user_id' => $user->id,
+                    'reference' => $this->wallets->generateReference('FND'),
+                    'type' => 'credit',
+                    'service_type' => 'funding',
+                    'description' => 'Wallet funding — ' . ($validated['payment_method'] === 'paystack' ? 'Card' : 'Bank transfer'),
+                    'amount' => $amount->toDecimalString(),
+                    'service_fee' => $fee->toDecimalString(),
+                    'total_amount' => $total->toDecimalString(),
+                    'recipient' => $user->email,
+                    'provider' => $validated['payment_method'],
+                    'payment_method' => $validated['payment_method'],
+                    'payment_status' => 'pending',
+                    'status' => 'pending',
+                    'idempotency_key' => $idempotencyKey,
+                    'meta' => [
+                        'funding_amount' => $amount->toDecimalString(),
+                        'processing_fee' => $fee->toDecimalString(),
+                        'total_payable' => $total->toDecimalString(),
+                        'initiated_at' => now()->toDateTimeString(),
+                    ],
+                ]);
+            });
+        } catch (Throwable $e) {
+            if (isset($reservation)) {
+                $this->security->release($reservation['record'], $e->getMessage());
+            }
+
+            throw $e;
+        }
+
+        if (isset($reservation)) {
+            $this->security->complete($reservation['record'], $transaction, ['outcome' => 'initiated']);
+        }
 
         return $validated['payment_method'] === 'bank_transfer'
             ? $this->initiateBankTransfer($transaction)
@@ -300,20 +356,30 @@ class WalletController extends Controller
         }
     }
 
-    private function calculateFee(float $amount, string $method): float
+    /**
+     * The processing fee for a funding method, in exact kobo.
+     *
+     * `Money::percentage()` rounds half-up to the nearest kobo, which is what
+     * the previous `round($amount * $percentage / 100 + $additional, 2)` did —
+     * so no historical fee changes value, but the arithmetic no longer depends
+     * on binary floating point.
+     */
+    private function calculateFee(Money $amount, string $method): Money
     {
         if ($method !== 'paystack') {
-            return (float) config('wallet.fees.bank_transfer.fixed', 0);
+            return Money::fromDatabase(config('wallet.fees.bank_transfer.fixed', 0));
         }
 
         $config = config('wallet.fees.paystack', ['percentage' => 1.5, 'additional' => 100, 'cap' => 2000]);
-        $fee = ($amount * (float) $config['percentage'] / 100) + (float) $config['additional'];
 
-        if (isset($config['cap']) && $fee > (float) $config['cap']) {
-            $fee = (float) $config['cap'];
+        $fee = $amount->percentage($config['percentage'] ?? 0)
+            ->plus(Money::fromDatabase($config['additional'] ?? 0));
+
+        if (isset($config['cap'])) {
+            $fee = $fee->min(Money::fromDatabase($config['cap']));
         }
 
-        return round($fee, 2);
+        return $fee;
     }
 
     /* =====================================================================
@@ -323,8 +389,31 @@ class WalletController extends Controller
     public function submitBankTransferProof(Request $request)
     {
         $validated = $request->validate([
-            'transaction_reference' => 'required|string|exists:transactions,reference',
-            'proof' => 'required|file|mimes:jpg,jpeg,png,webp,pdf|max:5120',
+            /*
+             * Deliberately NOT `exists:transactions,reference`.
+             *
+             * That rule queries the whole table, so a wrong reference produced a
+             * different validation message for "exists but not yours" than for
+             * "does not exist" — an oracle for confirming that a reference is
+             * real. The ownership-scoped lookup below is the actual check, and
+             * it fails identically either way.
+             */
+            'transaction_reference' => 'required|string|max:120',
+            /*
+             * `mimes` compares the extension guessed from the content;
+             * `mimetypes` compares the detected MIME itself. Both are asserted
+             * because either alone can be satisfied by a polyglot, and this is a
+             * document an administrator later opens. The bytes go to the private
+             * disk under a framework-generated name, so nothing here is
+             * web-served regardless — this is the second lock, not the first.
+             */
+            'proof' => [
+                'required',
+                'file',
+                'mimes:jpg,jpeg,png,webp,pdf',
+                'mimetypes:image/jpeg,image/png,image/webp,application/pdf',
+                'max:5120',
+            ],
             'remarks' => 'nullable|string|max:500',
         ]);
 
@@ -345,7 +434,9 @@ class WalletController extends Controller
         }
 
         // Private disk: proofs contain bank account details and must not be
-        // reachable at a guessable public URL.
+        // reachable at a guessable public URL. The filename is generated by the
+        // framework from a random hash, so the client-supplied name is never
+        // part of the path and cannot traverse out of the directory.
         $path = $request->file('proof')->store('payment-proofs/' . date('Y/m'), 'local');
 
         $transaction->forceFill([
@@ -446,16 +537,31 @@ class WalletController extends Controller
                 ->with('error', 'That payment could not be verified with the gateway.');
         }
 
+        /*
+         * The browser plays no part in deciding success: the gateway is queried
+         * server-to-server above, and `settle()` validates the reference, the
+         * amount, the currency and the status before any money moves. A
+         * `?reference=` in the URL is a hint about what to verify, never an
+         * assertion that anything was paid.
+         */
         $result = $this->paystack->settle($transaction, $gatewayData);
 
         return match ($result['status']) {
             'settled', 'already_settled' => redirect()->route('wallet.index')->with(
                 'success',
-                'Payment confirmed. ₦' . number_format((float) $result['transaction']->amount, 2) . ' has been added to your wallet.'
+                'Payment confirmed. ' . Money::fromDatabase($result['transaction']->amount)->format() . ' has been added to your wallet.'
             ),
             'amount_mismatch' => redirect()->route('wallet.index')->with(
                 'error',
                 'The amount paid did not match this transaction, so it was not credited. Support has been notified.'
+            ),
+            'currency_mismatch' => redirect()->route('wallet.index')->with(
+                'error',
+                'That payment was made in an unsupported currency, so it was not credited. Support has been notified.'
+            ),
+            'reference_mismatch' => redirect()->route('wallet.index')->with(
+                'error',
+                'We could not match that payment to this transaction. Support has been notified.'
             ),
             default => redirect()->route('wallet.index')->with(
                 'error',
@@ -497,9 +603,30 @@ class WalletController extends Controller
         return response()->json([
             'status' => $transaction->status,
             'payment_status' => $transaction->payment_status,
-            'amount' => (float) $transaction->amount,
+            'amount' => Money::fromDatabase($transaction->amount)->toFloat(),
+            'amount_minor' => Money::fromDatabase($transaction->amount)->minor(),
             'currency' => 'NGN',
             'message' => $this->statusMessage($transaction->status),
+        ]);
+    }
+
+    /**
+     * The authenticated user's wallet balance, for the header widget.
+     *
+     * Read from the wallet service, so it is the same value every other part of
+     * the application uses — the previous inline route closure read
+     * `Auth::user()->wallet` directly, which returned null for a user whose
+     * wallet row had not been created and quietly reported a zero balance.
+     */
+    public function balance()
+    {
+        $balance = $this->wallets->balanceFor(Auth::user());
+
+        return response()->json([
+            'balance' => $balance->toFloat(),
+            'balance_minor' => $balance->minor(),
+            'currency' => Money::CURRENCY,
+            'formatted' => $balance->format(),
         ]);
     }
 

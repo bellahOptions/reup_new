@@ -52,10 +52,17 @@ everything under Composer.
 
 ## The scheduler must be running
 
-`app/Console/Kernel.php` schedules `payments:reconcile` every minute. It resolves
-Paystack payments that the webhook never confirmed, and expires payments that
-were abandoned. **Without a scheduler runner this never executes and pending
-payments stay pending forever.**
+`app/Console/Kernel.php` schedules three entries:
+
+| Schedule | Command | Why |
+| --- | --- | --- |
+| every minute | `payments:reconcile` | Resolves Paystack payments the webhook never confirmed, and expires payments that were abandoned |
+| hourly | `payments:review-unconfirmed` | Asks providers about purchases whose outcome is unknown, and reports the ones that still are |
+| every minute | *(heartbeat)* | Writes `scheduler:last_run`, which `schedule:health` reads |
+
+**Without a scheduler runner none of these executes** and pending payments stay
+pending forever. Nothing in the application fails when that happens — no error is
+logged and no page breaks — so this is checked explicitly rather than assumed.
 
 Development, one terminal:
 
@@ -69,17 +76,65 @@ Production, one cron entry (or the Windows equivalent):
 * * * * * cd /path/to/app && php artisan schedule:run >> /dev/null 2>&1
 ```
 
-`php artisan schedule:list` shows what is registered. To run the sweep by hand:
+`php artisan schedule:list` shows what is registered.
+
+### Prove it is running
 
 ```
-php artisan payments:reconcile --dry-run   # report only, changes nothing
-php artisan payments:reconcile             # poll and resolve
+php artisan schedule:health            # report
+php artisan schedule:health --check    # exit 1 when the scheduler is not running
 ```
 
-The sweep only ever *polls* payments where Paystack is the authority (card, bank
-transfer, USSD funding). Bill purchases are resolved by ClubKonnect/Pairgate and
-are deliberately excluded — Paystack has never heard of them, so polling one
-would return "not found" and could wrongly close a delivered order.
+`--check` is a deploy gate and a monitoring probe. Wire it into whatever alerts
+you — a silently dead scheduler is the single most damaging deploy mistake
+available in this application, because payments simply stop being reconciled:
+
+```
+*/5 * * * * cd /path/to/app && php artisan schedule:health --check || notify-ops "scheduler down"
+```
+
+To run the sweeps by hand:
+
+```
+php artisan payments:reconcile --dry-run                # report only, changes nothing
+php artisan payments:reconcile                          # poll and resolve
+php artisan payments:review-unconfirmed --list           # what is still unconfirmed
+php artisan payments:review-unconfirmed                  # ask the providers
+```
+
+The reconciliation sweep only ever *polls* payments where Paystack is the
+authority (card, bank transfer, USSD funding). Bill purchases are resolved by
+ClubKonnect/Pairgate and are deliberately excluded — Paystack has never heard of
+them, so polling one would return "not found" and could wrongly close a delivered
+order.
+
+### Unknown outcomes are not failures
+
+A bill purchase whose provider call timed out is left in the `unknown` state:
+the money stays debited, and it is **not** refunded, retried or marked failed,
+because the order may have been vended and every one of those actions is wrong
+if it was. It is resolved by a provider status query, by the provider's webhook,
+or by a human in the admin review — and `payments:review-unconfirmed` is what
+makes sure it cannot be forgotten.
+
+When one of these logs appears, a person has to look at it:
+
+```
+grep 'purchase_outcome_unknown\|unconfirmed_purchases_remain' storage/logs/laravel.log
+```
+
+### Verifying wallet balances
+
+```
+php artisan wallet:verify                   # every wallet; non-zero exit on drift
+php artisan wallet:verify --user=42         # one customer
+php artisan wallet:verify --statement=42    # that customer's ledger statement
+```
+
+Every wallet balance must equal the sum of its immutable ledger. A wallet that
+fails is one that has been mutated outside `App\Services\WalletService`, which is
+the one thing the architecture forbids. Nothing is changed by the command — it
+reports, so an operator can decide.
 
 
 ## Bill-payment providers

@@ -237,15 +237,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/payment/check-status', [WalletController::class, 'checkPaymentStatus'])
             ->middleware('throttle:60,1')->name('payment.check-status');
 
-        Route::get('/balance', function () {
-            $wallet = Auth::user()->wallet;
-
-            return response()->json([
-                'balance' => (float) ($wallet->balance ?? 0),
-                'currency' => 'NGN',
-                'formatted' => '₦' . number_format((float) ($wallet->balance ?? 0), 2),
-            ]);
-        })->name('balance');
+        Route::get('/balance', [WalletController::class, 'balance'])->name('balance');
     });
 
     /*
@@ -285,6 +277,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
         return response()->json(['success' => true]);
     })->name('announcements.mark-session-viewed');
 });
+
+// Uploaded avatars are stored on the private disk, so they are read back
+// through this authenticated route rather than a public URL. Registered
+// outside the `verified` group so a signed-in-but-unverified account still
+// sees its own picture in the navbar. Ownership is asserted in the controller.
+Route::get('/profile/avatar/{user}/{file}', [ProfileController::class, 'avatar'])
+    ->middleware('auth')
+    ->where('file', '[A-Za-z0-9]+\.(?:jpg|jpeg|png|gif)')
+    ->name('profile.avatar');
 
 // Public pricelist browsing (read-only).
 Route::get('/pricelist', [PricelistController::class, 'index'])->name('pricelist');

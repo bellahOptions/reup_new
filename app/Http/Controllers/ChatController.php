@@ -43,9 +43,11 @@ class ChatController extends Controller
         // without an extra round trip per poll.
         $session = ChatSession::with(['user', 'admin'])->findOrFail($request->session_id);
 
-        // Verify user has access to this session
+        // Someone else's session is a 404, not a 403: a 403 would confirm that
+        // the id exists, letting a customer enumerate which session ids are
+        // live. Ids are sequential, so that confirmation is the whole oracle.
         if (! $user->isAdmin() && $session->user_id !== $user->id) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+            abort(404);
         }
 
         // Mark the counterparty's messages as read. The previous filter read
@@ -84,9 +86,10 @@ class ChatController extends Controller
     $user = Auth::user();
     $session = ChatSession::findOrFail($validated['session_id']);
 
-    // Verify user has access
+    // Same rule as getMessages(): another customer's session does not exist as
+    // far as this user is concerned, and must not be writable either.
     if (! $user->isAdmin() && $session->user_id !== $user->id) {
-        return response()->json(['error' => 'Unauthorized'], 403);
+        abort(404);
     }
 
     // `sender_type` is the role label the schema documents and the value every
@@ -125,7 +128,16 @@ class ChatController extends Controller
         ]);
 
         $user = Auth::User();
-        
+
+        // Previously unchecked: this accepted any session id, so a customer
+        // could flag typing against a stranger's conversation. It returns no
+        // data, but it is still an unauthenticated-by-object write.
+        $session = ChatSession::findOrFail($request->session_id);
+
+        if (! $user->isAdmin() && $session->user_id !== $user->id) {
+            abort(404);
+        }
+
         // In production, broadcast this event via Laravel Echo/Pusher
         // event(new UserTyping($request->session_id, $user->id, $request->is_typing));
 
@@ -142,7 +154,7 @@ class ChatController extends Controller
         $session = ChatSession::findOrFail($request->session_id);
 
         if (!$user->isAdmin() && $session->user_id !== $user->id) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+            abort(404);
         }
 
         $session->update(['status' => 'closed']);
@@ -173,14 +185,31 @@ class ChatController extends Controller
             ->first();
     }
 
+    /*
+     * The methods below are the console side of chat. Nothing registers them on
+     * the customer routes today — the admin console routes to
+     * Admin\AdminChatController — but they live on a controller reachable by any
+     * authenticated customer, and they return every session and every user in
+     * the database. They therefore assert the admin flag themselves rather than
+     * relying on a route definition not to change.
+     */
+    private function assertAdmin(): void
+    {
+        abort_unless(Auth::user()?->isAdmin(), 403);
+    }
+
     // Admin methods
     public function adminIndex()
     {
+        $this->assertAdmin();
+
         return view('admin.chat.index');
     }
 
     public function getSessions(Request $request)
     {
+        $this->assertAdmin();
+
         $query = ChatSession::with(['user', 'messages' => function($q) {
             $q->latest()->limit(1);
         }]);
@@ -208,6 +237,8 @@ class ChatController extends Controller
 
     public function getStats()
     {
+        $this->assertAdmin();
+
         $active = ChatSession::where('status', 'active')->count();
         $pending = ChatSession::where('status', 'pending')->count();
         $closed = ChatSession::where('status', 'closed')
@@ -223,6 +254,8 @@ class ChatController extends Controller
 
     public function getOnlineAdmins()
     {
+        $this->assertAdmin();
+
         $admins = User::admins()
             ->where('is_online', true)
             ->where('last_activity', '>=', now()->subMinutes(5))
@@ -253,6 +286,8 @@ class ChatController extends Controller
     // Add to ChatController
 public function getAdminMessages($sessionId)
 {
+    $this->assertAdmin();
+
     $session = ChatSession::with('user')->findOrFail($sessionId);
     
     // Get messages
@@ -286,7 +321,7 @@ public function sendAdminMessage(Request $request)
     $user = Auth::User();
     
     if (!$user->isAdmin()) {
-        return response()->json(['error' => 'Unauthorized'], 403);
+        abort(403);
     }
 
     $session = ChatSession::findOrFail($request->session_id);

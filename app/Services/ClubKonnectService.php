@@ -5,6 +5,7 @@ namespace App\Services;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Exception;
 
 class ClubKonnectService 
@@ -64,7 +65,7 @@ class ClubKonnectService
             Log::info('ClubKonnect request', [
                 'endpoint' => $endpoint,
                 'params' => array_merge(
-                    collect($params)->except(['APIKey', 'UserID'])->all(),
+                    $this->maskPersonalData(collect($params)->except(['APIKey', 'UserID'])->all()),
                     ['APIKey' => '[redacted]', 'UserID' => '[redacted]']
                 ),
             ]);
@@ -73,11 +74,12 @@ class ClubKonnectService
             $response = Http::timeout($timeout)
                 ->get($endpoint, $params);
 
-            // Body is logged at debug level only: it contains customer phone
-            // numbers and, on failure, echoed request parameters.
+            // Body is logged at debug level only, scrubbed and truncated: it
+            // contains customer phone numbers and, on failure, an echo of the
+            // request parameters — which include both credentials.
             Log::debug('ClubKonnect response', [
                 'status' => $response->status(),
-                'body' => $response->body(),
+                'body' => Str::limit($this->redact($response->body()), 2000),
             ]);
 
             if ($response->successful()) {
@@ -107,17 +109,94 @@ class ClubKonnectService
             ];
 
         } catch (Exception $e) {
+            /*
+             * Never log or return the raw transport message.
+             *
+             * Laravel wraps a failed connection in a ConnectionException whose
+             * message embeds the full request URL, and every endpoint here
+             * carries `UserID=...&APIKey=...` in the query string — so the
+             * previous `$e->getMessage()` put both credentials into the log
+             * (LOG_LEVEL=debug) and returned them to the caller. The trace was
+             * logged too, and PHP's default trace format includes call
+             * arguments.
+             */
             Log::error('ClubKonnect Exception', [
-                'message' => $e->getMessage(),
+                'message' => $this->redact($e->getMessage()),
+                'exception' => get_class($e),
                 'endpoint' => $endpoint,
-                'trace' => $e->getTraceAsString()
             ]);
-            
+
             return [
                 'status' => 'EXCEPTION',
-                'message' => 'Connection error: ' . $e->getMessage()
+                'message' => 'We could not reach the service provider. Please try again.',
             ];
         }
+    }
+
+    /**
+     * Replace anything sensitive in a string that crosses a log or return
+     * boundary: the configured credentials, URL query strings, and the phone
+     * numbers the endpoints carry.
+     */
+    private function redact(string $text): string
+    {
+        foreach ([$this->apiKey, $this->clientId] as $credential) {
+            if (is_string($credential) && $credential !== '') {
+                $text = str_replace($credential, '[redacted]', $text);
+            }
+        }
+
+        // Drop query strings outright: the parameters are the credentials.
+        $text = preg_replace('~\?[^\s\'"]+~', '?[redacted]', $text) ?? $text;
+
+        return $this->maskPhoneNumbers($text);
+    }
+
+    /**
+     * The same scrub applied to a structured payload before it is logged.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function maskPersonalData(array $payload): array
+    {
+        foreach ($payload as $key => $value) {
+            if (is_array($value)) {
+                $payload[$key] = $this->maskPersonalData($value);
+
+                continue;
+            }
+
+            if (is_scalar($value) && preg_match('/(mobile|phone|msisdn|smartcard|iuc|meter|customer_?id|account_?no)/i', (string) $key)) {
+                $payload[$key] = $this->maskPhone((string) $value);
+            }
+        }
+
+        return $payload;
+    }
+
+    /**
+     * Keep a recognisable tail so support can correlate a request, and nothing
+     * more: `08031234567` becomes `*******4567`.
+     */
+    private function maskPhone(string $phone): string
+    {
+        $digits = preg_replace('/\D/', '', $phone) ?? '';
+
+        if (strlen($digits) < 4) {
+            return '[redacted]';
+        }
+
+        return str_repeat('*', max(0, strlen($digits) - 4)) . substr($digits, -4);
+    }
+
+    private function maskPhoneNumbers(string $text): string
+    {
+        return preg_replace_callback(
+            '/\b0?\d{9,13}\b/',
+            fn (array $m) => $this->maskPhone($m[0]),
+            $text
+        ) ?? $text;
     }
 
     /**
@@ -135,7 +214,13 @@ class ClubKonnectService
             'RequestID' => $requestId,
         ];
 
-        Log::info('Airtime Purchase Request', $params);
+        // The customer's number is personal data: the log keeps a tail only.
+        Log::info('Airtime purchase requested', [
+            'network' => $network,
+            'amount' => $amount,
+            'mobile_number' => $this->maskPhone($phone),
+            'request_id' => $requestId,
+        ]);
 
         return $this->get($endpoint, $params);
     }
@@ -155,7 +240,12 @@ class ClubKonnectService
             'RequestID' => $requestId,
         ];
 
-        Log::info('Data Purchase Request', $params);
+        Log::info('Data purchase requested', [
+            'network' => $network,
+            'data_plan' => $dataPlan,
+            'mobile_number' => $this->maskPhone($phone),
+            'request_id' => $requestId,
+        ]);
 
         return $this->get($endpoint, $params);
     }

@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\Transactions;
 use App\Models\User;
+use App\Models\WalletLedger;
+use App\Support\Money;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -134,16 +136,34 @@ class PaystackService
     /**
      * Credit a funding transaction exactly once.
      *
-     * Idempotency is enforced three ways:
-     *   1. the transaction row is locked inside a DB transaction;
-     *   2. an already-successful row is returned untouched;
-     *   3. the gateway amount must match what we asked for.
+     * ## Idempotency
      *
-     * The previous code credited on every hit of the callback URL and never
-     * compared the amount, so a ₦100 charge could settle a ₦500,000 funding
-     * row, or the same reference could be replayed from the browser history.
+     * Four independent guards, in order:
      *
-     * @param  array<string,mixed>|null  $gatewayData  Verified Paystack payload, when available.
+     *   1. the transaction row is re-read **under a `SELECT ... FOR UPDATE` row
+     *      lock**, so two simultaneous settlements serialise rather than both
+     *      reading `pending`;
+     *   2. an already-successful row is returned untouched — this is what makes
+     *      a duplicate webhook harmless;
+     *   3. the gateway reference is verified to belong to *this* row, so a
+     *      settled payment cannot be applied to a different transaction;
+     *   4. `transactions.payment_reference` carries a UNIQUE index, so even a
+     *      race that got past the check fails the insert rather than crediting
+     *      twice.
+     *
+     * ## Validation
+     *
+     * The gateway is the authority on what was actually paid, and every value it
+     * reports is checked before any money moves:
+     *
+     *   * **status** — only `success` settles;
+     *   * **amount** — compared in integer kobo against the exact amount asked
+     *     for. Previously a ₦100 charge could settle a ₦500,000 funding row;
+     *   * **currency** — only NGN. A USD payment against a naira row is a
+     *     misconfiguration or an attack, and crediting it at face value would
+     *     hand over roughly 1,500x the value paid.
+     *
+     * @param  array<string,mixed>|null  $gatewayData  Verified Paystack payload.
      * @return array{status:string,transaction:Transactions}
      */
     public function settle(Transactions $transaction, ?array $gatewayData = null): array
@@ -157,37 +177,10 @@ class PaystackService
 
             // The gateway is the authority on what was actually paid.
             if ($gatewayData !== null) {
-                $paidKobo = (int) ($gatewayData['amount'] ?? 0);
-                $expectedKobo = (int) round(((float) $locked->total_amount) * 100);
+                $rejection = $this->validateGatewayPayment($locked, $gatewayData);
 
-                if ($paidKobo !== $expectedKobo) {
-                    Log::critical('Paystack amount mismatch — refusing to credit', [
-                        'transaction_id' => $locked->id,
-                        'reference' => $locked->reference,
-                        'expected_kobo' => $expectedKobo,
-                        'paid_kobo' => $paidKobo,
-                    ]);
-
-                    $locked->forceFill([
-                        'status' => 'failed',
-                        'payment_status' => 'failed',
-                        'status_message' => 'Amount mismatch: paid ' . ($paidKobo / 100) . ' expected ' . ($expectedKobo / 100),
-                        'completed_at' => now(),
-                    ])->save();
-
-                    return ['status' => 'amount_mismatch', 'transaction' => $locked];
-                }
-
-                if (($gatewayData['status'] ?? null) !== 'success') {
-                    $locked->forceFill([
-                        'status' => 'failed',
-                        'payment_status' => 'failed',
-                        'status_message' => $gatewayData['gateway_response'] ?? 'Payment was not successful.',
-                        'api_response' => $gatewayData,
-                        'completed_at' => now(),
-                    ])->save();
-
-                    return ['status' => 'failed', 'transaction' => $locked];
+                if ($rejection !== null) {
+                    return ['status' => $rejection, 'transaction' => $locked];
                 }
             }
 
@@ -197,7 +190,26 @@ class PaystackService
                 throw new RuntimeException('Funding transaction ' . $locked->id . ' has no associated user.');
             }
 
-            $movement = $this->wallets->credit($user, (float) $locked->amount);
+            $amount = Money::fromDatabase($locked->amount);
+
+            /*
+             * The credit carries the transaction it settles, so the immutable
+             * ledger entry and the transaction row reference each other. The
+             * reference is also stamped onto `payment_reference`, whose unique
+             * index is the last line of defence against a double credit.
+             */
+            $movement = $this->wallets->credit(
+                user: $user,
+                amount: $amount,
+                countsAsFunding: true,
+                entryType: WalletLedger::ENTRY_CREDIT,
+                description: 'Wallet funding — ' . ($locked->payment_method === 'bank_transfer' ? 'Bank transfer' : 'Card'),
+                transaction: $locked,
+                metadata: [
+                    'channel' => $gatewayData['channel'] ?? null,
+                    'gateway' => 'paystack',
+                ],
+            );
 
             $locked->forceFill([
                 'status' => 'success',
@@ -207,10 +219,14 @@ class PaystackService
                 'paid_at' => now(),
                 'completed_at' => now(),
                 'api_response' => $gatewayData,
+                'payment_reference' => $locked->payment_reference
+                    ?: (string) ($gatewayData['reference'] ?? $locked->gatewayReference()),
                 'meta' => array_merge($locked->meta ?? [], [
                     'channel' => $gatewayData['channel'] ?? null,
                     'gateway_response' => $gatewayData['gateway_response'] ?? null,
+                    'currency' => $gatewayData['currency'] ?? null,
                     'settled_at' => now()->toDateTimeString(),
+                    'ledger_entry_id' => $movement['ledger']->id,
                 ]),
             ])->save();
 
@@ -227,6 +243,99 @@ class PaystackService
 
             return ['status' => 'settled', 'transaction' => $locked];
         });
+    }
+
+    /**
+     * Check everything the gateway reported before crediting anything.
+     *
+     * @param  array<string,mixed>  $gatewayData
+     * @return string|null the rejection status, or null when the payment is good
+     */
+    private function validateGatewayPayment(Transactions $transaction, array $gatewayData): ?string
+    {
+        /*
+         * The reference the gateway verified must be the one we lodged. Without
+         * this, a verified payload for reference A could be applied to row B —
+         * an attacker who can reach the callback with a reference they control
+         * could otherwise choose which transaction gets credited.
+         */
+        $gatewayReference = (string) ($gatewayData['reference'] ?? '');
+
+        if ($gatewayReference !== '' && ! in_array($gatewayReference, array_filter([
+            $transaction->uuid,
+            $transaction->reference,
+            $transaction->api_reference,
+            $transaction->payment_reference,
+        ]), true)) {
+            Log::critical('Paystack reference does not belong to this transaction — refusing to credit', [
+                'transaction_id' => $transaction->id,
+                'gateway_reference' => $gatewayReference,
+            ]);
+
+            return 'reference_mismatch';
+        }
+
+        /*
+         * Currency. `Money` is NGN-only by construction, and the platform has no
+         * FX. A non-NGN settlement is a configuration error or an attack, and in
+         * either case crediting it at face value overpays by orders of magnitude.
+         */
+        $currency = strtoupper((string) ($gatewayData['currency'] ?? 'NGN'));
+
+        if ($currency !== Money::CURRENCY) {
+            Log::critical('Paystack currency mismatch — refusing to credit', [
+                'transaction_id' => $transaction->id,
+                'reference' => $transaction->reference,
+                'expected_currency' => Money::CURRENCY,
+                'paid_currency' => $currency,
+            ]);
+
+            $transaction->forceFill([
+                'status' => 'failed',
+                'payment_status' => 'failed',
+                'status_message' => "Currency mismatch: paid {$currency}, expected " . Money::CURRENCY . '.',
+                'completed_at' => now(),
+            ])->save();
+
+            return 'currency_mismatch';
+        }
+
+        $paidKobo = (int) ($gatewayData['amount'] ?? 0);
+        $expectedKobo = Money::fromDatabase($transaction->total_amount)->minor();
+
+        if ($paidKobo !== $expectedKobo) {
+            Log::critical('Paystack amount mismatch — refusing to credit', [
+                'transaction_id' => $transaction->id,
+                'reference' => $transaction->reference,
+                'expected_kobo' => $expectedKobo,
+                'paid_kobo' => $paidKobo,
+            ]);
+
+            $transaction->forceFill([
+                'status' => 'failed',
+                'payment_status' => 'failed',
+                'status_message' => 'Amount mismatch: paid '
+                    . Money::fromMinor($paidKobo)->format() . ' expected '
+                    . Money::fromMinor($expectedKobo)->format(),
+                'completed_at' => now(),
+            ])->save();
+
+            return 'amount_mismatch';
+        }
+
+        if (($gatewayData['status'] ?? null) !== 'success') {
+            $transaction->forceFill([
+                'status' => 'failed',
+                'payment_status' => 'failed',
+                'status_message' => $gatewayData['gateway_response'] ?? 'Payment was not successful.',
+                'api_response' => $gatewayData,
+                'completed_at' => now(),
+            ])->save();
+
+            return 'failed';
+        }
+
+        return null;
     }
 
     /**
@@ -456,7 +565,9 @@ class PaystackService
     {
         $providerReference = (string) ($data['reference'] ?? '');
         $accountNumber = (string) data_get($data, 'authorization.receiver_bank_account_number', '');
-        $amount = ((int) ($data['amount'] ?? 0)) / 100;
+
+        // Exact, from the gateway's own integer minor units.
+        $amount = Money::fromMinor((int) ($data['amount'] ?? 0));
 
         if ($providerReference === '' || $accountNumber === '') {
             Log::warning('Dedicated-account transfer missing reference or receiver account', [
@@ -467,33 +578,53 @@ class PaystackService
             return ['status' => 'ignored', 'transaction' => null];
         }
 
-        // Idempotency: the provider reference is stable across retries.
-        // `provider` is stored lowercase ('paystack') across this codebase; the
-        // comparison is case-insensitive so older capitalised rows still match.
-        $existing = Transactions::whereRaw('LOWER(provider) = ?', ['paystack'])
-            ->where('api_reference', $providerReference)
-            ->first();
+        /*
+         * Currency check first, before any lookup: a non-NGN transfer to a naira
+         * account is either a gateway misconfiguration or an attempt to have a
+         * small foreign amount credited as a large naira one.
+         */
+        $currency = strtoupper((string) ($data['currency'] ?? 'NGN'));
 
-        if ($existing) {
-            return ['status' => 'duplicate', 'transaction' => $existing];
-        }
-
-        $user = $this->userForDedicatedAccount($accountNumber);
-
-        if (! $user) {
-            Log::warning('Dedicated-account transfer for an unknown account number', [
+        if ($currency !== Money::CURRENCY) {
+            Log::critical('Dedicated-account transfer in an unexpected currency — refusing to credit', [
                 'reference' => $providerReference,
+                'currency' => $currency,
             ]);
 
-            return ['status' => 'unknown_account', 'transaction' => null];
+            return ['status' => 'currency_mismatch', 'transaction' => null];
         }
 
-        if ($amount <= 0) {
+        if (! $amount->isPositive()) {
             return ['status' => 'ignored', 'transaction' => null];
         }
 
-        return DB::transaction(function () use ($user, $data, $providerReference, $amount, $accountNumber) {
-            $movement = $this->wallets->credit($user, $amount);
+        /*
+         * Idempotency, inside the transaction and under a lock on the existing
+         * row when there is one. The previous implementation checked outside the
+         * transaction, which two concurrent retries could both pass.
+         *
+         * `provider` is stored lowercase ('paystack') across this codebase; the
+         * comparison is case-insensitive so older capitalised rows still match.
+         */
+        return DB::transaction(function () use ($data, $providerReference, $amount, $accountNumber) {
+            $existing = Transactions::whereRaw('LOWER(provider) = ?', ['paystack'])
+                ->where('api_reference', $providerReference)
+                ->lockForUpdate()
+                ->first();
+
+            if ($existing) {
+                return ['status' => 'duplicate', 'transaction' => $existing];
+            }
+
+            $user = $this->userForDedicatedAccount($accountNumber);
+
+            if (! $user) {
+                Log::warning('Dedicated-account transfer for an unknown account number', [
+                    'reference' => $providerReference,
+                ]);
+
+                return ['status' => 'unknown_account', 'transaction' => null];
+            }
 
             $transaction = Transactions::create([
                 'user_id' => $user->id,
@@ -501,17 +632,18 @@ class PaystackService
                 'type' => 'credit',
                 'service_type' => 'funding',
                 'description' => 'Bank transfer — ' . (data_get($data, 'authorization.sender_bank') ?: 'inbound transfer'),
-                'amount' => $amount,
-                'service_fee' => 0,
-                'total_amount' => $amount,
-                'balance_before' => $movement['balance_before'],
-                'balance_after' => $movement['balance_after'],
+                'amount' => $amount->toDecimalString(),
+                'service_fee' => '0.00',
+                'total_amount' => $amount->toDecimalString(),
                 'recipient' => $accountNumber,
                 'provider' => 'paystack',
                 'payment_method' => 'bank_transfer',
                 'payment_status' => 'success',
                 'status' => 'success',
                 'api_reference' => $providerReference,
+                // Unique index on this column: a second credit for the same
+                // transfer cannot be inserted.
+                'payment_reference' => $providerReference,
                 'api_response' => $data,
                 'paid_at' => now(),
                 'completed_at' => now(),
@@ -525,9 +657,28 @@ class PaystackService
                 ],
             ]);
 
+            $movement = $this->wallets->credit(
+                user: $user,
+                amount: $amount,
+                countsAsFunding: true,
+                entryType: WalletLedger::ENTRY_CREDIT,
+                description: 'Bank transfer received',
+                transaction: $transaction,
+                metadata: ['channel' => 'dedicated_nuban', 'gateway' => 'paystack'],
+            );
+
+            $transaction->forceFill([
+                'balance_before' => $movement['balance_before'],
+                'balance_after' => $movement['balance_after'],
+                'meta' => array_merge($transaction->meta ?? [], [
+                    'ledger_entry_id' => $movement['ledger']->id,
+                ]),
+            ])->save();
+
             Log::info('Wallet credited from dedicated-account transfer', [
                 'user_id' => $user->id,
-                'amount' => $amount,
+                'amount' => $amount->toDecimalString(),
+                // The provider reference is an identifier, not a credential.
                 'reference' => $providerReference,
             ]);
 

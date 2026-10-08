@@ -298,6 +298,20 @@ return [
         'per_minute' => (int) env('LIMIT_PURCHASES_PER_MINUTE', 6),
         'duplicate_window' => (int) env('LIMIT_DUPLICATE_WINDOW', 20),
 
+        /*
+         * Transaction-PIN submissions allowed per user per minute.
+         *
+         * Bounds an online guess against a 4-digit PIN. It only applies to the
+         * *entered* PIN — setting one requires an emailed one-time code, which
+         * has its own limit (OtpLoginService).
+         *
+         * Keep this low: five attempts a minute against 10,000 possible PINs is
+         * more than an hour of sustained guessing before a hit is even likely,
+         * and the per-account lockout in SecurityService (5 failures, then a
+         * 15-minute cooldown) bites well before that.
+         */
+        'pin_attempts_per_minute' => (int) env('LIMIT_PIN_ATTEMPTS_PER_MINUTE', 5),
+
         /** Service-specific single-transaction caps. */
         'per_service' => [
             'airtime' => (float) env('LIMIT_AIRTIME', 50000),

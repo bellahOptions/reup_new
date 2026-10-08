@@ -4,7 +4,9 @@ namespace App\Console\Commands;
 
 use App\Models\Transactions;
 use App\Services\PaystackService;
+use App\Support\Money;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -80,6 +82,13 @@ class ReconcilePaystackPayments extends Command
          * branches. Checking them as separate ranges previously left a gap: a
          * row older than the poll window but newer than the expiry threshold
          * matched neither condition and was silently ignored forever.
+         *
+         * Only rows the gateway has never heard of are expired — which is what
+         * the lookback window buys: by default a payment gets a full day of
+         * polling before it is written off, and a row the gateway knows about is
+         * normally settled by the branch below long before it reaches here. The
+         * status is therefore re-read under a lock and only a still-pending row
+         * is expired, so a webhook arriving mid-run always wins.
          */
         $cutoff = now()->subMinutes($lookback);
 
@@ -96,15 +105,37 @@ class ReconcilePaystackPayments extends Command
                 continue;
             }
 
-            $transaction->forceFill([
-                'status' => 'failed',
-                'payment_status' => 'failed',
-                'status_message' => 'Expired: the payment was never completed. No money left your account.',
-                'completed_at' => now(),
-            ])->save();
+            /*
+             * Two guards, both inside a locked transaction:
+             *   * the row must still be pending, so a webhook that arrived
+             *     between the SELECT above and here wins;
+             *   * `payment_status` must still be pending, so a settlement that
+             *     moved it cannot be overwritten.
+             */
+            $expired = DB::transaction(function () use ($transaction) {
+                $locked = Transactions::whereKey($transaction->getKey())->lockForUpdate()->first();
 
-            $counts['failed']++;
-            $this->line("  <fg=red>x</> {$transaction->reference} — expired (older than {$lookback}m)");
+                if (! $locked || $locked->status !== 'pending' || $locked->payment_status !== 'pending') {
+                    return false;
+                }
+
+                $locked->forceFill([
+                    'status' => 'failed',
+                    'payment_status' => 'failed',
+                    'status_message' => 'Expired: the payment was never completed. No money left your account.',
+                    'completed_at' => now(),
+                ])->save();
+
+                return true;
+            });
+
+            if ($expired) {
+                $counts['failed']++;
+                $this->line("  <fg=red>x</> {$transaction->reference} — expired (older than {$lookback}m)");
+            } else {
+                $counts['unchanged']++;
+                $this->line("  <fg=gray>-</> {$transaction->reference} — settled while expiring; left alone");
+            }
         }
 
         if ($stale->isNotEmpty()) {
@@ -157,10 +188,17 @@ class ReconcilePaystackPayments extends Command
             if ($status === 'success') {
                 if ($dryRun) {
                     $counts['credited']++;
-                    $this->line("  <fg=green>+</> {$transaction->reference} — would credit ₦" . number_format((float) $transaction->amount, 2));
+                    $this->line("  <fg=green>+</> {$transaction->reference} — would credit " . Money::fromDatabase($transaction->amount)->format());
                     continue;
                 }
 
+                /*
+                 * `settle()` is the single settlement path and is idempotent:
+                 * it re-reads the row under a row lock, returns untouched if the
+                 * row is already successful, and validates the reference, amount
+                 * and currency before crediting. Running this command twice, or
+                 * concurrently with the webhook, therefore cannot double-credit.
+                 */
                 $result = $paystack->settle($transaction, $gatewayData);
 
                 if (in_array($result['status'], ['settled', 'already_settled'], true)) {
@@ -170,10 +208,12 @@ class ReconcilePaystackPayments extends Command
                         'transaction_id' => $transaction->id,
                         'reference' => $transaction->reference,
                         'uuid' => $transaction->uuid,
+                        'result' => $result['status'],
                     ]);
                 } else {
-                    // settle() refused it (amount mismatch) — that path already
-                    // marked the row failed and logged critically.
+                    // settle() refused it (amount/currency/reference mismatch) —
+                    // that path already marked the row failed and logged
+                    // critically, so it is not silently dropped.
                     $counts['failed']++;
                     $this->line("  <fg=red>x</> {$transaction->reference} — settle refused: {$result['status']}");
                 }

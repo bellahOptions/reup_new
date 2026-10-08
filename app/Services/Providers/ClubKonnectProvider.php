@@ -202,4 +202,60 @@ class ClubKonnectProvider implements BillProvider
     {
         return $response['token'] ?? $response['Token'] ?? data_get($response, 'data.token') ?? null;
     }
+
+    /**
+     * Ask NelloBytes what happened to an order.
+     *
+     * `APIStatusQueryV1` is keyed on the RequestID we sent, which is the
+     * transaction reference this application generated — so the query is exact
+     * and needs no stored provider id.
+     *
+     * ## Vocabulary mapping
+     *
+     * NelloBytes reports its own statuses. They are mapped conservatively:
+     *
+     *   * a completed/reversed/refunded order is `success` or `failed`
+     *     accordingly — both are terminal verdicts;
+     *   * anything still in progress is `pending`;
+     *   * **anything unrecognised is `unknown`, never `failed`.**
+     *
+     * The last rule is the one that matters. A status string this adapter has
+     * not seen before is not evidence that the customer was not vended, and
+     * treating it as a failure would trigger a refund for goods already
+     * delivered.
+     */
+    public function orderStatus(string $reference, array $params = []): string
+    {
+        if (! $this->isConfigured()) {
+            return 'unknown';
+        }
+
+        try {
+            $response = $this->client->verifyTransaction($reference);
+        } catch (\Throwable $e) {
+            // A transport failure leaves the outcome exactly as unknown as it
+            // was before the query.
+            Log::warning('ClubKonnect status query failed', [
+                'reference' => $reference,
+                'error' => $e->getMessage(),
+            ]);
+
+            return 'unknown';
+        }
+
+        if (! is_array($response)) {
+            return 'unknown';
+        }
+
+        $status = strtoupper(trim((string) ($response['status'] ?? '')));
+
+        return match ($status) {
+            'ORDER_COMPLETED', 'COMPLETED', 'SUCCESS', 'SUCCESSFUL' => 'success',
+            'ORDER_FAILED', 'FAILED', 'ORDER_CANCELLED', 'CANCELLED', 'REFUNDED' => 'failed',
+            'ORDER_RECEIVED', 'PENDING', 'PROCESSING', 'IN_PROGRESS', 'ORDER_PENDING' => 'pending',
+            // Includes the adapter's own transport statuses (EXCEPTION,
+            // API_ERROR, INVALID_RESPONSE) and anything unrecognised.
+            default => 'unknown',
+        };
+    }
 }

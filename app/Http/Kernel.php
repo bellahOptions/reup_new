@@ -14,6 +14,10 @@ class Kernel extends HttpKernel
      * @var array<int, class-string|string>
      */
     protected $middleware = [
+        // First so it wraps everything else: Laravel's pipeline converts a
+        // thrown exception into a rendered response at the failing pipe, so an
+        // outermost middleware still decorates 403/404/419/500 pages.
+        \App\Http\Middleware\SecurityHeaders::class,
         // \App\Http\Middleware\TrustHosts::class,
         \App\Http\Middleware\TrustProxies::class,
         \Fruitcake\Cors\HandleCors::class,

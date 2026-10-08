@@ -172,7 +172,20 @@ class ClubKonnectCatalogue
 
             return $payload;
         } catch (\Throwable $e) {
-            Log::error('Data plan catalogue fetch failed: ' . $e->getMessage());
+            // The transport message embeds the request URL, and `UserID` sits
+            // in the query string — scrub it before it reaches the log.
+            $message = $e->getMessage();
+
+            if (! empty($this->clientId)) {
+                $message = str_replace((string) $this->clientId, '[redacted]', $message);
+            }
+
+            $message = preg_replace('~\?[^\s\'"]+~', '?[redacted]', $message) ?? $message;
+
+            Log::error('Data plan catalogue fetch failed', [
+                'exception' => get_class($e),
+                'message' => $message,
+            ]);
 
             $fallback = Cache::get(self::FALLBACK_KEY);
 
@@ -194,7 +207,13 @@ class ClubKonnectCatalogue
         $processedPlans = [];
 
         if (empty($apiData) || ! isset($apiData['MOBILE_NETWORK'])) {
-            Log::error('Invalid API response structure:', is_array($apiData) ? $apiData : []);
+            // Shape only: an unexpected payload is often the provider echoing
+            // the request, which carries UserID and APIKey.
+            Log::error('Invalid API response structure', [
+                'type' => gettype($apiData),
+                'keys' => is_array($apiData) ? array_slice(array_keys($apiData), 0, 10) : [],
+                'status' => is_array($apiData) ? ($apiData['status'] ?? null) : null,
+            ]);
 
             return $processedPlans;
         }

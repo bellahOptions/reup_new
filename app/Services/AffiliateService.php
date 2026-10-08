@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Referral;
 use App\Models\Transactions;
 use App\Models\User;
+use App\Models\WalletLedger;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -111,19 +112,6 @@ class AffiliateService
 
         try {
             return DB::transaction(function () use ($referrer, $referred, $fundingTransaction, $totalFunded) {
-                /*
-                 * Lock the referrer's wallet before crediting so two referrals
-                 * landing at the same instant serialise instead of both reading
-                 * the same balance.
-                 */
-                $movement = $this->wallets->credit(
-                    $referrer,
-                    self::REWARD_AMOUNT,
-                    // Not funding: a reward must not itself count toward a
-                    // funding threshold, or it could cascade.
-                    countsAsFunding: false
-                );
-
                 $reward = Referral::create([
                     'referrer_id' => $referrer->id,
                     'referred_id' => $referred->id,
@@ -134,19 +122,21 @@ class AffiliateService
                     'paid_at' => now(),
                 ]);
 
-                // A real transaction row, so the credit is visible in history
-                // and reconcilable like any other money movement.
-                Transactions::create([
+                /*
+                 * A real transaction row, so the credit is visible in history
+                 * and reconcilable like any other money movement. Created before
+                 * the credit so the ledger entry can reference it — ledger rows
+                 * are immutable, so nothing can point one at this row afterwards.
+                 */
+                $rewardTransaction = Transactions::create([
                     'user_id' => $referrer->id,
                     'reference' => 'AFF-' . now()->format('ymd') . '-' . strtoupper(Str::random(8)),
                     'type' => 'credit',
                     'service_type' => 'transfer',
                     'description' => 'Referral reward — ' . Str::limit($referred->name, 40, ''),
                     'amount' => self::REWARD_AMOUNT,
-                    'service_fee' => 0,
+                    'service_fee' => '0.00',
                     'total_amount' => self::REWARD_AMOUNT,
-                    'balance_before' => $movement['balance_before'],
-                    'balance_after' => $movement['balance_after'],
                     'recipient' => $referrer->email,
                     'provider' => 'ReUp',
                     'payment_method' => 'wallet',
@@ -154,12 +144,42 @@ class AffiliateService
                     'status' => 'success',
                     'paid_at' => now(),
                     'completed_at' => now(),
+                    // Unique per referral, so a replayed funding webhook cannot
+                    // pay the same reward twice even if it got past the ledger.
+                    'payment_reference' => 'REFERRAL-' . $reward->id,
                     'meta' => [
                         'referral_id' => $reward->id,
                         'referred_user_id' => $referred->id,
                         'trigger_transaction_id' => $fundingTransaction->id,
                     ],
                 ]);
+
+                /*
+                 * WalletService locks the referrer's wallet before crediting, so
+                 * two referrals landing at the same instant serialise instead of
+                 * both reading the same balance, and the matching ledger entry is
+                 * written in this same transaction.
+                 */
+                $movement = $this->wallets->credit(
+                    user: $referrer,
+                    amount: self::REWARD_AMOUNT,
+                    // Not funding: a reward must not itself count toward a
+                    // funding threshold, or it could cascade.
+                    countsAsFunding: false,
+                    entryType: WalletLedger::ENTRY_CREDIT,
+                    description: 'Referral reward',
+                    transaction: $rewardTransaction,
+                    metadata: [
+                        'referral_id' => $reward->id,
+                        'referred_user_id' => $referred->id,
+                        'trigger_transaction_id' => $fundingTransaction->id,
+                    ],
+                );
+
+                $rewardTransaction->forceFill([
+                    'balance_before' => $movement['balance_before'],
+                    'balance_after' => $movement['balance_after'],
+                ])->save();
 
                 Log::info('Referral reward paid', [
                     'referrer_id' => $referrer->id,
