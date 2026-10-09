@@ -104,6 +104,38 @@
                     </div>
                 </div>
 
+                {{--
+                    Appearance.
+
+                    The site-wide *default* only. A member who has chosen a theme
+                    on their own profile keeps it — this is what an unauthenticated
+                    visitor, or an account that has never chosen, is shown.
+
+                    "System" is the shipped value and means "follow the device";
+                    it is a real option rather than an absence so this can be
+                    handed back after having been pinned.
+                --}}
+                <div class="mt-6 max-w-md">
+                    <label for="setting_default_theme" class="label mb-2 flex items-center gap-2">
+                        <x-icon name="swatch" class="h-4 w-4 text-ink-400" />
+                        Default theme
+                    </label>
+                    <select id="setting_default_theme"
+                            data-key="default_theme"
+                            data-type="text"
+                            data-category="general"
+                            class="settings-input select">
+                        @foreach(config('theme.modes') as $themeModeKey => $themeMode)
+                            <option value="{{ $themeModeKey }}">{{ $themeMode['label'] }}</option>
+                        @endforeach
+                    </select>
+                    <p class="mt-1 text-xs text-muted-foreground">
+                        Applied to visitors who have not chosen a theme of their own.
+                        <strong class="font-medium">System</strong> follows each device’s own
+                        light or dark setting, and is what most sites should use.
+                    </p>
+                </div>
+
                 <!-- Maintenance Mode -->
                 <div x-show="activeTab === 'maintenance'" x-cloak class="space-y-6">
                     <div class="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-5">
@@ -128,7 +160,7 @@
                                    data-category="maintenance"
                                    class="settings-input sr-only peer">
                             <span class="h-6 w-11 rounded-full bg-ink-300 transition-colors peer-checked:bg-brand-500"></span>
-                            <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-subtle transition-transform duration-150 peer-checked:translate-x-5"></span>
+                            <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-surface shadow-subtle transition-transform duration-150 peer-checked:translate-x-5"></span>
                             <span class="sr-only">Enable maintenance mode</span>
                         </label>
                     </div>
@@ -462,7 +494,7 @@
                                            data-category="notifications"
                                            class="settings-input sr-only peer">
                                     <span class="h-6 w-11 rounded-full bg-ink-300 transition-colors peer-checked:bg-brand-500"></span>
-                                    <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-subtle transition-transform duration-150 peer-checked:translate-x-5"></span>
+                                    <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-surface shadow-subtle transition-transform duration-150 peer-checked:translate-x-5"></span>
                                     <span class="sr-only">{{ $title }}</span>
                                 </label>
                             </div>
@@ -494,7 +526,7 @@
                                    data-category="security"
                                    class="settings-input sr-only peer">
                             <span class="h-6 w-11 rounded-full bg-ink-300 transition-colors peer-checked:bg-brand-500"></span>
-                            <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-subtle transition-transform duration-150 peer-checked:translate-x-5"></span>
+                            <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-surface shadow-subtle transition-transform duration-150 peer-checked:translate-x-5"></span>
                             <span class="sr-only">Two-factor authentication</span>
                         </label>
                     </div>
@@ -561,7 +593,7 @@
                                    data-category="security"
                                    class="settings-input sr-only peer">
                             <span class="h-6 w-11 rounded-full bg-ink-300 transition-colors peer-checked:bg-brand-500"></span>
-                            <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-subtle transition-transform duration-150 peer-checked:translate-x-5"></span>
+                            <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-surface shadow-subtle transition-transform duration-150 peer-checked:translate-x-5"></span>
                             <span class="sr-only">Auto logout</span>
                         </label>
                     </div>
@@ -572,7 +604,7 @@
                         <p class="mb-3 text-xs text-muted-foreground">Published updates are visible to customers.</p>
 
                         <div id="securityUpdatesEditor"
-                             class="rich-text-surface mb-2 rounded-lg border border-border bg-white p-4"
+                             class="rich-text-surface mb-2 rounded-lg border border-border bg-surface p-4"
                              contenteditable="true"
                              @input="syncEditor($event.target.innerHTML)"></div>
 
@@ -731,7 +763,12 @@
                     site_tagline: { value: 'Instant Airtime & Data Services' },
                     site_url: { value: window.location.origin },
                     default_currency: { value: 'NGN' },
-                    timezone: { value: 'Africa/Lagos' }
+                    timezone: { value: 'Africa/Lagos' },
+                    // Mirrors SettingsController::getDefaultSettings(). Kept in step
+                    // by hand: this object is the fallback used when the settings
+                    // request fails, and a key missing from it renders as an empty
+                    // select rather than as an error.
+                    default_theme: { value: 'system' }
                 },
                 maintenance: {
                     maintenance_mode: { value: '0' },

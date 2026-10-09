@@ -33,7 +33,7 @@
 <header
     x-data="{ mobileOpen: false, moreOpen: false }"
     @keydown.escape.window="mobileOpen = false; moreOpen = false"
-    class="sticky top-0 z-40 border-b border-border bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80"
+    class="sticky top-0 z-40 border-b border-border bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/80"
 >
     <div class="container-page">
         <div class="flex h-16 items-center justify-between gap-4">
@@ -83,7 +83,7 @@
                     </button>
 
                     <div x-show="moreOpen" x-cloak x-transition.origin.top.right
-                         class="absolute right-0 mt-2 w-80 overflow-hidden rounded-xl border border-border bg-white shadow-overlay">
+                         class="absolute right-0 mt-2 w-80 overflow-hidden rounded-xl border border-border bg-surface shadow-overlay">
                         <div class="p-1.5">
                             @foreach($moreNav as $item)
                                 <a href="{{ route($item['route']) }}"
@@ -120,10 +120,16 @@
 
             {{-- Right cluster --}}
             <div class="flex items-center gap-2">
+                {{-- Appearance. Rendered for guests as well as members: a
+                     signed-out visitor has just as much right to a dark page,
+                     and their choice is kept on the device until they have an
+                     account to keep it on. --}}
+                <x-theme-switch />
+
                 @auth
                     {{-- Wallet balance --}}
                     <a href="{{ route('wallet.index') }}"
-                       class="hidden items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm transition-colors hover:bg-ink-50 sm:inline-flex">
+                       class="hidden items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm transition-colors hover:bg-surface-subtle sm:inline-flex">
                         <x-icon name="wallet" class="h-4 w-4 text-brand-600" />
                         <span class="font-semibold tabular-nums">&#8358;{{ number_format($walletBalance, 2) }}</span>
                     </a>
@@ -146,7 +152,7 @@
                         </button>
 
                         <div x-show="open" x-cloak x-transition.origin.top.right
-                             class="absolute right-0 mt-2 w-56 overflow-hidden rounded-xl border border-border bg-white shadow-overlay">
+                             class="absolute right-0 mt-2 w-56 overflow-hidden rounded-xl border border-border bg-surface shadow-overlay">
                             <div class="border-b px-3 py-2.5">
                                 <p class="truncate text-sm font-medium text-ink-900">{{ $user->name }}</p>
                                 <p class="truncate text-xs text-muted-foreground">{{ $user->email }}</p>
@@ -206,7 +212,7 @@
          x-transition:enter="transition ease-out duration-150"
          x-transition:enter-start="opacity-0 -translate-y-1"
          x-transition:enter-end="opacity-100 translate-y-0"
-         class="border-t bg-white lg:hidden">
+         class="border-t bg-surface lg:hidden">
         <div class="container-page space-y-1 py-3">
             @foreach(array_merge($primaryNav, $moreNav) as $item)
                 <a href="{{ route($item['route']) }}"

@@ -643,6 +643,87 @@
                         </div>
                     </form>
                 </section>
+
+                {{--
+                    Appearance.
+
+                    Three radio buttons rather than the navbar's cycling button.
+                    Both controls exist because they answer the same question in
+                    two different moods: the navbar one is a nudge ("this page is
+                    too bright") that should cost one press and no thought, while
+                    this one is a setting — it names every option, says what each
+                    one does, and can be read before being changed. A cycle is the
+                    wrong shape here: it makes the user press twice to discover
+                    what the third state even is.
+
+                    Saved on submit like every other form on the page, so it works
+                    with JavaScript disabled. The navbar switch is the optimistic
+                    path; this is the authoritative one.
+                --}}
+                <section class="card" id="appearance">
+                    <div class="card-header">
+                        <h2 class="card-title flex items-center gap-2">
+                            <x-icon name="swatch" class="h-4 w-4 text-brand-600" />
+                            Appearance
+                        </h2>
+                        <p class="card-description">
+                            How ReUp looks on this and every other device you sign in on.
+                        </p>
+                    </div>
+
+                    <form method="POST" action="{{ route('profile.theme', [], false) }}">
+                        @csrf
+                        @method('PUT')
+
+                        <div class="card-content">
+                            <fieldset>
+                                <legend class="sr-only">Theme</legend>
+                                <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                    @foreach(config('theme.modes') as $modeKey => $modeOption)
+                                        <label class="cursor-pointer">
+                                            <input type="radio"
+                                                   name="theme"
+                                                   value="{{ $modeKey }}"
+                                                   class="peer sr-only"
+                                                   @checked($themeChoice === $modeKey)>
+                                            <span class="flex h-full flex-col items-start gap-2 rounded-xl border border-border bg-surface p-4 transition-colors hover:border-border-strong peer-checked:border-primary peer-checked:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40">
+                                                <span class="flex items-center gap-2 text-sm font-medium text-foreground">
+                                                    <x-icon :name="$modeOption['icon']" class="h-4 w-4 text-muted-foreground" />
+                                                    {{ $modeOption['label'] }}
+                                                </span>
+                                                <span class="text-xs text-muted-foreground">
+                                                    {{ $modeOption['hint'] }}
+                                                </span>
+                                            </span>
+                                        </label>
+                                    @endforeach
+                                </div>
+                            </fieldset>
+
+                            @error('theme')
+                                <p class="field-error">{{ $message }}</p>
+                            @enderror
+
+                            {{-- Tells the truth about the current state: an account
+                                 on "System" is following the device, which is a
+                                 fact the radio group alone cannot show. --}}
+                            <p class="mt-3 text-xs text-muted-foreground">
+                                @if($themeChoiceIsExplicit)
+                                    You chose this for your account.
+                                @else
+                                    Nothing chosen yet &mdash; this page is following your device.
+                                @endif
+                            </p>
+                        </div>
+
+                        <div class="card-footer">
+                            <button type="submit" class="btn btn-outline w-full sm:w-auto">
+                                <x-icon name="check" class="h-4 w-4" />
+                                Save appearance
+                            </button>
+                        </div>
+                    </form>
+                </section>
             </div>
 
             {{-- Sidebar --}}

@@ -63,7 +63,7 @@
                                        class="peer sr-only"
                                        {{ old('type', isset($announcement) ? $announcement->type : '') == $value ? 'checked' : '' }}
                                        required>
-                                <span class="flex h-full flex-col items-center gap-2 rounded-xl border border-border bg-white p-4 text-center transition-colors peer-checked:border-brand-500 peer-checked:bg-brand-50 peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40">
+                                <span class="flex h-full flex-col items-center gap-2 rounded-xl border border-border bg-surface p-4 text-center transition-colors peer-checked:border-brand-500 peer-checked:bg-brand-50 peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40">
                                     <span class="flex h-10 w-10 items-center justify-center rounded-lg bg-surface text-ink-600 ring-1 ring-border">
                                         <x-icon :name="$data['icon']" class="h-5 w-5" />
                                     </span>
@@ -112,7 +112,7 @@
                     <div class="flex items-center gap-3">
                         <input type="color" id="badge_color" name="badge_color"
                                value="{{ old('badge_color', isset($announcement) && $announcement->badge_color ? $announcement->badge_color : '#3B82F6') }}"
-                               class="h-10 w-12 shrink-0 cursor-pointer rounded-lg border border-border bg-white">
+                               class="h-10 w-12 shrink-0 cursor-pointer rounded-lg border border-border bg-surface">
                         <input type="text"
                                value="{{ old('badge_color', isset($announcement) && $announcement->badge_color ? $announcement->badge_color : '#3B82F6') }}"
                                class="input font-mono text-xs" readonly aria-label="Badge colour hex value">
@@ -142,7 +142,7 @@
                         <label class="cursor-pointer" title="{{ $label }}">
                             <input type="radio" name="icon" value="{{ $value }}" class="peer sr-only"
                                    {{ $selectedIcon === $value ? 'checked' : '' }}>
-                            <span class="flex h-14 flex-col items-center justify-center gap-1 rounded-xl border border-border bg-white text-ink-600 transition-colors peer-checked:border-brand-500 peer-checked:bg-brand-50 peer-checked:text-brand-700 peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40">
+                            <span class="flex h-14 flex-col items-center justify-center gap-1 rounded-xl border border-border bg-surface text-ink-600 transition-colors peer-checked:border-brand-500 peer-checked:bg-brand-50 peer-checked:text-brand-700 peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40">
                                 <x-icon :name="$value" class="h-5 w-5" />
                                 <span class="text-[10px] leading-none">{{ $label }}</span>
                             </span>
@@ -192,7 +192,7 @@
                            x-model="active"
                            {{ $isActive ? 'checked' : '' }}>
                     <span class="h-6 w-11 rounded-full bg-ink-300 transition-colors peer-checked:bg-brand-500"></span>
-                    <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-subtle transition-transform duration-150"
+                    <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-surface shadow-subtle transition-transform duration-150"
                           :class="active && 'translate-x-5'"></span>
                     <span class="sr-only">Active status</span>
                 </label>

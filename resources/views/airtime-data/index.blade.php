@@ -70,7 +70,7 @@
                                     id="airtimeBtn"
                                     :aria-selected="service === 'airtime' ? 'true' : 'false'"
                                     @click="service = 'airtime'"
-                                    :class="service === 'airtime' ? 'bg-brand-500 text-white shadow-subtle' : 'text-muted-foreground hover:bg-ink-100'"
+                                    :class="service === 'airtime' ? 'bg-brand-500 text-primary-foreground shadow-subtle' : 'text-muted-foreground hover:bg-ink-100'"
                                     class="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold transition-colors">
                                 <x-icon name="phone" class="h-4 w-4" />
                                 Airtime
@@ -81,7 +81,7 @@
                                     :aria-selected="service === 'data' ? 'true' : 'false'"
                                     @click="service = 'data'"
                                     data-service-tab="data"
-                                    :class="service === 'data' ? 'bg-brand-500 text-white shadow-subtle' : 'text-muted-foreground hover:bg-ink-100'"
+                                    :class="service === 'data' ? 'bg-brand-500 text-primary-foreground shadow-subtle' : 'text-muted-foreground hover:bg-ink-100'"
                                     class="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold transition-colors">
                                 <x-icon name="wifi" class="h-4 w-4" />
                                 Data
@@ -103,7 +103,7 @@
                                         <label class="cursor-pointer">
                                             <input type="radio" name="network" value="{{ $network['code'] }}"
                                                    class="network-radio sr-only" required>
-                                            <span class="network-option flex flex-col items-center gap-2 rounded-xl border border-border bg-white p-4 text-center transition-colors hover:border-brand-300">
+                                            <span class="network-option flex flex-col items-center gap-2 rounded-xl border border-border bg-surface p-4 text-center transition-colors hover:border-brand-300">
                                                 <img src="{{ $network['logo'] }}" alt="" class="h-6 w-6 rounded-full object-contain">
                                                 <span class="text-sm font-semibold">{{ $network['name'] }}</span>
                                             </span>
@@ -146,7 +146,7 @@
                                 <div class="grid grid-cols-3 gap-2 md:grid-cols-5">
                                     @foreach([100 => '100', 200 => '200', 500 => '500', 1000 => '1K', 2000 => '2K'] as $value => $label)
                                         <button type="button"
-                                                class="quick-amount rounded-lg border border-border bg-white py-2 px-3 text-sm font-semibold transition-colors hover:border-brand-400 hover:bg-accent"
+                                                class="quick-amount rounded-lg border border-border bg-surface py-2 px-3 text-sm font-semibold transition-colors hover:border-brand-400 hover:bg-accent"
                                                 data-amount="{{ $value }}">
                                             &#8358;{{ $label }}
                                         </button>
@@ -179,7 +179,7 @@
                                         <label class="cursor-pointer">
                                             <input type="radio" name="data_network" value="{{ $network['code'] }}"
                                                    class="network-radio-data sr-only" required>
-                                            <span class="network-option flex flex-col items-center gap-2 rounded-xl border border-border bg-white p-4 text-center transition-colors hover:border-brand-300">
+                                            <span class="network-option flex flex-col items-center gap-2 rounded-xl border border-border bg-surface p-4 text-center transition-colors hover:border-brand-300">
                                                 <img src="{{ $network['logo'] }}" alt="" class="h-6 w-6 rounded-full object-contain">
                                                 <span class="text-sm font-semibold">{{ $network['name'] }}</span>
                                             </span>
@@ -193,7 +193,7 @@
                                 <div class="flex flex-wrap gap-2">
                                     @foreach($dataPlanFilters as $type => $label)
                                         <button type="button"
-                                                class="data-type-filter rounded-lg border border-border bg-white px-4 py-2 text-sm font-medium transition-colors hover:bg-ink-50 {{ $type === 'all' ? 'active' : '' }}"
+                                                class="data-type-filter rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium transition-colors hover:bg-ink-50 {{ $type === 'all' ? 'active' : '' }}"
                                                 data-type="{{ $type }}">
                                             {{ $label }}
                                         </button>
@@ -263,7 +263,7 @@
             {{-- Sidebar --}}
             <aside class="space-y-6">
                 {{-- The single accent surface on this page. --}}
-                <div class="rounded-xl border border-brand-600 bg-brand-500 p-5 text-white shadow-subtle md:p-6">
+                <div class="rounded-xl border border-brand-600 bg-brand-500 p-5 text-primary-foreground shadow-subtle md:p-6">
                     <div class="flex items-start justify-between gap-4">
                         <div>
                             <p class="text-sm font-medium text-brand-50">Wallet balance</p>
@@ -271,12 +271,12 @@
                                 &#8358;{{ number_format((float) ($wallet->balance ?? 0), 2) }}
                             </p>
                         </div>
-                        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/15">
-                            <x-icon name="wallet" variant="solid" class="h-5 w-5 text-white" />
+                        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary-foreground/15">
+                            <x-icon name="wallet" variant="solid" class="h-5 w-5 text-primary-foreground" />
                         </span>
                     </div>
                     <a href="{{ route('wallet.fund') }}"
-                       class="btn btn-lg mt-6 w-full border border-white/25 bg-white/15 text-white hover:bg-white/25">
+                       class="btn btn-lg mt-6 w-full border border-primary-foreground/25 bg-primary-foreground/15 text-primary-foreground hover:bg-primary-foreground/25">
                         <x-icon name="plus" class="h-5 w-5" />
                         Fund wallet
                     </a>

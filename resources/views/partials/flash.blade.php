@@ -30,7 +30,7 @@
                  x-transition:enter-start="opacity-0 -translate-y-2"
                  x-transition:leave="transition ease-in duration-150"
                  x-transition:leave-end="opacity-0 -translate-y-2"
-                 class="pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-xl border bg-white px-4 py-3 shadow-overlay {{ $flash['border'] }}">
+                 class="pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-xl border bg-surface px-4 py-3 shadow-overlay {{ $flash['border'] }}">
                 <x-icon :name="$flash['icon']" variant="solid" class="mt-0.5 h-5 w-5 shrink-0 {{ $flash['variant'] }}" />
                 <p class="flex-1 text-sm text-ink-800">{{ $flash['message'] }}</p>
                 <button type="button" @click="show = false"

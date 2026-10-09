@@ -1,7 +1,7 @@
 {{-- resources/views/components/paystack-balance-card.blade.php --}}
 {{-- Simple Paystack Balance Card - Updates on page refresh only --}}
 
-<div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+<div class="bg-surface rounded-2xl shadow-sm border border-gray-200 p-6">
     <div class="flex items-center space-x-3">
         <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
             <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

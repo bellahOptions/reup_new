@@ -13,7 +13,7 @@
         <x-icon name="building-library" class="h-4 w-4" />
         Review transfers
         @if(($pendingTransfers ?? 0) > 0)
-            <span class="ml-1 rounded-full bg-white/20 px-1.5 text-[10px] font-semibold tabular-nums">
+            <span class="ml-1 rounded-full bg-primary-foreground/20 px-1.5 text-[10px] font-semibold tabular-nums">
                 {{ $pendingTransfers }}
             </span>
         @endif

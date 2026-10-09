@@ -4,10 +4,19 @@
     The favicon block was duplicated verbatim across four layouts; the
     Tailwind CDN <script> that used to live beside it is gone — styles are now
     compiled by Vite (see vite.config.js) and pulled in with @vite below.
+
+    `partials/theme` sits first because it must run before the stylesheet is
+    parsed — it writes the `data-theme` attribute that every dark-mode rule in
+    app.css keys off. See that partial for why it is an inline script.
 --}}
+@include('partials.theme')
+
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="csrf-token" content="{{ csrf_token() }}">
+
+{{-- The static brand green is now only a fallback: partials/theme has already
+     published media-scoped theme-color metas that reflect the actual theme. --}}
 <meta name="theme-color" content="#2AB70D">
 
 <link rel="shortcut icon" href="{{ asset('images/reup-icon-06.jpg') }}" type="image/x-icon">

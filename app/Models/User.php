@@ -25,6 +25,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'profile_picture',
         'avatar_color',
         'avatar_icon',
+        'theme_preference',
         'referral_code',
         'referred_by_user_id',
         'tips_seen_at',
@@ -219,6 +220,21 @@ class User extends Authenticatable implements MustVerifyEmail
     public function getNotificationPreferences()
     {
         return $this->notification_preferences ?? $this->getDefaultNotificationPreferences();
+    }
+
+    /**
+     * The appearance this account has chosen, or the site default when it has
+     * chosen nothing.
+     *
+     * Kept on the model rather than in the view so partials/theme.blade.php,
+     * the profile page and the admin user table all resolve it the same way —
+     * and so a value that is no longer in config('theme.modes') (a slug removed
+     * in a later release) degrades to the default instead of emitting an
+     * unrecognised `data-theme` the CSS has no rules for.
+     */
+    public function themePreference(): string
+    {
+        return \App\Support\Theme::normalise($this->theme_preference);
     }
 
         /**

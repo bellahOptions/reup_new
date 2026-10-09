@@ -77,7 +77,7 @@
                                     <input type="radio" name="provider" :value="code"
                                            x-model="provider" @change="reset()"
                                            class="sr-only" required>
-                                    <span class="flex items-center justify-center rounded-xl border border-border bg-white px-3 py-3 text-center text-sm font-medium transition-colors"
+                                    <span class="flex items-center justify-center rounded-xl border border-border bg-surface px-3 py-3 text-center text-sm font-medium transition-colors"
                                           :class="provider === code
                                               ? 'border-brand-500 bg-brand-50 text-brand-700'
                                               : 'hover:border-brand-300'"

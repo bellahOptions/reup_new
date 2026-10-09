@@ -9,6 +9,16 @@
 @source "../views/**/*.blade.php";
 @source "../js/**/*.js";
 
+/* Dark mode is opt-in through `data-theme` on <html>, never through the
+   `prefers-color-scheme` media query alone.
+   --------------------------------------------------------------------------
+   The device preference still decides the *default* — but that decision is made
+   once, in partials/theme.blade.php, and written to the attribute before first
+   paint. Expressing it again here as a media query would mean a user who chose
+   "Light" on a dark phone got the dark palette anyway, because a media query
+   cannot know about a stored choice. One signal, one source of truth. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 /* ==========================================================================
    ReUp design system
    --------------------------------------------------------------------------
@@ -46,29 +56,6 @@
     --color-ink-900: #1b1f1b;
     --color-ink-950: #0d100d;
 
-    /* ---- Semantic aliases ---- */
-    --color-background: #ffffff;
-    --color-surface: var(--color-ink-50);
-    --color-surface-muted: var(--color-ink-100);
-    --color-foreground: var(--color-ink-900);
-    --color-muted-foreground: var(--color-ink-500);
-    --color-border: var(--color-ink-200);
-    --color-input: var(--color-ink-200);
-    --color-ring: var(--color-brand-500);
-
-    --color-primary: var(--color-brand-500);
-    --color-primary-foreground: #ffffff;
-    --color-secondary: var(--color-ink-100);
-    --color-secondary-foreground: var(--color-ink-900);
-    --color-accent: var(--color-brand-50);
-    --color-accent-foreground: var(--color-brand-700);
-    --color-destructive: #dc2626;
-    --color-destructive-foreground: #ffffff;
-    --color-success: #16a34a;
-    --color-success-foreground: #ffffff;
-    --color-warning: #d97706;
-    --color-warning-foreground: #ffffff;
-
     /* ---- Type ---- */
     --font-sans: "DM Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
         Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -89,6 +76,434 @@
 
     /* ---- Motion ---- */
     --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ==========================================================================
+   Semantic layer (themeable)
+   --------------------------------------------------------------------------
+   Everything above is a *primitive*: a fixed colour that means the same thing
+   in every theme. Everything below is a *decision*: which primitive belongs to
+   "a card", "muted text", "a hairline border".
+
+   The split matters because of how Tailwind 4 emits theme variables, and the
+   rule is narrower than it looks.
+
+   `@theme` (not `inline`) preserves a `var()` reference: both the declaration
+   and every utility built from it keep `var(--color-…)`, which the browser
+   resolves when it paints. That is exactly what a themed token needs.
+
+   `@theme inline` does the opposite — it substitutes the *value*. So the obvious
+   spelling of a semantic layer,
+
+       @theme inline { --color-background: var(--color-ink-50); }
+
+   is a trap. It resolves at build time, and then every utility built from it is
+   emitted as `background-color: var(--color-ink-50)`: the semantic name never
+   reaches the output, `.bg-background` is welded to a *primitive*, and
+   re-pointing `--color-background` for a theme changes nothing. That was the
+   first attempt at this file, and it produced a dark theme that moved only the
+   handful of surfaces written as literal `var(--color-…)` in the component layer
+   below — the single most subtle way this can go wrong, because it looks like it
+   works.
+
+   So each token appears twice, and both halves are load-bearing:
+
+     @theme block    the *build-time* declaration. It exists so Tailwind knows a
+                     `surface` colour exists and will emit `.bg-surface`. For a
+                     single-word token, referring to the runtime name
+                     (`--color-surface: var(--color-surface)`) mangles back to
+                     itself and the utility ends up reading the runtime token —
+                     neat, and it means the value is written down only once.
+     :root block     the *runtime* declaration: the real value, replaced per
+                     theme by `html[data-theme="dark"]`.
+
+   The exception is the compound names. Tailwind resolves the reference in
+   `--color-surface-strong: var(--color-surface-strong)` and emits
+   `.bg-surface-strong{background-color:var(--color-surface-strong)}` — but it
+   *stores* the key as `surface-strong`, having resolved the value, and a
+   suffixed alias (`--color-surface-strong-t`) is not recognised as part of the
+   colour namespace at all. Those keys therefore carry their literal value above
+   and their runtime value below, and the two must be kept in step. They are
+   marked below.
+
+   Verified against Tailwind 4.3.3; if a build ever reports an unknown utility,
+   this is the first place to look.
+   ========================================================================== */
+
+@theme {
+    /* ---- Page & surface planes ----
+       The compound ones carry literals so the runtime tokens are reachable. */
+    --color-background: var(--color-background);
+    --color-surface: var(--color-surface);
+    --color-surface-subtle: #f7f8f7;        /* = --color-ink-50  (compound) */
+    --color-surface-muted: #eef0ee;         /* = --color-ink-100 (compound) */
+    --color-surface-strong: #dfe3df;        /* = --color-ink-200 (compound) */
+
+    /* `white` is a genuine white and is *not* re-pointed, because the utilities
+       that mention it are split between two jobs: `text-white` on a coloured
+       fill (which must stay white in both themes) and `bg-white/10` inside an
+       inverse panel (which must stay white there too). Re-pointing it at the
+       surface colour — the obvious move, since it would make 69 `bg-white`
+       panels theme-aware for free — makes white text invisible on every one of
+       them, which is a far worse failure than the one it fixes. The panels use
+       `bg-surface` instead. */
+
+    /* ---- Text ---- */
+    --color-foreground: var(--color-foreground);
+    --color-muted-foreground: #6f7a6f;      /* = --color-ink-500 (compound) */
+    --color-subtle-foreground: #98a298;     /* = --color-ink-400 (compound) */
+
+    /* ---- Lines & controls ---- */
+    --color-border: var(--color-border);
+    --color-border-strong: #c3cac3;         /* = --color-ink-300 (compound) */
+    --color-input: var(--color-input);
+    --color-ring: var(--color-ring);
+
+    /* ---- Brand & states ----
+       Every one of these is a single word, so each mangled alias resolves to the
+       runtime token and no literal has to be repeated here. */
+    --color-primary: var(--color-primary);
+    --color-primary-foreground: var(--color-primary-foreground);
+    --color-secondary: var(--color-secondary);
+    --color-secondary-foreground: var(--color-secondary-foreground);
+    --color-accent: var(--color-accent);
+    --color-accent-foreground: var(--color-accent-foreground);
+    --color-destructive: var(--color-destructive);
+    --color-destructive-foreground: var(--color-destructive-foreground);
+    --color-success: var(--color-success);
+    --color-success-foreground: var(--color-success-foreground);
+    --color-warning: var(--color-warning);
+    --color-warning-foreground: var(--color-warning-foreground);
+    --color-info: var(--color-info);
+
+    /* ---- Inverse & footer panels ----
+       Used by the views on the panels that do not follow the page theme. */
+    --color-inverse-surface: var(--color-inverse-surface);
+    --color-inverse-foreground: var(--color-inverse-foreground);
+    --color-inverse-muted: var(--color-inverse-muted);
+    --color-inverse-subtle: var(--color-inverse-subtle);
+    --color-inverse-line: var(--color-inverse-line);
+    /* Overlays *inside* an inverse panel. Not `bg-white/10`: the panel flips, so
+       a white wash that reads as a lift in light mode would wash out the panel
+       in dark mode. These follow the panel instead. */
+    --color-inverse-overlay: rgb(255 255 255 / 0.1);         /* compound */
+    --color-inverse-overlay-strong: rgb(255 255 255 / 0.18); /* compound */
+    --color-footer-surface: var(--color-footer-surface);
+    --color-footer-foreground: var(--color-footer-foreground);
+    --color-footer-muted: var(--color-footer-muted);
+    --color-footer-subtle: var(--color-footer-subtle);
+    --color-footer-faint: var(--color-footer-faint);
+    --color-footer-overlay: rgb(255 255 255 / 0.06);        /* compound */
+    --color-footer-overlay-hover: rgb(255 255 255 / 0.12);  /* compound */
+
+    /* ---- Elevation ----
+       A shadow list built from a theme-dependent tint, so the utility has to
+       resolve per theme exactly like the colours do. */
+    --shadow-subtle: var(--shadow-subtle);
+    --shadow-card: var(--shadow-card);
+    --shadow-overlay: var(--shadow-overlay);
+}
+
+/* ==========================================================================
+   Theme values
+   --------------------------------------------------------------------------
+   `:root` is always the light theme. `html[data-theme="dark"]` is deliberately
+   one element more specific than `:root`, so these overrides win no matter what
+   order Tailwind emits its own theme variables in — the build has hoisted
+   `@theme` to `:root` before now, and a bare `[data-theme="dark"]` selector ties
+   with `:root` on specificity and would then lose on source order.
+   ========================================================================== */
+
+:root {
+    /* Comma-separated so the browser falls through to the next family for any
+       glyph DM Sans lacks (the ₦ naira sign, tabular figures in some builds). */
+    --font-sans: "DM Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+        Roboto, "Helvetica Neue", Arial, sans-serif;
+
+    /* One `color-scheme` value drives the browser's own chrome: form control
+       interiors, the canvas behind the page, and default scrollbar colours. */
+    color-scheme: light;
+
+    /* ---- Page & surface planes ---- */
+    --color-background: var(--color-ink-50);
+    --color-surface: var(--color-ink-100);
+    --color-surface-subtle: var(--color-ink-50);
+    --color-surface-muted: var(--color-ink-100);
+    --color-surface-strong: var(--color-ink-200);
+
+    /* ---- Text ---- */
+    --color-foreground: var(--color-ink-900);
+    --color-muted-foreground: var(--color-ink-500);
+    --color-subtle-foreground: var(--color-ink-400);
+
+    /* ---- Lines & controls ---- */
+    --color-border: var(--color-ink-200);
+    --color-border-strong: var(--color-ink-300);
+    --color-input: var(--color-ink-200);
+    --color-ring: var(--color-brand-500);
+
+    /* ---- Brand & states ---- */
+    --color-primary: var(--color-brand-500);
+    --color-primary-foreground: #ffffff;
+    --color-secondary: var(--color-ink-100);
+    --color-secondary-foreground: var(--color-ink-900);
+    --color-accent: var(--color-brand-50);
+    --color-accent-foreground: var(--color-brand-700);
+    --color-destructive: #dc2626;
+    --color-destructive-foreground: #ffffff;
+    --color-destructive-soft: #fef2f2;
+    --color-destructive-soft-foreground: #b91c1c;
+    --color-destructive-border: #fecaca;
+    --color-success: #16a34a;
+    --color-success-foreground: #ffffff;
+    --color-success-soft: #f0fdf4;
+    --color-success-soft-foreground: #15803d;
+    --color-success-border: #bbf7d0;
+    --color-warning: #d97706;
+    --color-warning-foreground: #ffffff;
+    --color-warning-soft: #fffbeb;
+    --color-warning-soft-foreground: #b45309;
+    --color-warning-border: #fde68a;
+    --color-info: #0284c7;
+    --color-info-soft: #f0f9ff;
+    --color-info-soft-foreground: #0369a1;
+    --color-info-border: #bae6fd;
+
+    /* ---- Inverse panels ----
+       The mid steps (ink-400/500/600) are shared by both themes: in light mode
+       they sit on an ink-950 panel, in dark mode on a white one, and the same
+       value clears AA in both directions. The extreme steps have to move. */
+    --color-inverse-surface: var(--color-ink-950);
+    --color-inverse-foreground: var(--color-ink-900);
+    --color-inverse-muted: var(--color-ink-600);
+    --color-inverse-subtle: var(--color-ink-500);
+    --color-inverse-line: var(--color-ink-800);
+    --color-inverse-overlay: rgb(255 255 255 / 0.1);
+    --color-inverse-overlay-strong: rgb(255 255 255 / 0.18);
+
+    /* ---- Footer ----
+       The one panel that stays dark in *both* themes. A dark footer under a light
+       page is a deliberate full-width anchor, and inverting it to white in dark
+       mode would put a bright band along the bottom of every page — the single
+       most jarring thing a dark theme can do. Because the panel never flips,
+       neither do its ink steps. */
+    --color-footer-surface: #0b0e0b;
+    --color-footer-foreground: #ffffff;
+    --color-footer-muted: var(--color-ink-300);
+    --color-footer-subtle: var(--color-ink-400);
+    --color-footer-faint: var(--color-ink-500);
+    --color-footer-overlay: rgb(255 255 255 / 0.06);
+    --color-footer-overlay-hover: rgb(255 255 255 / 0.12);
+
+    /* ---- Elevation ----
+       Built from a theme-dependent tint, so the utilities resolve them per theme
+       rather than inlining a fixed shadow. */
+    --shadow-tint: rgb(13 16 13 / 0.06);
+    --shadow-tint-strong: rgb(13 16 13 / 0.25);
+    --shadow-subtle: 0 1px 2px 0 var(--shadow-tint);
+    --shadow-card: 0 1px 3px 0 var(--shadow-tint), 0 1px 2px -1px var(--shadow-tint);
+    --shadow-overlay: 0 10px 30px -12px var(--shadow-tint-strong);
+}
+
+html[data-theme="dark"] {
+    color-scheme: dark;
+
+    /* Neutral planes, flipped. Every step keeps its own contrast range exactly
+       as it had it in light mode — ink-900 is always the highest-contrast text
+       in the set, ink-100 is always the surface right next to the page — which
+       is why the whole ink scale can invert instead of being re-picked. */
+    --color-background: #0e100e;
+    --color-surface: #171a17;
+    --color-surface-subtle: #121412;
+    --color-surface-muted: #1f231f;
+    --color-surface-strong: #2a2f2a;
+
+    --color-foreground: #eef0ee;
+    --color-muted-foreground: #9aa49a;
+    /* Lifted above the light-mode ink-400 (#98a298 ≈ 4.3:1 on white) so muted
+       text still reaches AA against the dark page rather than sitting just
+       under it. */
+    --color-subtle-foreground: #8b948b;
+
+    --color-border: #2a2f2a;
+    --color-border-strong: #3a413a;
+    --color-input: #343b34;
+
+    /* The brand ramp is built around #2AB70D, which is a *light* green: it
+       manages only ~2.3:1 against a near-black page, so as a text or focus
+       colour in dark mode it fails AA outright. The dark theme therefore runs
+       the ramp from its 300/400 steps, which were derived for this. Filled
+       buttons keep the 500 step and white text — a 3:1+ fill against the page
+       is a large-surface requirement, and the white label on it clears 7:1. */
+    --color-primary: var(--color-brand-400);
+    --color-ring: var(--color-brand-400);
+    --color-accent: #14260f;
+    --color-accent-foreground: var(--color-brand-200);
+    --color-secondary: #232823;
+    --color-secondary-foreground: #eef0ee;
+
+    /* ---- Status colours are all tuned for white paper; on a dark page the
+       *soft* variants are what actually need moving (the tint behind an alert),
+       and the 400-step is the readable one for text and icons. */
+    --color-destructive: #f87171;
+    --color-destructive-soft: #2a1516;
+    --color-destructive-soft-foreground: #fca5a5;
+    --color-destructive-border: #5b2427;
+    --color-success: #4ade80;
+    --color-success-soft: #10231a;
+    --color-success-soft-foreground: #86efac;
+    --color-success-border: #1f4a33;
+    --color-warning: #fbbf24;
+    --color-warning-soft: #2b2110;
+    --color-warning-soft-foreground: #fcd34d;
+    --color-warning-border: #5c4318;
+    --color-info: #38bdf8;
+    --color-info-soft: #0e2230;
+    --color-info-soft-foreground: #7dd3fc;
+    --color-info-border: #1e4a63;
+
+    /* Inverse panels flip to the light end of the fixed ramp. */
+    --color-inverse-surface: #ffffff;
+    --color-inverse-foreground: #171a17;
+    --color-inverse-muted: #576157;
+    --color-inverse-subtle: #6f7a6f;
+    --color-inverse-line: #e8ebe8;
+    /* Inverted: a dark wash on a white panel, so the overlay keeps reading as a
+       recess rather than disappearing into it. */
+    --color-inverse-overlay: rgb(13 16 13 / 0.06);
+    --color-inverse-overlay-strong: rgb(13 16 13 / 0.12);
+
+    /* The footer keeps its dark panel, so only the two steps that would fall
+       below AA against an ink-950 background are lifted. The other three are
+       inherited unchanged from the light block. */
+    --color-footer-muted: #c3cac3;
+    --color-footer-subtle: #a8b2a8;
+
+    /* Overlays rely on darkness rather than depth, and a translucent shadow
+       does not read on a black page — so they get heavier, not softer. */
+    --shadow-tint: rgb(0 0 0 / 0.5);
+    --shadow-tint-strong: rgb(0 0 0 / 0.7);
+
+    /* ======================================================================
+       Tailwind's own palette, re-pointed for the dark page
+       ----------------------------------------------------------------------
+       The design system recommends semantic tokens, and the components and
+       badges in app.css use them. Views still reach for raw palette utilities
+       about 340 times, though — `border-amber-200 bg-amber-50 text-amber-900`
+       on an advisory, `text-red-600` on a validation message — and those are
+       pale tints chosen against white paper.
+
+       Re-pointing the two *tint* steps (50 and 100) per hue is the difference
+       between a dark theme and a light theme with a black background: every
+       alert, banner and callout keeps its hue and its hierarchy, and none of
+       them glow.
+
+       Only the *tint* steps (50/100) and the *label* steps (600-900) are
+       re-pointed. The mid steps are deliberately left alone: 500 and 600 are
+       used both as text on a pale tint and as solid fills under white text —
+       `bg-green-600 text-white` on a "mark paid" button is the same step as
+       `text-green-600` on a success line — and lightening a step to fix the
+       second would destroy the first. Those are migrated to semantic tokens as
+       they are touched (see .badge-* and the :root status colours).
+
+       The label steps are safe to move because they are only ever *text*: the
+       600-900 range does not appear as a large fill anywhere in the views.
+       ====================================================================== */
+    --color-red-50: #2a1516;
+    --color-red-100: #3d1c1e;
+    --color-amber-50: #2b2110;
+    --color-amber-100: #3d2f16;
+    --color-orange-50: #2c1c10;
+    --color-orange-100: #3e2817;
+    --color-yellow-50: #2a240c;
+    --color-yellow-100: #3c3312;
+    --color-green-50: #10231a;
+    --color-green-100: #173224;
+    --color-emerald-50: #0e231d;
+    --color-emerald-100: #143228;
+    --color-teal-50: #0e2421;
+    --color-teal-100: #14332f;
+    --color-cyan-50: #0e242c;
+    --color-cyan-100: #14333d;
+    --color-sky-50: #0e2230;
+    --color-sky-100: #143044;
+    --color-blue-50: #111f33;
+    --color-blue-100: #182c47;
+    --color-indigo-50: #171c33;
+    --color-indigo-100: #202746;
+    --color-violet-50: #1c1830;
+    --color-violet-100: #282342;
+    --color-purple-50: #1f1730;
+    --color-purple-100: #2c2242;
+    --color-fuchsia-50: #251730;
+    --color-fuchsia-100: #352142;
+    --color-pink-50: #271620;
+    --color-pink-100: #39202e;
+    --color-rose-50: #28161d;
+    --color-rose-100: #3a1f29;
+    --color-lime-50: #1c260d;
+    --color-lime-100: #283515;
+
+    /* Labels. Each hue keeps its identity and its relative weight, so an
+       "advisory" still reads as amber and a "failed" still reads as red. */
+    --color-red-600: #f87171;
+    --color-red-700: #fca5a5;
+    --color-red-800: #fecaca;
+    --color-red-900: #fee2e2;
+    --color-rose-600: #fb7185;
+    --color-rose-700: #fda4af;
+    --color-rose-800: #fecdd3;
+    --color-orange-600: #fb923c;
+    --color-orange-700: #fdba74;
+    --color-orange-800: #fed7aa;
+    --color-amber-700: #fcd34d;
+    --color-amber-800: #fde68a;
+    --color-amber-900: #fef3c7;
+    --color-yellow-700: #fde047;
+    --color-yellow-800: #fef08a;
+    --color-yellow-900: #fef9c3;
+    --color-lime-700: #bef264;
+    --color-green-700: #86efac;
+    --color-green-800: #bbf7d0;
+    --color-green-900: #dcfce7;
+    --color-emerald-700: #6ee7b7;
+    --color-emerald-800: #a7f3d0;
+    --color-teal-600: #2dd4bf;
+    --color-teal-700: #5eead4;
+    --color-teal-800: #99f6e4;
+    --color-cyan-700: #67e8f9;
+    --color-cyan-800: #a5f3fc;
+    --color-sky-600: #38bdf8;
+    --color-sky-700: #7dd3fc;
+    --color-sky-800: #bae6fd;
+    --color-blue-600: #60a5fa;
+    --color-blue-700: #93c5fd;
+    --color-blue-800: #bfdbfe;
+    --color-blue-900: #dbeafe;
+    --color-indigo-600: #818cf8;
+    --color-indigo-700: #a5b4fc;
+    --color-indigo-800: #c7d2fe;
+    --color-violet-600: #a78bfa;
+    --color-violet-700: #c4b5fd;
+    --color-violet-800: #ddd6fe;
+    --color-purple-700: #d8b4fe;
+    --color-purple-800: #e9d5ff;
+    --color-purple-900: #f3e8ff;
+    --color-fuchsia-700: #f0abfc;
+    --color-pink-600: #f472b6;
+    --color-pink-700: #f9a8d4;
+    --color-pink-800: #fbcfe8;
+
+    /* Tailwind's neutral ramp. Only the *text* steps move: `bg-gray-100` and
+       `bg-gray-50` are light fills that already sit close to the dark surface, so
+       leaving them is what keeps the handful of legacy admin cards reading as
+       panels rather than as holes. */
+    --color-gray-400: #9ca3af;
+    --color-gray-500: #9ca3af;
+    --color-gray-600: #9ca3af;
+    --color-gray-700: #d1d5db;
+    --color-gray-800: #e5e7eb;
+    --color-gray-900: #f3f4f6;
 }
 
 /* ==========================================================================
@@ -129,6 +544,8 @@
         outline-offset: 2px;
     }
 
+    /* A brand-200 selection with brand-900 text is a light-mode colour pair.
+       Inverted, it keeps the same relationship: a dark wash with light text. */
     ::selection {
         background-color: var(--color-brand-200);
         color: var(--color-brand-900);
@@ -146,17 +563,25 @@
         }
     }
 
-    /* Thin, unobtrusive scrollbars on scrolling panels. */
+    html[data-theme="dark"] ::selection {
+        background-color: var(--color-brand-800);
+        color: var(--color-brand-100);
+    }
+
+    /* Native scrollbars inside a styled panel. `color-scheme` already handles
+       the page-level bars; these are the thin ones on scrolling panels.
+       The thumb is a token now, not a fixed ink step — a light grey thumb on a
+       dark panel is the single most obvious "this page is not really dark". */
     .scrollbar-slim {
         scrollbar-width: thin;
-        scrollbar-color: var(--color-ink-300) transparent;
+        scrollbar-color: var(--color-border-strong) transparent;
     }
     .scrollbar-slim::-webkit-scrollbar {
         width: 8px;
         height: 8px;
     }
     .scrollbar-slim::-webkit-scrollbar-thumb {
-        background-color: var(--color-ink-300);
+        background-color: var(--color-border-strong);
         border-radius: 9999px;
     }
     .scrollbar-slim::-webkit-scrollbar-track {
@@ -205,17 +630,19 @@
     .btn-secondary {
         background-color: var(--color-secondary);
         color: var(--color-secondary-foreground);
-        @apply hover:bg-ink-200;
+        /* A token rather than `brightness-95`: dimming a near-black fill makes
+           a dark-mode button fade *into* the page instead of lifting off it. */
+        @apply hover:bg-surface-strong;
     }
 
     .btn-outline {
-        @apply border bg-transparent hover:bg-ink-50;
+        @apply border bg-transparent hover:bg-surface-subtle;
         border-color: var(--color-border);
         color: var(--color-foreground);
     }
 
     .btn-ghost {
-        @apply bg-transparent hover:bg-ink-100;
+        @apply bg-transparent hover:bg-surface-muted;
         color: var(--color-foreground);
     }
 
@@ -234,7 +661,7 @@
 
     /* ---- Cards --------------------------------------------------------- */
     .card {
-        @apply rounded-xl border bg-white shadow-subtle;
+        @apply rounded-xl border bg-surface shadow-subtle;
     }
 
     .card-header {
@@ -267,8 +694,8 @@
     .input,
     .select,
     .textarea {
-        @apply flex w-full rounded-lg border bg-white px-3 py-2 text-sm
-               transition-shadow placeholder:text-ink-400
+        @apply flex w-full rounded-lg border bg-surface px-3 py-2 text-sm
+               transition-shadow placeholder:text-subtle-foreground
                focus:outline-none focus:ring-2 focus:ring-offset-0
                disabled:cursor-not-allowed disabled:opacity-50;
         border-color: var(--color-input);
@@ -292,22 +719,49 @@
     }
 
     .checkbox {
-        @apply h-4 w-4 rounded border-ink-300 text-brand-600
-               focus:ring-2 focus:ring-brand-500/40;
+        @apply h-4 w-4 rounded text-primary focus:ring-2 focus:ring-primary/40;
+        border-color: var(--color-border-strong);
     }
 
-    /* ---- Badges --------------------------------------------------------- */
+    /* ---- Badges ---------------------------------------------------------
+       Each badge is a *soft* status fill: a low-saturation background with a
+       same-hue label and hairline. The dark theme re-points those three tokens
+       per status, so the relationship survives the inversion. */
     .badge {
         @apply inline-flex items-center gap-1 rounded-full border px-2 py-0.5
                text-xs font-medium leading-5;
     }
 
-    .badge-neutral   { @apply border-ink-200 bg-ink-100 text-ink-700; }
-    .badge-primary   { @apply border-brand-200 bg-brand-50 text-brand-700; }
-    .badge-success   { @apply border-green-200 bg-green-50 text-green-700; }
-    .badge-warning   { @apply border-amber-200 bg-amber-50 text-amber-700; }
-    .badge-destructive { @apply border-red-200 bg-red-50 text-red-700; }
-    .badge-info      { @apply border-sky-200 bg-sky-50 text-sky-700; }
+    .badge-neutral {
+        @apply bg-surface-muted;
+        border-color: var(--color-border);
+        color: var(--color-muted-foreground);
+    }
+    .badge-primary {
+        background-color: var(--color-accent);
+        border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
+        color: var(--color-accent-foreground);
+    }
+    .badge-success {
+        background-color: var(--color-success-soft);
+        border-color: var(--color-success-border);
+        color: var(--color-success-soft-foreground);
+    }
+    .badge-warning {
+        background-color: var(--color-warning-soft);
+        border-color: var(--color-warning-border);
+        color: var(--color-warning-soft-foreground);
+    }
+    .badge-destructive {
+        background-color: var(--color-destructive-soft);
+        border-color: var(--color-destructive-border);
+        color: var(--color-destructive-soft-foreground);
+    }
+    .badge-info {
+        background-color: var(--color-info-soft);
+        border-color: var(--color-info-border);
+        color: var(--color-info-soft-foreground);
+    }
 
     /* ---- Tables --------------------------------------------------------- */
     .table {
@@ -329,29 +783,69 @@
     }
 
     .table tbody tr {
-        @apply border-b transition-colors last:border-0 hover:bg-ink-50/70;
+        @apply border-b transition-colors last:border-0 hover:bg-surface-subtle/70;
     }
 
     /* ---- Sidebar (admin) ------------------------------------------------ */
     .sidebar-link {
         @apply flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium
                transition-colors;
-        color: var(--color-ink-600);
+        color: var(--color-muted-foreground);
     }
 
     .sidebar-link:hover {
-        background-color: var(--color-ink-100);
-        color: var(--color-ink-900);
+        background-color: var(--color-surface-muted);
+        color: var(--color-foreground);
     }
 
     .sidebar-link-active {
-        background-color: var(--color-brand-50);
-        color: var(--color-brand-700);
+        background-color: var(--color-accent);
+        color: var(--color-accent-foreground);
     }
 
     .sidebar-link-active:hover {
-        background-color: var(--color-brand-100);
-        color: var(--color-brand-800);
+        background-color: color-mix(in srgb, var(--color-accent) 85%, var(--color-primary));
+        color: var(--color-accent-foreground);
+    }
+
+    /* ---- Appearance switch -----------------------------------------------
+       The button in the navbar cycles System → Light → Dark.
+
+       The glyph is chosen in CSS, off the attributes the server already put on
+       <html> before the stylesheet was parsed — not by Alpine. That matters: the
+       markup ships three glyphs and shows one, so the correct icon is on screen
+       at first paint. Binding it to Alpine state instead would render all three
+       (or none) until the JavaScript bundle had parsed and hydrated, which reads
+       as a broken control on every slow connection.
+
+       `data-requested-theme` is the right attribute to key off, not `data-theme`:
+       the switch shows the *choice* (which may be "follow the device"), while
+       `data-theme` shows what that choice currently resolves to.
+       -------------------------------------------------------------------- */
+    .theme-icon {
+        display: none;
+        align-items: center;
+        justify-content: center;
+    }
+
+    html[data-requested-theme="system"] .theme-icon--system,
+    html[data-requested-theme="light"] .theme-icon--sun,
+    html[data-requested-theme="dark"] .theme-icon--moon {
+        display: inline-flex;
+    }
+
+    /* Before the boot script has confirmed the attribute, fall back to what the
+       page is actually rendering, so the control is never icon-less. */
+    html:not([data-requested-theme]) .theme-icon--sun {
+        display: inline-flex;
+    }
+
+    html[data-theme="dark"]:not([data-requested-theme]) .theme-icon--sun {
+        display: none;
+    }
+
+    html[data-theme="dark"]:not([data-requested-theme]) .theme-icon--moon {
+        display: inline-flex;
     }
 
     /* ---- Misc ----------------------------------------------------------- */
@@ -443,7 +937,7 @@
     }
 
     .legal-prose blockquote {
-        border-left: 2px solid var(--color-brand-300);
+        border-left: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
         @apply my-4 pl-4 italic;
     }
 
@@ -468,7 +962,7 @@
     }
 
     .legal-prose code {
-        @apply rounded bg-ink-100 px-1.5 py-0.5;
+        @apply rounded bg-surface-muted px-1.5 py-0.5;
         font-family: var(--font-mono);
         font-size: 0.8125rem;
     }
@@ -516,21 +1010,21 @@
         gap: 0.75rem;
         width: 100%;
         max-width: 28rem;
-        border: 1px solid var(--color-ink-200);
+        border: 1px solid var(--color-border);
         border-inline-start-width: 4px;
         border-radius: 0.75rem;
-        background-color: #ffffff;
+        background-color: var(--color-surface);
         padding: 0.75rem 1rem;
-        box-shadow: 0 10px 30px rgb(13 16 13 / 0.12);
+        box-shadow: var(--shadow-overlay);
         font-size: 0.875rem;
-        color: var(--color-ink-800);
+        color: var(--color-foreground);
         animation: reup-toast-in 0.18s ease-out;
     }
 
-    .flash-toast--success { border-inline-start-color: var(--color-brand-500); }
-    .flash-toast--error { border-inline-start-color: #dc2626; }
-    .flash-toast--warning { border-inline-start-color: #d97706; }
-    .flash-toast--info { border-inline-start-color: #0284c7; }
+    .flash-toast--success { border-inline-start-color: var(--color-success); }
+    .flash-toast--error { border-inline-start-color: var(--color-destructive); }
+    .flash-toast--warning { border-inline-start-color: var(--color-warning); }
+    .flash-toast--info { border-inline-start-color: var(--color-info); }
 
     .flash-toast__dismiss {
         margin-inline-start: auto;
@@ -538,14 +1032,14 @@
         border: 0;
         background: none;
         padding: 0 0.25rem;
-        color: var(--color-ink-400);
+        color: var(--color-subtle-foreground);
         font-size: 1.125rem;
         line-height: 1;
         cursor: pointer;
     }
 
     .flash-toast__dismiss:hover {
-        color: var(--color-ink-700);
+        color: var(--color-foreground);
     }
 }
 
@@ -683,8 +1177,8 @@
    stays in the DOM next to the option, so the sibling selector still applies. */
 .network-radio:checked + .network-option,
 .network-radio-data:checked + .network-option {
-    border-color: var(--color-brand-500);
-    background-color: var(--color-brand-50);
+    border-color: var(--color-primary);
+    background-color: var(--color-accent);
     box-shadow: var(--shadow-subtle);
 }
 
@@ -696,13 +1190,13 @@
 
 /* Data-plan type filters (toggled by the `.active` class in the page script). */
 .data-type-filter.active {
-    border-color: var(--color-brand-500);
-    background-color: var(--color-brand-50);
-    color: var(--color-brand-700);
+    border-color: var(--color-primary);
+    background-color: var(--color-accent);
+    color: var(--color-accent-foreground);
 }
 
 .data-type-filter.active:hover {
-    background-color: var(--color-brand-100);
+    background-color: color-mix(in srgb, var(--color-accent) 80%, var(--color-primary));
 }
 
 /* ==========================================================================

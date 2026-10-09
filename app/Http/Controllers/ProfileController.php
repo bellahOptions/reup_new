@@ -56,6 +56,12 @@ class ProfileController extends Controller
         return view('profile.index', [
             'user' => $user,
             'states' => $states,
+            // Three-state appearance, resolved server-side so the radio group and
+            // the navbar switch cannot disagree about what is selected: the
+            // *chosen* mode (which may be "system") and whether a choice was
+            // ever actually made are different facts, and the page states both.
+            'themeChoice' => \App\Support\Theme::modeFor($user),
+            'themeChoiceIsExplicit' => \App\Support\Theme::hasExplicitChoice($user),
         ]);
     }
 
@@ -244,6 +250,55 @@ class ProfileController extends Controller
         }
 
         Storage::disk(self::AVATAR_DISK)->delete(self::AVATAR_DIRECTORY . '/' . $name);
+    }
+
+    /**
+     * Save the account's appearance preference.
+     *
+     * Called by the switch in the navbar (as JSON, so the page does not reload
+     * under the user) and by the radio group on the profile page (as a normal
+     * form post, so it works with JavaScript disabled).
+     *
+     * -----------------------------------------------------------------------
+     * Why 'system' is stored as NULL
+     * -----------------------------------------------------------------------
+     * There are three states — Light, Dark and System — but only two *choices*.
+     * System means "I have no opinion, ask my device", which is exactly what a
+     * NULL `theme_preference` already means, and exactly what an account that has
+     * never opened this setting has. Writing the literal string 'system' would
+     * create a second representation of the same state, and then "has this
+     * account chosen anything?" — which the profile page and the admin table both
+     * ask — would have two answers to check instead of one.
+     *
+     * Selecting System therefore *clears* the column, which is what lets an
+     * account fall back to the site-wide default an administrator sets, rather
+     * than pinning it to whatever the site default happened to be that day.
+     */
+    public function updateTheme(Request $request)
+    {
+        $validated = $request->validate([
+            'theme' => ['required', 'string', Rule::in(array_keys(config('theme.modes', [])))],
+        ]);
+
+        $user = $request->user();
+        $mode = $validated['theme'];
+
+        $user->forceFill([
+            'theme_preference' => $mode === 'system' ? null : $mode,
+        ])->save();
+
+        $resolved = \App\Support\Theme::modeFor($user->fresh());
+
+        if (! $request->expectsJson()) {
+            return back()->with('success', 'Appearance updated.');
+        }
+
+        return response()->json([
+            'success' => true,
+            'mode' => $mode,
+            'resolved' => $resolved,
+            'message' => 'Appearance set to ' . config('theme.modes.' . $mode . '.label', $mode) . '.',
+        ]);
     }
 
     public function updateNotifications(Request $request)

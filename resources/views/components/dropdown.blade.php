@@ -23,7 +23,7 @@
          x-transition:leave="transition ease-in duration-100"
          x-transition:leave-start="opacity-100"
          x-transition:leave-end="opacity-0"
-         class="absolute z-50 mt-2 {{ $panelWidth }} overflow-hidden rounded-xl border border-border bg-white shadow-overlay {{ $alignment }}"
+         class="absolute z-50 mt-2 {{ $panelWidth }} overflow-hidden rounded-xl border border-border bg-surface shadow-overlay {{ $alignment }}"
          @click="open = false">
         <div class="p-1.5">
             {{ $content }}

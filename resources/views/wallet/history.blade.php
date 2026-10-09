@@ -70,7 +70,7 @@
         </header>
 
         {{-- Balance summary: the single accent surface on this page. --}}
-        <div class="mb-8 rounded-xl border border-brand-600 bg-brand-500 p-5 text-white shadow-subtle md:p-6">
+        <div class="mb-8 rounded-xl border border-brand-600 bg-brand-500 p-5 text-primary-foreground shadow-subtle md:p-6">
             <div class="flex flex-wrap items-start justify-between gap-6">
                 <div>
                     <p class="text-sm font-medium text-brand-50">Available balance</p>

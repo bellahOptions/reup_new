@@ -181,9 +181,9 @@
                             <template x-for="message in messages" :key="message.id">
                                 <div class="flex" :class="message.sender_type === 'admin' ? 'justify-end' : 'justify-start'">
                                     <div class="max-w-[75%] rounded-xl px-4 py-2.5 text-sm"
-                                         :class="message.sender_type === 'admin' ? 'bg-brand-500 text-white' : 'bg-surface text-foreground ring-1 ring-border'">
+                                         :class="message.sender_type === 'admin' ? 'bg-brand-500 text-primary-foreground' : 'bg-surface text-foreground ring-1 ring-border'">
                                         <div class="mb-1 flex items-center gap-2 text-xs"
-                                             :class="message.sender_type === 'admin' ? 'text-white/80' : 'text-muted-foreground'">
+                                             :class="message.sender_type === 'admin' ? 'text-primary-foreground/80' : 'text-muted-foreground'">
                                             <span class="font-medium" x-text="message.sender_type === 'admin' ? 'You' : (message.sender?.name ?? 'Customer')"></span>
                                             <span class="tabular-nums" x-text="formatTime(message.created_at)"></span>
                                         </div>

@@ -5,7 +5,7 @@
 
 @section('content')
 <div class="max-w-2xl mx-auto">
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+    <div class="bg-surface rounded-xl shadow-sm border border-gray-200 p-6">
         <div class="mb-6">
             <div class="flex items-center justify-between">
                 <div>

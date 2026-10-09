@@ -70,7 +70,7 @@
     <!-- Main Details -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <!-- Transaction Details -->
-        <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
+        <div class="rounded-xl border border-gray-200 bg-surface p-4 shadow-sm sm:p-6">
             <h3 class="text-lg font-bold text-gray-900 mb-4">Transaction Information</h3>
             <div class="space-y-4">
                 <div class="flex items-start justify-between gap-3">
@@ -115,7 +115,7 @@
         </div>
 
         <!-- Financial Details -->
-        <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
+        <div class="rounded-xl border border-gray-200 bg-surface p-4 shadow-sm sm:p-6">
             <h3 class="text-lg font-bold text-gray-900 mb-4">Financial Information</h3>
             <div class="space-y-4">
                 <div class="flex items-start justify-between gap-3">
@@ -163,7 +163,7 @@
         </div>
 
         <!-- User Information -->
-        <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6 lg:col-span-2">
+        <div class="rounded-xl border border-gray-200 bg-surface p-4 shadow-sm sm:p-6 lg:col-span-2">
             <h3 class="text-lg font-bold text-gray-900 mb-4">User Information</h3>
             <div class="flex items-center space-x-4">
                 @if($transaction->user)
@@ -194,7 +194,7 @@
 
         <!-- Additional Information -->
         @if($transaction->recipient || $transaction->meta)
-        <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6 lg:col-span-2">
+        <div class="rounded-xl border border-gray-200 bg-surface p-4 shadow-sm sm:p-6 lg:col-span-2">
             <h3 class="text-lg font-bold text-gray-900 mb-4">Additional Information</h3>
             <div class="space-y-4">
                 @if($transaction->recipient)

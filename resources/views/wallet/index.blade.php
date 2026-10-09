@@ -122,7 +122,7 @@
         </header>
 
         {{-- Balance: the single accent surface on this page. --}}
-        <section class="mb-6 rounded-xl border border-brand-600 bg-brand-500 p-5 text-white shadow-subtle md:p-6">
+        <section class="mb-6 rounded-xl border border-brand-600 bg-brand-500 p-5 text-primary-foreground shadow-subtle md:p-6">
             <div class="flex flex-wrap items-start justify-between gap-6">
                 <div>
                     <p class="text-sm font-medium text-brand-50">Available balance</p>
@@ -130,11 +130,11 @@
                         &#8358;{{ number_format($balance, 2) }}
                     </p>
                     <div class="mt-3 flex flex-wrap items-center gap-2">
-                        <span class="badge border-white/20 bg-white/10 text-white">
+                        <span class="badge border-primary-foreground/20 bg-primary-foreground/10 text-primary-foreground">
                             <x-icon name="check-circle" variant="solid" class="h-3.5 w-3.5" />
                             Active
                         </span>
-                        <span class="badge border-white/20 bg-white/10 text-white">
+                        <span class="badge border-primary-foreground/20 bg-primary-foreground/10 text-primary-foreground">
                             <x-icon name="bolt" variant="solid" class="h-3.5 w-3.5" />
                             Instant
                         </span>
@@ -143,7 +143,7 @@
                 <p class="text-xs text-brand-50">Last updated {{ now()->format('jS M, Y') }}</p>
             </div>
 
-            <dl class="mt-6 grid grid-cols-2 gap-4 border-t border-white/20 pt-5 md:grid-cols-4">
+            <dl class="mt-6 grid grid-cols-2 gap-4 border-t border-primary-foreground/20 pt-5 md:grid-cols-4">
                 <div>
                     <dt class="text-xs text-brand-50">Spent today</dt>
                     <dd class="mt-1 text-lg font-semibold tabular-nums">&#8358;{{ number_format($spentToday, 2) }}</dd>

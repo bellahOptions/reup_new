@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" {!! $themeState->attributes() !!}>
 <head>
     @include('partials.head')
 
@@ -87,7 +87,7 @@
         {{-- ============================ Sidebar ============================ --}}
         <aside
             id="admin-sidebar"
-            class="fixed inset-y-0 left-0 z-50 flex flex-col border-r border-border bg-white transition-[width,transform] duration-200 ease-out"
+            class="fixed inset-y-0 left-0 z-50 flex flex-col border-r border-border bg-surface transition-[width,transform] duration-200 ease-out"
             :class="[
                 collapsed ? 'lg:w-[68px]' : 'lg:w-64',
                 'w-64',
@@ -153,7 +153,7 @@
             <div class="shrink-0 border-t border-border p-3">
                 <div class="flex items-center gap-2.5 rounded-lg px-2 py-1.5"
                      :class="collapsed && 'lg:justify-center lg:px-0'">
-                    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-500 text-xs font-semibold text-white">
+                    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-500 text-xs font-semibold text-primary-foreground">
                         {{ strtoupper(substr($admin->name ?? 'A', 0, 1)) }}
                     </span>
                     <div x-show="!collapsed" x-cloak class="min-w-0 flex-1">
@@ -184,7 +184,7 @@
         <div class="flex min-w-0 flex-1 flex-col transition-[margin] duration-200 ease-out"
              :class="collapsed ? 'lg:ml-[68px]' : 'lg:ml-64'">
 
-            <header class="sticky top-0 z-30 border-b border-border bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+            <header class="sticky top-0 z-30 border-b border-border bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/80">
                 <div class="flex h-16 items-center gap-3 px-4 sm:px-6">
                     <button type="button" @click="sidebarOpen = true"
                             class="btn btn-ghost btn-icon lg:hidden" aria-label="Open navigation">
@@ -223,7 +223,7 @@
                             </button>
 
                             <div x-show="open" x-cloak x-transition.origin.top.right
-                                 class="absolute right-0 mt-2 w-[22rem] overflow-hidden rounded-xl border border-border bg-white shadow-overlay">
+                                 class="absolute right-0 mt-2 w-[22rem] overflow-hidden rounded-xl border border-border bg-surface shadow-overlay">
                                 <div class="flex items-center justify-between border-b px-4 py-2.5">
                                     <p class="text-sm font-semibold">Notifications</p>
                                     <button type="button" onclick="markAllAsRead()"
@@ -266,7 +266,7 @@
                             </button>
 
                             <div x-show="open" x-cloak x-transition.origin.top.right
-                                 class="absolute right-0 mt-2 w-56 overflow-hidden rounded-xl border border-border bg-white shadow-overlay">
+                                 class="absolute right-0 mt-2 w-56 overflow-hidden rounded-xl border border-border bg-surface shadow-overlay">
                                 <div class="border-b px-3 py-2.5">
                                     <p class="truncate text-sm font-medium">{{ $admin->name }}</p>
                                     <p class="truncate text-xs text-muted-foreground">{{ $admin->email }}</p>

@@ -320,6 +320,32 @@ class SettingsController extends Controller
                 'order' => 7,
                 'is_public' => false
             ],
+            [
+                /*
+                 * The site-wide fallback appearance.
+                 *
+                 * It applies only to a visitor who has not chosen for themselves
+                 * — a signed-out guest, or an account that has never opened
+                 * Profile → Appearance. A member's own choice always wins, which
+                 * is why this is a *default* and not a setting that repaints the
+                 * whole site under people who have already decided.
+                 *
+                 * 'system' (the shipped value) means "no opinion": follow the
+                 * device. It is a real option rather than an absence so an
+                 * administrator can deliberately hand the decision back after
+                 * having pinned the site to one theme.
+                 */
+                'key' => 'default_theme',
+                'value' => 'system',
+                // Stored as plain text like every other select on this page;
+                // the admin form is what constrains the value to one of the
+                // three modes.
+                'type' => 'text',
+                'category' => 'general',
+                'description' => 'Default theme for visitors who have not chosen one',
+                'order' => 8,
+                'is_public' => true
+            ],
             
             // Maintenance Mode
             [

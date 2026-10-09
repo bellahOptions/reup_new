@@ -19,6 +19,11 @@ import './wallet-funding';
 // executes <script> — the handlers have to already be on `window`.
 import './admin-transactions';
 
+// Appearance switch. Registered before Alpine.start() so the `themeSwitch`
+// component exists by the time any element with x-data="themeSwitch" is
+// evaluated.
+import './theme';
+
 import Alpine from 'alpinejs';
 
 window.Alpine = Alpine;

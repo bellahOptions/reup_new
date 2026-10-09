@@ -107,7 +107,7 @@
                             <button type="button"
                                     data-network="all"
                                     class="rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors"
-                                    :class="network === $el.dataset.network ? 'border-brand-500 bg-brand-500 text-white' : 'border-border bg-white text-muted-foreground hover:bg-ink-50'"
+                                    :class="network === $el.dataset.network ? 'border-brand-500 bg-brand-500 text-primary-foreground' : 'border-border bg-surface text-muted-foreground hover:bg-ink-50'"
                                     :aria-pressed="network === $el.dataset.network ? 'true' : 'false'"
                                     @click="network = $el.dataset.network">
                                 All networks
@@ -126,7 +126,7 @@
                                 <button type="button"
                                         data-network="{{ $network }}"
                                         class="inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors"
-                                        :class="network === $el.dataset.network ? 'border-brand-500 bg-brand-500 text-white' : 'border-border bg-white text-muted-foreground hover:bg-ink-50'"
+                                        :class="network === $el.dataset.network ? 'border-brand-500 bg-brand-500 text-primary-foreground' : 'border-border bg-surface text-muted-foreground hover:bg-ink-50'"
                                         :aria-pressed="network === $el.dataset.network ? 'true' : 'false'"
                                         @click="network = $el.dataset.network">
                                     @if(!empty($networkLogos[$filterKey] ?? null))

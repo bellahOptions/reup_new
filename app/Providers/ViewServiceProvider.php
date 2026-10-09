@@ -31,6 +31,30 @@ class ViewServiceProvider extends ServiceProvider
 {
     public function boot()
     {
+        /*
+         * Appearance, shared with every layout.
+         *
+         * This cannot be a partial the layout includes. A Blade `@include` renders
+         * the child in its own scope and does **not** leak variables back out, so
+         * a layout could not read the value from a partial included a line
+         * earlier — and the layout needs it in its own `<html>` tag, before any
+         * output. It therefore has to arrive as view data.
+         *
+         * Scoped to the layouts and the standalone pages rather than `*`: an email
+         * template, a pagination partial, and a Blade string rendered by a test
+         * have no `<html>` tag and no use for this, and each would otherwise pay
+         * for a `site_settings` lookup. The list mirrors the files that actually
+         * open with `<!doctype html>`.
+         */
+        View::composer([
+            'layouts.*',
+            'errors.*',
+            'admin.layouts.*',
+            'admin.auth.*',
+        ], function ($view) {
+            $view->with('themeState', \App\Support\ThemeState::forCurrentRequest());
+        });
+
         // Legal pages. These read through the model so the cached pointer is
         // shared with the rest of the app (the previous inline queries bypassed
         // the cache and re-queried on every render).

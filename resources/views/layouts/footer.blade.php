@@ -27,7 +27,13 @@
     ];
 @endphp
 
-<footer class="mt-auto border-t border-ink-800 bg-ink-950 text-ink-300">
+{{-- The footer is the one panel that does not follow the theme: it stays dark
+     in light and dark mode alike, so it reads as a full-width anchor rather than
+     a bright band along the bottom of every dark page. Its colours therefore come
+     from the dedicated `footer-*` tokens (see resources/css/app.css), not from the
+     ink scale — `text-ink-400` would invert to a near-black on this panel and
+     disappear. `hover:text-white` is safe because the panel is dark in both. --}}
+<footer class="mt-auto border-t border-footer-surface bg-footer-surface text-footer-muted">
     <div class="container-page py-14">
         <div class="grid gap-10 lg:grid-cols-12">
 
@@ -35,17 +41,17 @@
             <div class="lg:col-span-5">
                 <img src="{{ asset('images/reup-04.svg') }}" alt="ReUp" class="h-7 w-auto brightness-0 invert">
 
-                <p class="mt-4 max-w-sm text-sm leading-relaxed text-ink-400">
+                <p class="mt-4 max-w-sm text-sm leading-relaxed text-footer-subtle">
                     ReUp is a Nigerian bill-payment platform for airtime, data, cable TV,
                     electricity tokens and exam PINs — with wallet funding that settles in seconds.
                 </p>
 
                 <div class="mt-6 space-y-3 text-sm">
-                    <a href="mailto:{{ $supportEmail }}" class="flex items-center gap-2.5 text-ink-300 transition-colors hover:text-white">
+                    <a href="mailto:{{ $supportEmail }}" class="flex items-center gap-2.5 text-footer-muted transition-colors hover:text-white">
                         <x-icon name="envelope" class="h-4 w-4 text-brand-400" />
                         {{ $supportEmail }}
                     </a>
-                    <a href="tel:{{ preg_replace('/\s+/', '', $supportPhone) }}" class="flex items-center gap-2.5 text-ink-300 transition-colors hover:text-white">
+                    <a href="tel:{{ preg_replace('/\s+/', '', $supportPhone) }}" class="flex items-center gap-2.5 text-footer-muted transition-colors hover:text-white">
                         <x-icon name="phone" class="h-4 w-4 text-brand-400" />
                         {{ $supportPhone }}
                     </a>
@@ -55,7 +61,7 @@
                     @foreach($socials as [$label, $url, $path])
                         <a href="{{ $url }}" target="_blank" rel="noopener noreferrer"
                            aria-label="{{ $label }}"
-                           class="flex h-9 w-9 items-center justify-center rounded-lg bg-white/5 text-ink-300 transition-colors hover:bg-white/10 hover:text-white">
+                           class="flex h-9 w-9 items-center justify-center rounded-lg bg-footer-overlay text-footer-muted transition-colors hover:bg-footer-overlay-hover hover:text-white">
                             <svg viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4" aria-hidden="true">
                                 <path d="{{ $path }}" />
                             </svg>
@@ -67,11 +73,11 @@
             {{-- Link columns --}}
             @foreach($columns as $heading => $links)
                 <div class="lg:col-span-2">
-                    <h3 class="text-xs font-semibold uppercase tracking-[0.14em] text-ink-500">{{ $heading }}</h3>
+                    <h3 class="text-xs font-semibold uppercase tracking-[0.14em] text-footer-faint">{{ $heading }}</h3>
                     <ul class="mt-4 space-y-2.5">
                         @foreach($links as [$label, $href])
                             <li>
-                                <a href="{{ $href }}" class="text-sm text-ink-400 transition-colors hover:text-white">{{ $label }}</a>
+                                <a href="{{ $href }}" class="text-sm text-footer-subtle transition-colors hover:text-white">{{ $label }}</a>
                             </li>
                         @endforeach
                     </ul>
@@ -80,24 +86,23 @@
 
             {{-- Trust --}}
             <div class="lg:col-span-3">
-                <h3 class="text-xs font-semibold uppercase tracking-[0.14em] text-ink-500">Payments</h3>
-                <p class="mt-4 text-sm text-ink-400">
+                <h3 class="text-xs font-semibold uppercase tracking-[0.14em] text-footer-faint">Payments</h3>
+                <p class="mt-4 text-sm text-footer-subtle">
                     Fund your wallet by card or direct bank transfer. All connections are
                     encrypted end to end.
                 </p>
-                <div class="mt-4 inline-flex items-center gap-2 rounded-lg bg-white/5 px-3 py-2 text-xs text-ink-300">
+                <div class="mt-4 inline-flex items-center gap-2 rounded-lg bg-footer-overlay px-3 py-2 text-xs text-footer-muted">
                     <x-icon name="shield-check" variant="solid" class="h-4 w-4 text-brand-400" />
                     PCI-DSS compliant gateway
                 </div>
             </div>
         </div>
 
-        <div class="mt-12 flex flex-col items-center justify-between gap-4 border-t border-ink-800 pt-6 sm:flex-row">
-            <p class="text-xs text-ink-500">&copy; {{ $year }} ReUp. All rights reserved.</p>
-            <p class="text-xs text-ink-500">
+        <div class="mt-12 flex flex-col items-center justify-between gap-4 border-t border-footer-muted/20 pt-6 sm:flex-row">            <p class="text-xs text-footer-faint">&copy; {{ $year }} ReUp. All rights reserved.</p>
+            <p class="text-xs text-footer-faint">
                 Built and operated by
                 <a href="https://www.bellahoptions.com" target="_blank" rel="noopener noreferrer"
-                   class="font-medium text-ink-300 transition-colors hover:text-white">Bellah Options</a>
+                   class="font-medium text-footer-muted transition-colors hover:text-white">Bellah Options</a>
             </p>
         </div>
     </div>

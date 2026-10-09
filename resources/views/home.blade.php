@@ -106,19 +106,20 @@
             <div class="lg:col-span-6">
                 <div class="relative mx-auto max-w-md">
                     <div class="card overflow-hidden shadow-overlay">
-                        <div class="bg-ink-950 px-6 py-7">
+                        {{-- Inverse panel — flips with the theme. --}}
+                        <div class="bg-inverse-surface px-6 py-7">
                             <div class="flex items-center justify-between">
-                                <p class="text-xs font-medium uppercase tracking-[0.14em] text-ink-400">Wallet balance</p>
+                                <p class="text-xs font-medium uppercase tracking-[0.14em] text-inverse-subtle">Wallet balance</p>
                                 <x-icon name="wallet" class="h-5 w-5 text-brand-400" />
                             </div>
-                            <p class="mt-3 text-3xl font-semibold tracking-tight text-white tabular-nums">
+                            <p class="mt-3 text-3xl font-semibold tracking-tight text-inverse-foreground tabular-nums">
                                 &#8358;48,250.00
                             </p>
                             <div class="mt-6 flex gap-2">
-                                <span class="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-ink-200">
+                                <span class="inline-flex items-center gap-1.5 rounded-full bg-inverse-overlay px-3 py-1.5 text-xs font-medium text-inverse-muted">
                                     <x-icon name="plus" class="h-3.5 w-3.5" /> Fund wallet
                                 </span>
-                                <span class="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-ink-200">
+                                <span class="inline-flex items-center gap-1.5 rounded-full bg-inverse-overlay px-3 py-1.5 text-xs font-medium text-inverse-muted">
                                     <x-icon name="arrow-up-right" class="h-3.5 w-3.5" /> Send
                                 </span>
                             </div>
@@ -146,7 +147,7 @@
                         </ul>
                     </div>
 
-                    <div class="pointer-events-none absolute -bottom-5 -right-5 hidden rounded-xl border border-border bg-white px-4 py-3 shadow-card sm:block">
+                    <div class="pointer-events-none absolute -bottom-5 -right-5 hidden rounded-xl border border-border bg-surface px-4 py-3 shadow-card sm:block">
                         <div class="flex items-center gap-2">
                             <x-icon name="shield-check" variant="solid" class="h-5 w-5 text-brand-500" />
                             <div>
@@ -192,7 +193,7 @@
         <div class="mt-14 grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
             @foreach($services as $service)
                 <a href="{{ route($service['route']) }}"
-                   class="group flex flex-col bg-white p-6 transition-colors hover:bg-surface sm:p-7">
+                   class="group flex flex-col bg-surface p-6 transition-colors hover:bg-surface sm:p-7">
                     <span class="flex h-10 w-10 items-center justify-center rounded-lg bg-accent text-brand-600 transition-colors group-hover:bg-brand-100">
                         <x-icon :name="$service['icon']" class="h-5 w-5" />
                     </span>
@@ -223,7 +224,7 @@
             @foreach($steps as $index => [$title, $copy, $icon])
                 <li class="relative">
                     <div class="flex items-center gap-4">
-                        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-border bg-white text-brand-600">
+                        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-border bg-surface text-brand-600">
                             <x-icon :name="$icon" class="h-5 w-5" />
                         </span>
                         <span class="font-mono text-xs text-ink-400">0{{ $index + 1 }}</span>
@@ -258,7 +259,7 @@
                         ['Full history', 'Every kobo in and out, searchable and exportable from your dashboard.', 'queue-list'],
                         ['Human support', 'Live chat with a real agent, plus email for anything that needs a paper trail.', 'lifebuoy'],
                     ] as [$title, $copy, $icon])
-                        <div class="bg-white p-6">
+                        <div class="bg-surface p-6">
                             <x-icon :name="$icon" class="h-5 w-5 text-brand-600" />
                             <dt class="mt-4 text-base font-semibold">{{ $title }}</dt>
                             <dd class="mt-2 text-sm leading-relaxed text-muted-foreground">{{ $copy }}</dd>
@@ -271,13 +272,18 @@
 </section>
 
 {{-- ============================ Final CTA ============================ --}}
-<section class="bg-ink-950">
+{{-- An inverse panel: dark in light mode, and flipped in dark mode so it keeps
+     standing out against the page rather than merging into it. Its text comes
+     from the `inverse-*` tokens rather than the ink scale, because the ink steps
+     that read correctly on this panel in light mode would be near-black on it in
+     dark mode. --}}
+<section class="bg-inverse-surface">
     <div class="container-page py-20 sm:py-24">
         <div class="mx-auto max-w-2xl text-center">
-            <h2 class="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+            <h2 class="text-3xl font-semibold tracking-tight text-inverse-foreground sm:text-4xl">
                 Open a wallet in a minute
             </h2>
-            <p class="mt-4 text-lg leading-relaxed text-ink-400">
+            <p class="mt-4 text-lg leading-relaxed text-inverse-subtle">
                 No credit checks, no minimum balance and no monthly fee. Fund what you
                 need, when you need it.
             </p>
@@ -288,13 +294,13 @@
                     <x-icon name="arrow-right" class="h-4 w-4" />
                 </a>
                 <a href="{{ route('contact') }}"
-                   class="btn btn-lg border border-ink-700 bg-transparent text-white hover:bg-white/5">
+                   class="btn btn-lg border border-inverse-line bg-transparent text-inverse-foreground hover:bg-inverse-overlay">
                     Talk to us
                 </a>
             </div>
 
-            <p class="mt-6 text-xs text-ink-500">
-                Already registered? <a href="{{ route('login') }}" class="font-medium text-ink-300 underline underline-offset-4 hover:text-white">Sign in</a>
+            <p class="mt-6 text-xs text-inverse-subtle">
+                Already registered? <a href="{{ route('login') }}" class="font-medium text-inverse-muted underline underline-offset-4 hover:text-inverse-foreground">Sign in</a>
             </p>
         </div>
     </div>

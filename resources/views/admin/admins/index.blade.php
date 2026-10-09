@@ -442,7 +442,7 @@
          class="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/50 p-4"
          @keydown.escape.window="toggleAction = null"
          @click.self="toggleAction = null">
-        <div class="w-full max-w-md overflow-hidden rounded-xl border border-border bg-white shadow-overlay"
+        <div class="w-full max-w-md overflow-hidden rounded-xl border border-border bg-surface shadow-overlay"
              role="dialog" aria-modal="true" aria-labelledby="toggleAdminTitle">
             <div class="border-b border-border px-5 py-4">
                 <h3 id="toggleAdminTitle" class="card-title">Change availability</h3>
@@ -468,7 +468,7 @@
          class="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/50 p-4"
          @keydown.escape.window="deleteAction = null"
          @click.self="deleteAction = null">
-        <div class="w-full max-w-md overflow-hidden rounded-xl border border-border bg-white shadow-overlay"
+        <div class="w-full max-w-md overflow-hidden rounded-xl border border-border bg-surface shadow-overlay"
              role="dialog" aria-modal="true" aria-labelledby="deleteAdminTitle">
             <div class="flex items-start gap-3 border-b border-border px-5 py-4">
                 <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600">

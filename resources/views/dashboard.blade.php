@@ -103,7 +103,7 @@
 
         {{-- Figures. Exactly one accent surface on the page: the balance card. --}}
         <div class="mb-8 grid grid-cols-1 gap-4 md:grid-cols-3 md:gap-6">
-            <div class="rounded-xl border border-brand-600 bg-brand-500 p-5 text-white shadow-subtle md:p-6">
+            <div class="rounded-xl border border-brand-600 bg-brand-500 p-5 text-primary-foreground shadow-subtle md:p-6">
                 <div class="flex items-start justify-between gap-4">
                     <div>
                         <p class="text-sm font-medium text-brand-50">Total balance</p>
@@ -111,12 +111,12 @@
                             &#8358;{{ number_format((float) $userStats['balance'], 2) }}
                         </p>
                     </div>
-                    <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/15">
-                        <x-icon name="wallet" variant="solid" class="h-5 w-5 text-white" />
+                    <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary-foreground/15">
+                        <x-icon name="wallet" variant="solid" class="h-5 w-5 text-primary-foreground" />
                     </span>
                 </div>
                 <a href="{{ \Illuminate\Support\Facades\Route::has('wallet.fund') ? route('wallet.fund') : route('wallet.index') }}"
-                   class="mt-6 inline-flex items-center gap-1.5 text-sm font-semibold text-white underline-offset-4 hover:underline">
+                   class="mt-6 inline-flex items-center gap-1.5 text-sm font-semibold text-primary-foreground underline-offset-4 hover:underline">
                     Fund wallet
                     <x-icon name="chevron-right" class="h-4 w-4" />
                 </a>
@@ -235,7 +235,7 @@
                         <a href="{{ $href }}"
                            @if($external) target="_blank" rel="noopener noreferrer" @endif
                            class="card group flex items-center gap-4 p-5 transition-colors hover:border-brand-300 hover:bg-accent">
-                            <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-border bg-white text-brand-600">
+                            <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-brand-600">
                                 <x-icon :name="$action['icon']" class="h-5 w-5" />
                             </span>
                             <span class="min-w-0 text-sm font-semibold text-foreground">{{ $action['title'] }}</span>

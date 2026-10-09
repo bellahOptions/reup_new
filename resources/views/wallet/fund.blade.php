@@ -169,7 +169,7 @@
                             {{-- Current balance --}}
                             <div class="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border bg-surface p-4">
                                 <div class="flex items-center gap-3">
-                                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-white text-brand-600">
+                                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-brand-600">
                                         <x-icon name="wallet" variant="solid" class="h-5 w-5" />
                                     </span>
                                     <div>
@@ -230,7 +230,7 @@
                                               :class="method === 'paystack'
                                                   ? 'border-brand-500 bg-brand-50'
                                                   : 'border-border hover:border-ink-300'">
-                                            <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-white text-brand-600">
+                                            <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-brand-600">
                                                 <x-icon name="credit-card" class="h-5 w-5" />
                                             </span>
                                             <span class="min-w-0 flex-1">
@@ -251,7 +251,7 @@
                                               :class="method === 'bank_transfer'
                                                   ? 'border-brand-500 bg-brand-50'
                                                   : 'border-border hover:border-ink-300'">
-                                            <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-white text-brand-600">
+                                            <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-brand-600">
                                                 <x-icon name="building-library" class="h-5 w-5" />
                                             </span>
                                             <span class="min-w-0 flex-1">

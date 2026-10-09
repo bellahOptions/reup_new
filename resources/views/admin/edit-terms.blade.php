@@ -127,7 +127,7 @@
                             </span>
                         </div>
 
-                        <div id="editor" class="quill-editor-surface overflow-hidden rounded-b-lg border-x border-b border-border bg-white">
+                        <div id="editor" class="quill-editor-surface overflow-hidden rounded-b-lg border-x border-b border-border bg-surface">
                             {!! $terms?->content ?: '<p class="text-muted-foreground">This document has not been published yet. Write it below and save.</p>' !!}
                         </div>
 
@@ -242,7 +242,7 @@
          class="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/50 p-4"
          @keydown.escape.window="closePreview()"
          @click.self="closePreview()">
-        <div class="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-border bg-white shadow-overlay"
+        <div class="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-overlay"
              role="dialog" aria-modal="true" aria-labelledby="previewTitle">
             <div class="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
                 <h3 id="previewTitle" class="card-title">Document preview</h3>

@@ -239,7 +239,7 @@
                  class="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/70 p-4"
                  @keydown.escape.window="closeProof()"
                  @click.self="closeProof()">
-                <div class="w-full max-w-4xl overflow-hidden rounded-xl border border-border bg-white shadow-overlay"
+                <div class="w-full max-w-4xl overflow-hidden rounded-xl border border-border bg-surface shadow-overlay"
                      role="dialog" aria-modal="true" aria-label="Proof of payment">
                     <div class="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
                         <h3 class="card-title">Proof of payment</h3>
@@ -285,7 +285,7 @@
      class="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/50 p-4"
      @keydown.escape.window="closeReviewModal()"
      @click.self="closeReviewModal()">
-    <div class="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-white shadow-overlay"
+    <div class="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-overlay"
          role="dialog" aria-modal="true" aria-labelledby="reviewModalTitle">
         <div class="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
             <div>

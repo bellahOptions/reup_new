@@ -98,7 +98,7 @@
                     @foreach($serviceTypes as $type => $count)
                         @if($count > 0)
                             <div class="rounded-lg border border-border bg-surface p-3 text-center">
-                                <span class="mx-auto flex h-9 w-9 items-center justify-center rounded-lg bg-white text-brand-600 ring-1 ring-border">
+                                <span class="mx-auto flex h-9 w-9 items-center justify-center rounded-lg bg-surface text-brand-600 ring-1 ring-border">
                                     <x-icon :name="$serviceTypeIcons[$type] ?? 'document-text'" class="h-4 w-4" />
                                 </span>
                                 <p class="mt-2 text-lg font-semibold tabular-nums">{{ number_format($count) }}</p>
@@ -351,7 +351,7 @@
          data-refresh-url-template="{{ route('admin.transactions.refresh-status', ['transaction' => '__ID__']) }}"
          @keydown.escape.window="closeTransactionModal()"
          @click.self="closeTransactionModal()">
-        <div class="flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-t-2xl border border-border bg-white shadow-overlay sm:max-h-[90vh] sm:max-w-4xl sm:rounded-xl"
+        <div class="flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-t-2xl border border-border bg-surface shadow-overlay sm:max-h-[90vh] sm:max-w-4xl sm:rounded-xl"
              role="dialog" aria-modal="true" aria-labelledby="transactionModalTitle">
             <div class="flex shrink-0 items-start justify-between gap-3 border-b border-border px-4 py-3 sm:px-5 sm:py-4">
                 <div class="min-w-0">

@@ -301,6 +301,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     */
     Route::get('/profile', [ProfileController::class, 'index'])->name('profile.index');
     Route::put('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    // Appearance. Also called as JSON by the navbar switch, which is why it
+    // accepts both a form post and a fetch — see ProfileController::updateTheme.
+    Route::put('/profile/appearance', [ProfileController::class, 'updateTheme'])->name('profile.theme');
     Route::put('/profile/notifications', [ProfileController::class, 'updateNotifications'])->name('profile.notifications');
     Route::put('/profile/pin', [ProfileController::class, 'updatePin'])->name('profile.pin');
     Route::post('/profile/pin/code', [ProfileController::class, 'requestPinOtp'])

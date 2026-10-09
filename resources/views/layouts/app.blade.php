@@ -1,5 +1,9 @@
 <!doctype html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+{{-- Appearance is resolved once, here, and published on <html> so the inline
+     bootstrap in partials/theme can read it and correct it before the first
+     paint. Never move these attributes to <body>: the browser will already
+     have painted a white page by then. --}}
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" {!! $themeState->attributes() !!}>
 <head>
     @include('partials.head')
 

@@ -217,7 +217,7 @@
             <aside class="space-y-6">
 
                 {{-- The single accent surface on this page. --}}
-                <div class="rounded-xl border border-brand-600 bg-brand-500 p-5 text-white shadow-subtle md:p-6">
+                <div class="rounded-xl border border-brand-600 bg-brand-500 p-5 text-primary-foreground shadow-subtle md:p-6">
                     <div class="flex items-start justify-between gap-4">
                         <div>
                             <p class="text-sm font-medium text-brand-50">Wallet balance</p>
@@ -225,12 +225,12 @@
                                 &#8358;{{ number_format((float) ($user->wallet_balance ?? 0), 2) }}
                             </p>
                         </div>
-                        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/15">
-                            <x-icon name="wallet" variant="solid" class="h-5 w-5 text-white" />
+                        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary-foreground/15">
+                            <x-icon name="wallet" variant="solid" class="h-5 w-5 text-primary-foreground" />
                         </span>
                     </div>
                     <a href="{{ route('wallet.fund') }}"
-                       class="btn btn-lg mt-6 w-full border border-white/25 bg-white/15 text-white hover:bg-white/25">
+                       class="btn btn-lg mt-6 w-full border border-primary-foreground/25 bg-primary-foreground/15 text-primary-foreground hover:bg-primary-foreground/25">
                         <x-icon name="plus" class="h-5 w-5" />
                         Fund wallet
                     </a>

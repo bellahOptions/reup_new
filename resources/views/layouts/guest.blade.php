@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" {!! $themeState->attributes() !!}>
 <head>
     @include('partials.head')
     <title>@yield('title', 'ReUp') | {{ config('app.name', 'ReUp') }}</title>
@@ -7,7 +7,7 @@
 </head>
 <body class="min-h-screen bg-surface">
     <div class="flex min-h-screen flex-col">
-        <header class="border-b bg-white">
+        <header class="border-b bg-surface">
             <div class="container-page flex h-16 items-center justify-between">
                 <a href="{{ route('home') }}" class="flex items-center gap-2">
                     <img src="{{ asset('images/reup-03.svg') }}" alt="ReUp" class="h-7 w-auto">
@@ -25,7 +25,7 @@
             </div>
         </main>
 
-        <footer class="border-t bg-white">
+        <footer class="border-t bg-surface">
             <div class="container-page flex flex-col items-center justify-between gap-2 py-5 text-sm text-muted-foreground sm:flex-row">
                 <p>&copy; {{ date('Y') }} {{ config('app.name', 'ReUp') }}</p>
                 <div class="flex items-center gap-4">

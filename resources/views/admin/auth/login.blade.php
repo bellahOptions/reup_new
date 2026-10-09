@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" {!! $themeState->attributes() !!}>
 <head>
     @include('partials.head')
 
@@ -10,15 +10,19 @@
     <div class="grid min-h-screen lg:grid-cols-2">
 
         {{-- Brand panel. Replaces the gradient-and-glow hero; the console is an
-             internal tool, so it reads as one. --}}
-        <aside class="relative hidden flex-col justify-between bg-ink-950 p-12 lg:flex">
+             internal tool, so it reads as one.
+
+             An inverse panel: dark in light mode, flipped in dark mode. Its text
+             uses the `inverse-*` tokens, not the ink scale — `text-ink-300` here
+             would be near-black on this panel in dark mode. --}}
+        <aside class="relative hidden flex-col justify-between bg-inverse-surface p-12 lg:flex">
             <img src="{{ asset('images/reup-04.svg') }}" alt="ReUp" class="h-7 w-auto brightness-0 invert">
 
             <div>
-                <h1 class="max-w-sm text-3xl font-semibold leading-tight tracking-tight text-white">
+                <h1 class="max-w-sm text-3xl font-semibold leading-tight tracking-tight text-inverse-foreground">
                     Operate the platform.
                 </h1>
-                <p class="mt-4 max-w-sm text-sm leading-relaxed text-ink-400">
+                <p class="mt-4 max-w-sm text-sm leading-relaxed text-inverse-subtle">
                     Settlement, customer records, wallet adjustments, support and
                     announcements — in one place, with every action logged.
                 </p>
@@ -31,13 +35,13 @@
                     ] as [$point, $icon])
                         <li class="flex items-start gap-3">
                             <x-icon :name="$icon" class="mt-0.5 h-4 w-4 shrink-0 text-brand-400" />
-                            <span class="text-sm text-ink-300">{{ $point }}</span>
+                            <span class="text-sm text-inverse-muted">{{ $point }}</span>
                         </li>
                     @endforeach
                 </ul>
             </div>
 
-            <p class="text-xs text-ink-600">
+            <p class="text-xs text-inverse-subtle">
                 &copy; {{ date('Y') }} {{ config('app.name', 'ReUp') }} · Bellah Options
             </p>
         </aside>
@@ -111,7 +115,7 @@
                     </button>
                 </form>
 
-                <div class="mt-8 flex items-start gap-2.5 rounded-lg border border-border bg-white px-3.5 py-3">
+                <div class="mt-8 flex items-start gap-2.5 rounded-lg border border-border bg-surface px-3.5 py-3">
                     <x-icon name="finger-print" class="mt-0.5 h-4 w-4 shrink-0 text-ink-400" />
                     <p class="text-xs text-muted-foreground">
                         Admin sessions are recorded with IP address and user agent.

@@ -95,13 +95,13 @@
                         <ol class="flex items-center gap-3 text-xs font-medium" aria-label="Progress">
                             <li class="flex items-center gap-2" :class="step === 1 ? 'text-foreground' : 'text-muted-foreground'">
                                 <span class="flex h-6 w-6 items-center justify-center rounded-full border text-xs"
-                                      :class="step === 1 ? 'border-brand-500 bg-accent text-brand-700' : 'border-border bg-white text-muted-foreground'">1</span>
+                                      :class="step === 1 ? 'border-brand-500 bg-accent text-brand-700' : 'border-border bg-surface text-muted-foreground'">1</span>
                                 Meter
                             </li>
                             <li class="h-px flex-1 bg-border" aria-hidden="true"></li>
                             <li class="flex items-center gap-2" :class="step === 2 ? 'text-foreground' : 'text-muted-foreground'">
                                 <span class="flex h-6 w-6 items-center justify-center rounded-full border text-xs"
-                                      :class="step === 2 ? 'border-brand-500 bg-accent text-brand-700' : 'border-border bg-white text-muted-foreground'">2</span>
+                                      :class="step === 2 ? 'border-brand-500 bg-accent text-brand-700' : 'border-border bg-surface text-muted-foreground'">2</span>
                                 Payment
                             </li>
                         </ol>
@@ -121,7 +121,7 @@
                                         <label class="cursor-pointer">
                                             <input type="radio" name="disco" value="{{ $code }}"
                                                    class="peer sr-only" x-model="disco" required>
-                                            <span class="flex h-full items-center gap-3 rounded-xl border border-border bg-white p-3 transition-colors hover:border-brand-300 peer-checked:border-brand-500 peer-checked:bg-accent peer-checked:shadow-subtle peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40">
+                                            <span class="flex h-full items-center gap-3 rounded-xl border border-border bg-surface p-3 transition-colors hover:border-brand-300 peer-checked:border-brand-500 peer-checked:bg-accent peer-checked:shadow-subtle peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40">
                                                 <img src="{{ $discoLogos[$code] ?? '' }}"
                                                      alt=""
                                                      class="h-8 w-8 shrink-0 rounded-lg object-contain"
@@ -146,7 +146,7 @@
                                     @foreach($meterTypes as $value => $label)
                                         <label class="cursor-pointer">
                                             <input type="radio" name="meter_type" value="{{ $value }}" class="peer sr-only" x-model="meterType" required>
-                                            <span class="flex items-center rounded-xl border border-border bg-white p-4 text-sm font-medium transition-colors hover:border-brand-300 peer-checked:border-brand-500 peer-checked:bg-accent peer-checked:shadow-subtle peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40">
+                                            <span class="flex items-center rounded-xl border border-border bg-surface p-4 text-sm font-medium transition-colors hover:border-brand-300 peer-checked:border-brand-500 peer-checked:bg-accent peer-checked:shadow-subtle peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40">
                                                 {{ $label }}
                                             </span>
                                         </label>
@@ -254,7 +254,7 @@
                                 <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                                     @foreach($quickAmounts as $quickAmount)
                                         <button type="button"
-                                                class="rounded-lg border border-border bg-white px-3 py-2 text-sm font-medium transition-colors hover:border-brand-400 hover:bg-accent"
+                                                class="rounded-lg border border-border bg-surface px-3 py-2 text-sm font-medium transition-colors hover:border-brand-400 hover:bg-accent"
                                                 @click="amount = {{ $quickAmount }}">
                                             &#8358;{{ number_format($quickAmount) }}
                                         </button>
@@ -343,7 +343,7 @@
             <aside class="space-y-6">
 
                 {{-- The single accent surface on this page. --}}
-                <div class="rounded-xl border border-brand-600 bg-brand-500 p-5 text-white shadow-subtle md:p-6">
+                <div class="rounded-xl border border-brand-600 bg-brand-500 p-5 text-primary-foreground shadow-subtle md:p-6">
                     <div class="flex items-start justify-between gap-4">
                         <div>
                             <p class="text-sm font-medium text-brand-50">Wallet balance</p>
@@ -351,12 +351,12 @@
                                 &#8358;{{ number_format((float) ($user->wallet_balance ?? 0), 2) }}
                             </p>
                         </div>
-                        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/15">
-                            <x-icon name="wallet" variant="solid" class="h-5 w-5 text-white" />
+                        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary-foreground/15">
+                            <x-icon name="wallet" variant="solid" class="h-5 w-5 text-primary-foreground" />
                         </span>
                     </div>
                     <a href="{{ route('wallet.fund') }}"
-                       class="btn btn-lg mt-6 w-full border border-white/25 bg-white/15 text-white hover:bg-white/25">
+                       class="btn btn-lg mt-6 w-full border border-primary-foreground/25 bg-primary-foreground/15 text-primary-foreground hover:bg-primary-foreground/25">
                         <x-icon name="plus" class="h-5 w-5" />
                         Fund wallet
                     </a>

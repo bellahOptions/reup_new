@@ -298,7 +298,7 @@
                             ] as $index => $step)
                                 <li class="flex items-start gap-3">
                                     <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold
-                                                 {{ $index === 0 ? 'bg-brand-500 text-white' : 'bg-ink-100 text-ink-600' }}">
+                                                 {{ $index === 0 ? 'bg-brand-500 text-primary-foreground' : 'bg-ink-100 text-ink-600' }}">
                                         {{ $index + 1 }}
                                     </span>
                                     <span class="min-w-0">

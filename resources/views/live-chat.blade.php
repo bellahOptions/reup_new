@@ -115,7 +115,7 @@
                                 </div>
                                 <div class="rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap"
                                      :class="message.mine
-                                         ? 'rounded-br-md bg-brand-500 text-white'
+                                         ? 'rounded-br-md bg-brand-500 text-primary-foreground'
                                          : 'rounded-bl-md bg-ink-100 text-ink-900'"
                                      x-text="message.body"></div>
                             </div>
@@ -160,7 +160,7 @@
                 <div class="card">
                     <div class="card-content">
                         <div class="flex items-center gap-3">
-                            <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-500 text-sm font-semibold text-white">
+                            <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-500 text-sm font-semibold text-primary-foreground">
                                 {{ strtoupper(substr($me->name, 0, 1)) }}
                             </span>
                             <div class="min-w-0">

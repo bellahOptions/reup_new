@@ -5,7 +5,7 @@
 
 @section('content')
 <div class="max-w-2xl mx-auto">
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+    <div class="bg-surface rounded-xl shadow-sm border border-gray-200 p-6">
         <div class="mb-6">
             <h3 class="text-lg font-bold text-gray-900">Create New Administrator</h3>
             <p class="text-sm text-gray-600 mt-1">Fill in the details below to create a new admin account</p>
@@ -138,7 +138,7 @@
     </div>
 
     <!-- Role Permissions Info -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mt-6">
+    <div class="bg-surface rounded-xl shadow-sm border border-gray-200 p-6 mt-6">
         <h4 class="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">Default Role Permissions</h4>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="p-4 bg-purple-50 rounded-lg">
