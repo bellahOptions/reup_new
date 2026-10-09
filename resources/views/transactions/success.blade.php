@@ -63,9 +63,19 @@
                         <dd class="text-right text-sm font-medium">{{ $transaction->recipient ?: '—' }}</dd>
                     </div>
 
+                    {{--
+                        The network, never the provider.
+                        `$transaction->network_display` resolves the mobile operator
+                        the customer actually bought (MTN, Airtel, Glo, 9mobile) and
+                        falls back to a neutral label when it cannot be established.
+                        It deliberately does not read `$transaction->provider`, which
+                        is the upstream API (ClubKonnect) and was previously printed
+                        here under this heading, telling the customer nothing true
+                        about their purchase.
+                    --}}
                     <div class="flex items-start justify-between gap-6 px-5 py-3.5">
                         <dt class="text-sm text-muted-foreground">Network</dt>
-                        <dd class="text-right text-sm font-medium">{{ $transaction->provider ?: '—' }}</dd>
+                        <dd class="text-right text-sm font-medium">{{ $transaction->network_display }}</dd>
                     </div>
 
                     @if($transaction->plan_name)
@@ -80,10 +90,17 @@
                         <dd class="text-right text-sm font-medium tabular-nums">&#8358;{{ number_format((float) $transaction->amount, 2) }}</dd>
                     </div>
 
-                    <div class="flex items-start justify-between gap-6 px-5 py-3.5">
-                        <dt class="text-sm text-muted-foreground">Service fee</dt>
-                        <dd class="text-right text-sm font-medium tabular-nums">&#8358;{{ number_format((float) $transaction->service_fee, 2) }}</dd>
-                    </div>
+                    {{--
+                        Omitted when zero. Airtime carries no customer fee now, and a
+                        "Service fee ₦0.00" row on every airtime receipt is noise that
+                        implies a charge was considered and could return.
+                    --}}
+                    @if((float) $transaction->service_fee > 0)
+                        <div class="flex items-start justify-between gap-6 px-5 py-3.5">
+                            <dt class="text-sm text-muted-foreground">Service fee</dt>
+                            <dd class="text-right text-sm font-medium tabular-nums">&#8358;{{ number_format((float) $transaction->service_fee, 2) }}</dd>
+                        </div>
+                    @endif
 
                     <div class="flex items-start justify-between gap-6 px-5 py-3.5">
                         <dt class="text-sm font-semibold">Total paid</dt>

@@ -67,7 +67,9 @@ class PricingEngine
         $providerCost,
         int $quantity = 1,
         array $context = [],
-        ?Carbon $at = null
+        ?Carbon $at = null,
+        ?int $priceBasisMinor = null,
+        array $costMeta = []
     ): PriceQuote {
         $at = $at ?? now();
 
@@ -91,10 +93,11 @@ class PricingEngine
                 $quantity,
                 'No active pricing rule covers this product. Configure one before selling it.',
                 'unavailable',
+                $costMeta,
             );
         }
 
-        return $this->quoteWithRule($costMinor, $quantity, $rule, $at);
+        return $this->quoteWithRule($costMinor, $quantity, $rule, $at, $priceBasisMinor, $costMeta);
     }
 
     /**
@@ -108,7 +111,9 @@ class PricingEngine
         int $costMinor,
         int $quantity,
         PricingRule $rule,
-        ?Carbon $at = null
+        ?Carbon $at = null,
+        ?int $priceBasisMinor = null,
+        array $costMeta = []
     ): PriceQuote {
         $at = $at ?? now();
 
@@ -117,24 +122,34 @@ class PricingEngine
 
         /* ---- Markup ---------------------------------------------------- */
 
-        $markupAmountMinor = $this->markupAmount($baseCostMinor, $rule);
+        $markupAmountMinor = $this->markupAmount($baseCostMinor, $rule, $priceBasisMinor);
 
         /*
-         * The minimum-profit floor. "20% markup, but never less than ₦100" is a
-         * single rule whose effective markup is whichever of the two produces
-         * more — so a cheap product still earns its floor.
+         * A FACE_VALUE rule fixes the price at the face value, so the minimum
+         * profit floor cannot be expressed as extra markup: lifting the price
+         * above face value is exactly what the strategy forbids, and it would
+         * charge the customer more than the airtime they asked for. The floor is
+         * therefore enforced as a *refusal* by `applyProfitabilityPolicy()`
+         * below, which is the honest outcome — we do not silently raise the price.
          */
-        if ($rule->minimum_profit_minor > 0 && $markupAmountMinor < $rule->minimum_profit_minor) {
-            $markupAmountMinor = (int) $rule->minimum_profit_minor;
-        }
+        if (! $this->isFaceValue($rule)) {
+            /*
+             * The minimum-profit floor. "20% markup, but never less than ₦100" is a
+             * single rule whose effective markup is whichever of the two produces
+             * more — so a cheap product still earns its floor.
+             */
+            if ($rule->minimum_profit_minor > 0 && $markupAmountMinor < $rule->minimum_profit_minor) {
+                $markupAmountMinor = (int) $rule->minimum_profit_minor;
+            }
 
-        /*
-         * A ceiling on the markup, so a percentage rule on an expensive item
-         * does not produce an unsellable price. Applied after the floor, because
-         * the ceiling is the operator's hard limit.
-         */
-        if ($rule->maximum_markup_minor !== null && $markupAmountMinor > $rule->maximum_markup_minor) {
-            $markupAmountMinor = (int) $rule->maximum_markup_minor;
+            /*
+             * A ceiling on the markup, so a percentage rule on an expensive item
+             * does not produce an unsellable price. Applied after the floor, because
+             * the ceiling is the operator's hard limit.
+             */
+            if ($rule->maximum_markup_minor !== null && $markupAmountMinor > $rule->maximum_markup_minor) {
+                $markupAmountMinor = (int) $rule->maximum_markup_minor;
+            }
         }
 
         /* ---- Customer fee ---------------------------------------------- */
@@ -147,7 +162,9 @@ class PricingEngine
 
         /* ---- Price ----------------------------------------------------- */
 
-        $calculatedPriceMinor = $baseCostMinor + $markupAmountMinor + $customerFeeMinor - $discountMinor;
+        $calculatedPriceMinor = $this->isFaceValue($rule)
+            ? $this->faceValuePrice($priceBasisMinor, $baseCostMinor, $customerFeeMinor)
+            : $baseCostMinor + $markupAmountMinor + $customerFeeMinor - $discountMinor;
 
         if ($rule->minimum_selling_price_minor !== null && $calculatedPriceMinor < $rule->minimum_selling_price_minor) {
             $calculatedPriceMinor = (int) $rule->minimum_selling_price_minor;
@@ -159,7 +176,20 @@ class PricingEngine
 
         /* ---- Rounding, then profit from the rounded price --------------- */
 
-        $roundedPriceMinor = $this->round($calculatedPriceMinor, $rule);
+        /*
+         * A FACE_VALUE price is never rounded.
+         *
+         * Rounding exists to tidy a *calculated* price — a markup producing
+         * ₦1,037.19 should be able to land on ₦1,050. A face value is not
+         * calculated: it is the amount the customer asked to buy, and rounding it
+         * would sell a different amount of airtime than was requested. With a ₦100
+         * step, ₦101.50 of airtime would be charged as ₦100 — the customer pays for
+         * ₦100 and the provider is asked to vend ₦101.50, so the difference comes
+         * out of ReUp's margin on every such order.
+         */
+        $roundedPriceMinor = $this->isFaceValue($rule)
+            ? $calculatedPriceMinor
+            : $this->round($calculatedPriceMinor, $rule);
 
         /*
          * Gross profit is measured against the price the customer actually pays,
@@ -204,6 +234,10 @@ class PricingEngine
             pricingRuleVersion: $this->latestVersion($rule),
             profitability: 'ok',
             refusalReason: null,
+            priceBasisMinor: $priceBasisMinor,
+            costSource: $costMeta['source'] ?? null,
+            costVerifiedAt: $costMeta['verified_at'] ?? null,
+            costIsEstimated: (bool) ($costMeta['estimated'] ?? false),
         );
 
         return $this->applyProfitabilityPolicy($quote, $rule);
@@ -229,6 +263,23 @@ class PricingEngine
                 'This would be sold below cost. No loss-making rule is enabled for this product.',
                 $this->policyOutcome($rule),
             );
+        }
+
+        /*
+         * A rule that has explicitly opted into loss-making sales opts out of the
+         * profit and margin floors as well.
+         *
+         * Without this, `allow_negative_margin` was inert whenever a floor was also
+         * configured: the loss check above would pass, and then the floor check below
+         * would refuse the sale through `on_unprofitable`, which defaults to
+         * `unavailable`. So a deliberate loss leader — the one case the flag exists
+         * for — could never actually be sold, and the setting quietly did nothing.
+         *
+         * The floors stay enforced for every rule that has *not* opted in, which is
+         * the safeguard they are there for.
+         */
+        if ($rule->allow_negative_margin) {
+            return $quote;
         }
 
         $belowMinimumProfit = $rule->minimum_profit_minor > 0
@@ -276,6 +327,10 @@ class PricingEngine
                 pricingRuleVersion: $quote->pricingRuleVersion,
                 profitability: 'warning',
                 refusalReason: null,
+                priceBasisMinor: $quote->priceBasisMinor,
+                costSource: $quote->costSource,
+                costVerifiedAt: $quote->costVerifiedAt,
+                costIsEstimated: $quote->costIsEstimated,
             ),
 
             /*
@@ -346,7 +401,7 @@ class PricingEngine
      * beats a category rule, which beats the global default.
      *
      * @param  array<string,mixed>  $context  provider_product_id, service_product_id,
-     *                                        provider_id, category_id
+     *                                        provider_id, network, category_id
      */
     public function resolveRule(array $context, ?Carbon $at = null, ?PricingRule $skip = null): ?PricingRule
     {
@@ -355,6 +410,7 @@ class PricingEngine
         $lookup = [
             PricingRule::SCOPE_PROVIDER_PRODUCT => ['provider_product_id', $context['provider_product_id'] ?? null],
             PricingRule::SCOPE_PRODUCT => ['service_product_id', $context['service_product_id'] ?? null],
+            PricingRule::SCOPE_NETWORK => ['network', $context['network'] ?? null],
             PricingRule::SCOPE_PROVIDER => ['provider_id', $context['provider_id'] ?? null],
             PricingRule::SCOPE_CATEGORY => ['category_id', $context['category_id'] ?? null],
             PricingRule::SCOPE_GLOBAL => [null, null],
@@ -419,8 +475,11 @@ class PricingEngine
 
     /**
      * The markup for a base cost, before the floor and ceiling are applied.
+     *
+     * `$priceBasisMinor` is only consulted by a FACE_VALUE rule; every other
+     * strategy derives its price from cost, so the argument is ignored.
      */
-    private function markupAmount(int $baseCostMinor, PricingRule $rule): int
+    private function markupAmount(int $baseCostMinor, PricingRule $rule, ?int $priceBasisMinor = null): int
     {
         return match ($rule->markup_type) {
             PricingRule::MARKUP_PERCENTAGE => $this->applyBps($baseCostMinor, (int) $rule->markup_percentage_bps),
@@ -430,10 +489,40 @@ class PricingEngine
             PricingRule::MARKUP_PERCENTAGE_PLUS_FIXED => $this->applyBps($baseCostMinor, (int) $rule->markup_percentage_bps)
                 + (int) $rule->markup_fixed_minor,
 
+            /*
+             * "Markup" for a face-value rule is the gap between the price the
+             * customer asked for and what the provider charges us. It is recorded
+             * so the snapshot and the profit dashboard report the real spread
+             * (the provider discount) rather than zero, and so the minimum-profit
+             * floor can be evaluated against it.
+             */
+            PricingRule::MARKUP_FACE_VALUE => $this->faceValuePrice($priceBasisMinor, $baseCostMinor, 0) - $baseCostMinor,
+
             PricingRule::MARKUP_NONE => 0,
 
             default => 0,
         };
+    }
+
+    private function isFaceValue(PricingRule $rule): bool
+    {
+        return $rule->markup_type === PricingRule::MARKUP_FACE_VALUE;
+    }
+
+    /**
+     * The price a FACE_VALUE rule charges: the value the customer asked for.
+     *
+     * Falls back to the base cost when no separate face value was supplied, which
+     * is the correct behaviour for a product whose face value *is* its cost (a
+     * data bundle). The customer fee is added on top and is zero unless a Super
+     * Admin has explicitly enabled one on the rule — there is no default airtime
+     * service fee anywhere in this path.
+     */
+    private function faceValuePrice(?int $priceBasisMinor, int $baseCostMinor, int $customerFeeMinor): int
+    {
+        $faceValue = $priceBasisMinor !== null && $priceBasisMinor > 0 ? $priceBasisMinor : $baseCostMinor;
+
+        return $faceValue + $customerFeeMinor;
     }
 
     private function customerFee(int $amountMinor, PricingRule $rule): int
@@ -531,10 +620,39 @@ class PricingEngine
         };
     }
 
+    /**
+     * Normalise a provider cost to integer kobo.
+     *
+     * ## The unit rule, and the bug it fixes
+     *
+     * `quote()` and `quoteWithRule()` must agree on what a bare number means, and
+     * they did not: `quoteWithRule(int $costMinor)` has always taken **kobo**,
+     * while `quote()` ran a bare number through `Money::fromNaira()` — treating
+     * 19400 as ₦19,400 and turning it into 1,940,000 kobo.
+     *
+     * Every caller passes kobo, because every caller's figure comes from a
+     * `*_minor` column or a `Money::minor()`. So the inconsistent branch was
+     * silently multiplying their costs by 100, which then read as a catastrophic
+     * loss and refused the sale. That is what the docblock above has claimed all
+     * along ("every figure is an integer in kobo"); this makes the code match it.
+     *
+     * @param  Money|int|string  $amount  kobo as an int, a `Money`, or a decimal
+     *                                    naira string
+     */
     private function toMinor($amount): int
     {
         if ($amount instanceof Money) {
             return $amount->minor();
+        }
+
+        /*
+         * A bare integer is already minor units. A decimal string is naira, because
+         * a string is how the admin form and the config file express a price —
+         * `'250.00'` means ₦250.00, and reading it as 250 kobo would under-charge by
+         * a factor of 100 instead of over-charging.
+         */
+        if (is_int($amount)) {
+            return $amount;
         }
 
         return Money::fromNaira($amount)->minor();
@@ -561,8 +679,13 @@ class PricingEngine
         return $version === null ? null : (int) $version;
     }
 
-    private function refusingQuote(int $costMinor, int $quantity, string $reason, string $profitability): PriceQuote
-    {
+    private function refusingQuote(
+        int $costMinor,
+        int $quantity,
+        string $reason,
+        string $profitability,
+        array $costMeta = []
+    ): PriceQuote {
         return (new PriceQuote(
             providerCostMinor: $costMinor,
             providerFeeMinor: 0,
@@ -586,6 +709,9 @@ class PricingEngine
             pricingRuleVersion: null,
             profitability: $profitability,
             refusalReason: $reason,
+            costSource: $costMeta['source'] ?? null,
+            costVerifiedAt: $costMeta['verified_at'] ?? null,
+            costIsEstimated: (bool) ($costMeta['estimated'] ?? false),
         ));
     }
 }

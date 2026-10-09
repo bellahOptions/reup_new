@@ -364,8 +364,21 @@
                                    data-category="payment"
                                    step="0.01" min="0" max="10"
                                    class="settings-input input tabular-nums"
-                                   placeholder="2.00">
-                            <p class="mt-1 text-xs text-muted-foreground">Percentage fee for airtime purchases.</p>
+                                   placeholder="0.00">
+                            {{--
+                                This field is NOT read by the purchase path, and saying
+                                so here matters: it previously claimed to control the
+                                airtime fee while the real charge was a hard-coded 2% in
+                                `AirtimeDataController`. An operator who set it to 0 would
+                                have seen no change at all.
+                            --}}
+                            <p class="mt-1 text-xs text-amber-700">
+                                Not applied. Airtime has no customer fee — &#8358;1,000 costs
+                                &#8358;1,000. To charge one, enable a customer fee on the
+                                applicable rule in
+                                <a href="{{ route('admin.pricing.index') }}" class="underline">Pricing</a>,
+                                where it is validated and audited.
+                            </p>
                         </div>
                     </div>
 
@@ -378,8 +391,12 @@
                                    data-category="payment"
                                    step="0.01" min="0" max="10"
                                    class="settings-input input tabular-nums"
-                                   placeholder="1.50">
-                            <p class="mt-1 text-xs text-muted-foreground">Percentage fee for data purchases.</p>
+                                   placeholder="0.00">
+                            <p class="mt-1 text-xs text-amber-700">
+                                Not applied. A data bundle is charged at the price the
+                                pricing rule produces. Configure it in
+                                <a href="{{ route('admin.pricing.index') }}" class="underline">Pricing</a>.
+                            </p>
                         </div>
                         <div>
                             <label for="setting_min_wallet_funding" class="label mb-2">Minimum wallet funding (&#8358;)</label>
@@ -743,8 +760,8 @@
                 },
                 payment: {
                     payment_currency: { value: 'NGN' },
-                    airtime_service_fee: { value: '2' },
-                    data_service_fee: { value: '1.5' },
+                    airtime_service_fee: { value: '0' },
+                    data_service_fee: { value: '0' },
                     min_wallet_funding: { value: '500' },
                     max_wallet_funding: { value: '100000' }
                 },

@@ -3,8 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\Transactions;
+use App\Pricing\PricingEngine;
 use App\Services\BillPaymentService;
 use App\Services\ClubKonnectCatalogue;
+use App\Services\NetworkResolver;
+use App\Services\ProviderCostResolver;
+use App\Support\Money;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -14,6 +18,8 @@ class PricelistController extends Controller
     public function __construct(
         private readonly BillPaymentService $bills,
         private readonly ClubKonnectCatalogue $catalogue,
+        private readonly PricingEngine $pricing,
+        private readonly ProviderCostResolver $costs,
     ) {
     }
 
@@ -84,12 +90,19 @@ class PricelistController extends Controller
         }
 
         $networkCode = (string) ($plan['network_code'] ?? '');
-        $amount = round((float) ($plan['your_price'] ?? 0), 2);
 
-        if ($amount <= 0 || $networkCode === '') {
+        if ($networkCode === '') {
             return back()->withInput()
-                ->with('error', 'That data plan has no valid price. Please contact support.');
+                ->with('error', 'That data plan is missing its network. Please contact support.');
         }
+
+        /*
+         * The network is the catalogue's, resolved to a canonical key and its
+         * customer-facing name. The provider's name is never used as the network:
+         * that is what put "ClubKonnect" on customer receipts.
+         */
+        $networkKey = NetworkResolver::key($networkCode, 'clubkonnect');
+        $networkName = NetworkResolver::displayName($networkCode, 'clubkonnect');
 
         $user = Auth::user();
 
@@ -105,16 +118,60 @@ class PricelistController extends Controller
             'phone' => $validated['phone'],
         ];
 
+        /*
+         * The price comes from the central pricing engine, priced off the
+         * catalogue's verified provider cost. This replaced a hard-coded 1.5%
+         * margin inside the cached catalogue plus a flat ₦50 data fee here, so the
+         * margin on a bundle is now a configured rule per network rather than a
+         * constant in two files.
+         */
+        $cost = $this->costs->forDataBundle($plan);
+
+        if (! $cost) {
+            return back()->withInput()->with('error', $this->costs->unavailableMessage());
+        }
+
+        $quote = $this->pricing->quote(
+            providerCost: $cost->costMinor,
+            quantity: 1,
+            context: [
+                'network' => $networkKey,
+                'capability' => ProviderCostResolver::CAPABILITY_DATA,
+            ],
+            costMeta: $cost->toEngineMetadata(),
+        );
+
+        if (! $quote->isSellable()) {
+            return back()->withInput()
+                ->with('error', $quote->refusalReason ?? $this->costs->unavailableMessage());
+        }
+
+        $quoted = Money::fromMinor($quote->customerPriceMinor);
+
+        if ($quoted->minor() <= 0) {
+            return back()->withInput()
+                ->with('error', 'That data plan has no valid price. Please contact support.');
+        }
+
         $result = $this->bills->purchase(
             user: $user,
             product: 'data',
-            amount: $amount,
-            fee: (float) Transactions::calculateServiceFee('data', $amount),
+            amount: $quoted->toFloat(),
+            /*
+             * No service fee. It is why the customer-facing fee column on a data
+             * purchase is now ₦0.00 and the total equals the quoted price — the
+             * ₦50 that used to sit here was a legacy constant, not a configured
+             * charge. A fee can be applied only by enabling one on the pricing rule,
+             * in which case the engine adds it and it arrives in the quote below.
+             */
+            fee: 0.0,
             recipient: $validated['phone'],
-            providerLabel: $plan['network'] ?? $this->catalogue->networkName($networkCode),
+            providerLabel: $networkName,
             description: 'Data — ' . ($plan['plan_name'] ?? $plan['plan_code']),
             meta: [
                 'network_code' => $networkCode,
+                'network_name' => $networkName,
+                'network_key' => $networkKey,
                 'plan_id' => $plan['plan_id'] ?? null,
                 'plan_code' => $plan['plan_code'] ?? null,
                 'plan_name' => $plan['plan_name'] ?? null,
@@ -131,14 +188,20 @@ class PricelistController extends Controller
             successMessage: ($plan['plan_name'] ?? 'Data bundle') . ' sent to ' . $validated['phone'] . '.',
             pin: $validated['pin'],
             idempotencyKey: $validated['idempotency_key'] ?? null,
+            quote: $quote,
+            networkKey: $networkKey,
+            networkName: $networkName,
         );
 
         if (! $result['ok']) {
             return back()->withInput()->with('error', $result['message']);
         }
 
-        $this->bills->sendReceipts($user, $result['transaction']);
-
+        /*
+         * No receipt is sent here. `BillPaymentService` sends it on the success path,
+         * and the previous explicit call meant a pricelist purchase emailed the
+         * customer two receipts for one order.
+         */
         return redirect()->route('transactions.success', $result['transaction']->reference)
             ->with('success', $result['message']);
     }

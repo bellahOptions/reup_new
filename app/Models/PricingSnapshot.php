@@ -25,10 +25,14 @@ class PricingSnapshot extends Model
     protected $fillable = [
         'uuid',
         'service_order_id',
+        'transaction_id',
         'pricing_rule_id',
         'pricing_rule_snapshot',
         'pricing_rule_version',
         'provider_cost_minor',
+        'cost_source',
+        'cost_verified_at',
+        'cost_is_estimated',
         'provider_fee_minor',
         'base_cost_minor',
         'provider_currency',
@@ -46,6 +50,8 @@ class PricingSnapshot extends Model
         'rounding_adjustment_minor',
         'rounding_step_minor',
         'gross_profit_minor',
+        'price_basis_minor',
+        'network',
         'profit_margin_bps',
         'currency',
         'inputs',
@@ -70,7 +76,10 @@ class PricingSnapshot extends Model
         'rounding_adjustment_minor' => 'integer',
         'rounding_step_minor' => 'integer',
         'gross_profit_minor' => 'integer',
+        'price_basis_minor' => 'integer',
         'profit_margin_bps' => 'integer',
+        'cost_verified_at' => 'datetime',
+        'cost_is_estimated' => 'boolean',
     ];
 
     protected static function booted(): void
@@ -110,6 +119,15 @@ class PricingSnapshot extends Model
     public function serviceOrder()
     {
         return $this->belongsTo(ServiceOrder::class);
+    }
+
+    /**
+     * The wallet transaction this snapshot priced, for products sold through
+     * `BillPaymentService` (airtime, data) rather than through `service_orders`.
+     */
+    public function transaction()
+    {
+        return $this->belongsTo(Transactions::class, 'transaction_id');
     }
 
     public function pricingRule()

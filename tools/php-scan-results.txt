@@ -1,0 +1,49 @@
+﻿PHP-aware scan: 506 PHP files
+
+### backtick  (32)
+    .\resources\views\admin\admins\create.blade.php:192  `input[value=""]`
+    .\resources\views\admin\admins\index.blade.php:537  `{{ url('') }}/${toggle.dataset.toggleId}/toggle-status`
+    .\resources\views\admin\announcements\form.blade.php:125  `icon`
+    .\resources\views\admin\announcements\index.blade.php:165  `vendor.pagination.tailwind`
+    .\resources\views\admin\bank-transfers\index.blade.php:314  ` <div class=""> <div class=""> <svg class="" fill="" stroke="" stroke-width="" viewBox="" aria-hidden=""> <path stroke-linecap="" stroke-linejoin="" d=""/> </svg> <p class="">${message}</p> </div> </div>`
+    .\resources\views\admin\chat\index.blade.php:183  `{{ route('') }}?status=${encodeURIComponent(this.statusFilter)}`
+    .\resources\views\admin\contact\show.blade.php:380  `{{ route('', '') }}/${id}`
+    .\resources\views\admin\edit-terms.blade.php:265  `manage_settings`
+    .\resources\views\admin\index.blade.php:240  `{{ route('', '') }}/${adminId}`
+    .\resources\views\admin\providers\index.blade.php:90  `ProviderRegistry`
+    .\resources\views\admin\settings\index.blade.php:822  `HTTP ${response.status}`
+    .\resources\views\admin\transactions\index.blade.php:348  `sm`
+    .\resources\views\admin\transactions\show.blade.php:2  `data-transaction-reference`
+    .\resources\views\admin\users\show.blade.php:336  `/admin/users/{{ $user->id }}/verify`
+    .\resources\views\airtime-data\index.blade.php:392  ` <div class=""> <x-icon name="" class="" /> <div> <p class="">Insufficient balance</p> <p class=""> Total needed: <strong>₦${totalAmount.toFixed(2)}</strong> (amount ₦${amount.toFixed(2)} + fee ₦${serviceFee.toFixed(2)}) </p> <p class=""> Your balance: <strong>₦${walletBalance.toFixed(2)}</strong> &middot; short by <strong>₦${shortage.toFixed(2)}</strong> </p> <a href="" class=""> Fund wallet </a> </div> </div> `
+    .\resources\views\auth\login-otp-verify.blade.php:26  `data-no-loading`
+    .\resources\views\components\auth-card.blade.php:4  `auth/confirm-password`
+    .\resources\views\components\button.blade.php:6  `variant`
+    .\resources\views\components\icon.blade.php:173  `whatsapp`
+    .\resources\views\components\marquee.blade.php:9  `megaphone`
+    .\resources\views\components\transaction-pin.blade.php:7  `idempotency_key`
+    .\resources\views\dashboard.blade.php:24  `$promotionsNotifications`
+    .\resources\views\electricity\index.blade.php:99  `disco`
+    .\resources\views\layouts\guest.blade.php:43  `status`
+    .\resources\views\layouts\navbar.blade.php:39  `auth`
+    .\resources\views\profile\index.blade.php:110  `x-data`
+    .\resources\views\services\index.blade.php:6  `$catalogue`
+    .\resources\views\wallet\fund.blade.php:86  `data-no-loading`
+    .\storage\framework\views\21260b2284fd95dc873c53686ef6a9e88665a72b.php:548  ` <div class=""> <?php if (isset($component)) { $__componentOriginalc254754b9d5db91d5165876f9d051922ca0066f4 = $component; } ?> <?php $component = $__env->getContainer()->make(Illuminate\View\AnonymousComponent::class, ['' => '','' => ['' => '','' => '']]); ?> <?php $component->withName(''); ?> <?php if ($component->shouldRender()): ?> <?php $__env->startComponent($component->resolveView(), $component->data()); ?> <?php $component->withAttributes(['' => '','' => '']); ?> <?php echo $__env->renderComponent(); ?> <?php endif; ?> <?php if (isset($__componentOriginalc254754b9d5db91d5165876f9d051922ca0066f4)): ?> <?php $component = $__componentOriginalc254754b9d5db91d5165876f9d051922ca0066f4; ?> <?php unset($__componentOriginalc254754b9d5db91d5165876f9d051922ca0066f4); ?> <?php endif; ?> <div> <p class="">Insufficient balance</p> <p class=""> Total needed: <strong>₦${totalAmount.toFixed(2)}</strong> (amount ₦${amount.toFixed(2)} + fee ₦${serviceFee.toFixed(2)}) </p> <p class=""> Your balance: <strong>₦${walletBalance.toFixed(2)}</strong> &middot; short by <strong>₦${shortage.toFixed(2)}</strong> </p> <a href="" class=""> Fund wallet </a> </div> </div> `
+    .\storage\framework\views\2f93abb14dfa4bd3c7d1c626aa083d99a677c0a6.php:299  `${length} / 500 characters`
+    .\storage\framework\views\b6c27a3945c7040fd34f9240f7e4b7931b630920.php:547  ` <div class=""> <div class=""> <svg class="" fill="" stroke="" stroke-width="" viewBox="" aria-hidden=""> <path stroke-linecap="" stroke-linejoin="" d=""/> </svg> <p class="">Loading transaction details&hellip;</p> </div> </div>`
+    .\storage\framework\views\c659e4ce8a80def4e80aa09d4da555ec58027720.php:964  `HTTP ${response.status}`
+
+### decoded-then-used  (1)
+    .\server.php:5  $uri = urldecode(
+
+### exec  (1)
+    .\tests\Feature\BladeDirectiveTest.php:48  exec(
+
+### fsockopen  (1)
+    .\app\Support\Vite.php:85  fsockopen(
+
+### preg_replace-cb  (1)
+    .\app\Services\ClubKonnectService.php:159  preg_replace_callback(
+
+== scan complete ==

@@ -65,10 +65,23 @@
         $labelStyle = $rowStyle . 'color:#6f7a6f;';
         $valueStyle = $rowStyle . 'text-align:right;font-weight:600;color:#1b1f1b;word-break:break-word;';
 
+        /*
+         * The customer's mobile network — MTN, Airtel, Glo or 9mobile — never the
+         * upstream provider.
+         *
+         * This row previously read "Network / provider" and printed
+         * `$transaction->provider`, which the payment pipeline overwrites with the
+         * adapter's label. So a customer's receipt said "Network: ClubKonnect":
+         * the API ReUp buys from, presented as their mobile operator. The two are
+         * now separate, and only the network is shown here.
+         *
+         * `hasResolvedNetwork()` guards the row so a product with no network at all
+         * (a wallet top-up, a reversal) omits it rather than printing a placeholder.
+         */
         $lineItems = array_filter([
             'Service' => ucfirst(str_replace('-', ' ', (string) $transaction->service_type)),
             'Recipient' => $transaction->recipient,
-            'Network / provider' => $transaction->provider,
+            'Network' => $transaction->hasResolvedNetwork() ? $transaction->network_display : null,
             'Plan' => $transaction->plan_name,
             'Plan type' => $transaction->plan_type,
         ], fn ($value) => filled($value));
@@ -125,10 +138,19 @@
             <td style="{{ $labelStyle }}">Amount</td>
             <td style="{{ $valueStyle }}">{{ $money($transaction->amount) }}</td>
         </tr>
-        <tr>
-            <td style="{{ $labelStyle }}">Service fee</td>
-            <td style="{{ $valueStyle }}">{{ $money($transaction->service_fee) }}</td>
-        </tr>
+        {{--
+            The fee row is omitted when there is no fee, rather than printing
+            "Service fee ₦0.00". Airtime now carries no customer fee at all, so the
+            row would appear on every airtime receipt asserting a charge of nothing —
+            which invites the reader to wonder what it used to be. It still renders
+            whenever a Super Admin has deliberately enabled a fee on the rule.
+        --}}
+        @if((float) $transaction->service_fee > 0)
+            <tr>
+                <td style="{{ $labelStyle }}">Service fee</td>
+                <td style="{{ $valueStyle }}">{{ $money($transaction->service_fee) }}</td>
+            </tr>
+        @endif
         <tr>
             <td style="padding:12px 0;font-size:15px;font-weight:700;color:#1b1f1b;">Total charged</td>
             <td style="padding:12px 0;text-align:right;font-size:17px;font-weight:700;color:#1b720c;">{{ $money($charged) }}</td>

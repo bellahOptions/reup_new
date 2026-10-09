@@ -221,7 +221,9 @@
                                                 </span>
                                                 @if($transaction->recipient)
                                                     <span class="mt-0.5 block text-xs text-muted-foreground">
-                                                        To {{ $transaction->recipient }}@if($transaction->provider) &middot; {{ $transaction->provider }}@endif
+                                                        {{-- The network the customer bought, never the
+                                                             upstream provider's name. --}}
+                                                        To {{ $transaction->recipient }}@if($transaction->hasResolvedNetwork()) &middot; {{ $transaction->network_display }}@endif
                                                     </span>
                                                 @endif
                                             </span>

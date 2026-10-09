@@ -74,10 +74,36 @@ return [
 
         /*
         |------------------------------------------------------------------
+        | Transaction split
+        |------------------------------------------------------------------
+        | The split that every card checkout is initialised with, as a
+        | `split_code` sent to POST /transaction/initialize. Paystack applies
+        | the split's own percentage and subaccount at settlement, so this is
+        | what routes the platform's share to the right place.
+        |
+        | It is sent to the gateway, not chosen by the customer, and it applies
+        | to *every* Paystack checkout — which is why the default is set here
+        | rather than left blank. Clearing it (PAYSTACK_SPLIT_CODE=) disables
+        | splitting entirely: settlements then land wholly in the main account.
+        |
+        | A code that is wrong, deleted or belongs to another account does not
+        | fail silently — Paystack rejects the initialisation and the customer
+        | sees the funding error, which is the correct failure. See
+        | `PaystackService::initialize()`.
+        */
+        'split_code' => env('PAYSTACK_SPLIT_CODE', 'SPL_YsS8nTY0UJ'),
+
+        /*
+        |------------------------------------------------------------------
         | Dedicated virtual accounts
         |------------------------------------------------------------------
         | Wema Bank and Titan-Paystack are supported. Requires a registered
         | Nigerian business that has completed Paystack's go-live process.
+        |
+        | Note: a transfer into a dedicated virtual account is settled by the
+        | split configured when the account was created, and that endpoint takes
+        | no per-transaction split code. So `split_code` above governs card
+        | checkouts; a DVA's split is set on the Paystack account itself.
         */
         'dva_bank' => env('PAYSTACK_DVA_BANK', 'wema-bank'),
     ],

@@ -4,17 +4,28 @@ namespace App\Http\Controllers;
 
 use App\Models\PromotionNotification;
 use App\Models\Transactions;
+use App\Pricing\PricingEngine;
 use App\Services\BillPaymentService;
 use App\Services\ClubKonnectCatalogue;
+use App\Services\NetworkResolver;
+use App\Services\ProviderCostResolver;
 use App\Services\SecurityService;
 use App\Services\WalletService;
+use App\Support\Money;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Throwable;
 
 class AirtimeDataController extends Controller
 {
-    /** ClubKonnect network identifiers. */
+    /**
+     * ClubKonnect network identifiers.
+     *
+     * Kept because the forms post these codes and the provider adapters expect
+     * them. The *name* shown to a customer is resolved through `NetworkResolver`,
+     * which owns the canonical spelling and the neutral fallback — this map is a
+     * protocol detail, not a display concern.
+     */
     public const NETWORKS = [
         '01' => 'MTN',
         '02' => 'Glo',
@@ -27,6 +38,8 @@ class AirtimeDataController extends Controller
         private readonly WalletService $wallets,
         private readonly SecurityService $security,
         private readonly ClubKonnectCatalogue $catalogue,
+        private readonly PricingEngine $pricing,
+        private readonly ProviderCostResolver $costs,
     ) {
     }
 
@@ -86,30 +99,136 @@ class AirtimeDataController extends Controller
             'idempotency_key' => 'nullable|string|min:8|max:64',
         ]);
 
-        $network = self::NETWORKS[$validated['network']];
-        $amount = round((float) $validated['amount'], 2);
+        /*
+         * The network is resolved once, here, from the *validated* code the form
+         * posted. Everything downstream — the pricing rule context, the persisted
+         * columns and the receipt — uses this canonical value, so the customer's
+         * receipt cannot disagree with the network they picked, and the provider's
+         * own name can never be mistaken for it.
+         */
+        $networkCode = (string) $validated['network'];
+        $networkKey = NetworkResolver::key($networkCode, 'clubkonnect');
+        $networkName = NetworkResolver::displayName($networkCode, 'clubkonnect');
+
+        /*
+         * Integer kobo, exactly. This was `round((float) $validated['amount'], 2)`
+         * and carried through the pipeline as a float — which is how a ₦1,000
+         * airtime purchase can end up recorded as ₦999.99.
+         */
+        $faceValue = Money::fromNaira($validated['amount']);
+
+        $quote = $this->quoteAirtime($faceValue, $networkKey, $networkCode);
+
+        if (! $quote['ok']) {
+            return back()->withInput()->with('error', $quote['message']);
+        }
 
         return $this->dispatchPurchase(
             $request,
             product: 'airtime',
-            amount: $amount,
+            amount: $faceValue->toFloat(),
             recipient: $validated['phone'],
-            providerLabel: $network,
-            description: 'Airtime — ' . $network,
+            providerLabel: $networkName,
+            description: 'Airtime — ' . $networkName,
+            quote: $quote['quote'],
+            networkKey: $networkKey,
+            networkName: $networkName,
             meta: [
-                'network_code' => $validated['network'],
-                'network_name' => $network,
+                'network_code' => $networkCode,
+                'network_name' => $networkName,
                 'phone_number' => $validated['phone'],
             ],
             providerParams: [
-                'network' => $validated['network'],
+                'network' => $networkCode,
                 'phone' => $validated['phone'],
-                'amount' => $amount,
+                'amount' => $faceValue->toFloat(),
             ],
-            successMessage: '₦' . number_format($amount, 2) . ' airtime sent to ' . $validated['phone'] . '.',
+            successMessage: $faceValue->format() . ' airtime sent to ' . $validated['phone'] . '.',
             pin: $validated['pin'],
             idempotencyKey: $validated['idempotency_key'] ?? null,
         );
+    }
+
+    /**
+     * Price an airtime purchase through the central pricing engine.
+     *
+     * ## The 2% fee is gone
+     *
+     * This used to be `round($amount * 0.02, 2)`: every airtime purchase carried
+     * an unconditional 2% service fee, so ₦200 of airtime cost ₦204. That is not
+     * the ReUp model. Airtime now prices under `FACE_VALUE` — the customer pays
+     * the airtime they asked for — and the only way a customer fee appears is if a
+     * Super Admin explicitly enables one on the applicable rule.
+     *
+     * ## Where the profit comes from
+     *
+     * Not from the customer. The provider's discount (3% by assumption, held as a
+     * configurable per-network term) means ₦1,000 of airtime costs us ₦970, and the
+     * ₦30 spread is the gross profit. That cost is resolved by
+     * `ProviderCostResolver` and never enters the price.
+     *
+     * @return array{ok:bool,quote:?\App\Pricing\PriceQuote,message:string}
+     */
+    private function quoteAirtime(Money $faceValue, ?string $networkKey, string $networkCode): array
+    {
+        $cost = $this->costs->forAirtime($faceValue->minor(), $networkKey);
+
+        if (! $cost) {
+            /*
+             * No usable provider cost. The brief is explicit: do not invent one.
+             * Refusing costs us a sale; guessing costs us the credibility of every
+             * profit figure in the system, and would let an unprofitable purchase
+             * through silently.
+             */
+            return [
+                'ok' => false,
+                'quote' => null,
+                'message' => $this->costs->unavailableMessage(),
+            ];
+        }
+
+        $quote = $this->pricing->quote(
+            providerCost: $cost->costMinor,
+            quantity: 1,
+            context: [
+                'network' => $networkKey,
+                'capability' => ProviderCostResolver::CAPABILITY_AIRTIME,
+            ],
+            priceBasisMinor: $faceValue->minor(),
+            costMeta: $cost->toEngineMetadata(),
+        );
+
+        if (! $quote->isSellable()) {
+            return [
+                'ok' => false,
+                'quote' => $quote,
+                'message' => $quote->refusalReason ?? $this->costs->unavailableMessage(),
+            ];
+        }
+
+        /*
+         * Last line of defence on the pricing model: if the engine has produced a
+         * price above face value, a fee has been enabled that the operator did not
+         * intend, or a rule is misconfigured. Refusing is right — silently charging
+         * more than the airtime is worth is the exact behaviour being removed.
+         */
+        if ($quote->customerPriceMinor > $faceValue->minor() && $quote->customerFeeMinor <= 0) {
+            \Illuminate\Support\Facades\Log::warning('Airtime quote exceeded face value without an enabled fee', [
+                'network' => $networkKey,
+                'network_code' => $networkCode,
+                'face_value_minor' => $faceValue->minor(),
+                'quoted_minor' => $quote->customerPriceMinor,
+                'rule_id' => $quote->pricingRuleId,
+            ]);
+
+            return [
+                'ok' => false,
+                'quote' => $quote,
+                'message' => $this->costs->unavailableMessage(),
+            ];
+        }
+
+        return ['ok' => true, 'quote' => $quote, 'message' => ''];
     }
 
     /**
@@ -168,19 +287,35 @@ class AirtimeDataController extends Controller
 
         // Everything downstream reads the catalogue's values, not the form's.
         $networkCode = (string) ($plan['network_code'] ?? $validated['data_network']);
-        $network = self::NETWORKS[$networkCode] ?? ($plan['network'] ?? 'Unknown');
         $planName = (string) ($plan['plan_name'] ?? $validated['plan_name']);
+
+        /*
+         * The network comes from the catalogue row that priced the bundle, not from
+         * the posted field, so a tampered form cannot label an MTN bundle as Airtel
+         * and cannot influence the network-scoped pricing rule that applies.
+         */
+        $networkKey = NetworkResolver::key($networkCode, 'clubkonnect');
+        $networkName = NetworkResolver::displayName($networkCode, 'clubkonnect');
+
+        $quote = $this->quoteData($plan, $networkKey, $validated['plan_price']);
+
+        if (! $quote['ok']) {
+            return back()->withInput()->with('error', $quote['message']);
+        }
 
         return $this->dispatchPurchase(
             $request,
             product: 'data',
             amount: $amount,
             recipient: $validated['phone'],
-            providerLabel: $network,
+            providerLabel: $networkName,
             description: 'Data — ' . $planName,
+            quote: $quote['quote'],
+            networkKey: $networkKey,
+            networkName: $networkName,
             meta: [
                 'network_code' => $networkCode,
-                'network_name' => $network,
+                'network_name' => $networkName,
                 'phone_number' => $validated['phone'],
                 'plan_id' => $plan['plan_id'] ?? $validated['data_plan'],
                 'plan_code' => $plan['plan_code'] ?? null,
@@ -199,12 +334,87 @@ class AirtimeDataController extends Controller
     }
 
     /**
+     * Price a data bundle through the central pricing engine.
+     *
+     * The catalogue's `clubkonnect_price` is what the provider charges **us** and
+     * is the effective cost. The price the customer pays comes from the engine's
+     * rule for this network — no longer a hard-coded 1.5% baked into the cached
+     * catalogue, which meant every bundle on every network carried the same margin
+     * and no operator could change one without a code deploy.
+     *
+     * @param  array<string,mixed>  $plan  the resolved catalogue row
+     * @return array{ok:bool,quote:?\App\Pricing\PriceQuote,message:string}
+     */
+    private function quoteData(array $plan, ?string $networkKey, $requestedPrice): array
+    {
+        $cost = $this->costs->forDataBundle($plan);
+
+        if (! $cost) {
+            return [
+                'ok' => false,
+                'quote' => null,
+                'message' => $this->costs->unavailableMessage(),
+            ];
+        }
+
+        $quote = $this->pricing->quote(
+            providerCost: $cost->costMinor,
+            quantity: 1,
+            context: [
+                'network' => $networkKey,
+                'capability' => ProviderCostResolver::CAPABILITY_DATA,
+            ],
+            /*
+             * No price basis for a bundle: the customer buys a *bundle*, not a face
+             * value, so the engine prices it cost-plus from the verified cost. A
+             * FACE_VALUE rule on data therefore prices at cost — which is exactly
+             * what face value means for a bundle, and why data is normally given a
+             * markup rule.
+             */
+            costMeta: $cost->toEngineMetadata(),
+        );
+
+        if (! $quote->isSellable()) {
+            return [
+                'ok' => false,
+                'quote' => $quote,
+                'message' => $quote->refusalReason ?? $this->costs->unavailableMessage(),
+            ];
+        }
+
+        /*
+         * The price moved between the page rendering and the submit. Refused rather
+         * than silently charged: the customer must agree to the new amount, which is
+         * the behaviour this check has always had and is now measured against the
+         * engine's figure instead of the catalogue's.
+         */
+        $quoted = Money::fromMinor($quote->customerPriceMinor);
+        $presented = Money::fromNaira($requestedPrice);
+
+        if (! $quoted->equals($presented)) {
+            return [
+                'ok' => false,
+                'quote' => $quote,
+                'message' => 'The price of that bundle is now ' . $quoted->format()
+                    . '. Please confirm the new price and submit again — no money has left your wallet.',
+            ];
+        }
+
+        return ['ok' => true, 'quote' => $quote, 'message' => ''];
+    }
+
+    /**
      * Shared dispatch for airtime and data.
      *
-     * The price for data comes from the posted `plan_price`, which the
-     * pricelist page supplies from the server-rendered catalogue. Airtime takes
-     * a customer-entered amount. Both are bounded by config('bills.ranges') and
-     * re-checked against the spend limits inside the pipeline.
+     * `$quote` is the authoritative price from the pricing engine. `$amount` is kept
+     * only for the provider payload and the legacy idempotency hash — the wallet is
+     * debited `$quote->customerPriceMinor`, and `transactions.total_amount` is
+     * written from the same figure, so the amount the customer was quoted and the
+     * amount they are charged cannot disagree.
+     *
+     * The network is passed as a canonical key plus its display name and stored on
+     * the transaction, so a receipt printed later reproduces what the customer was
+     * told rather than depending on today's catalogue.
      */
     private function dispatchPurchase(
         Request $request,
@@ -213,6 +423,9 @@ class AirtimeDataController extends Controller
         string $recipient,
         string $providerLabel,
         string $description,
+        \App\Pricing\PriceQuote $quote,
+        ?string $networkKey,
+        string $networkName,
         array $meta,
         array $providerParams,
         string $successMessage,
@@ -228,18 +441,18 @@ class AirtimeDataController extends Controller
         $meta = $meta + [
             'request_ip' => $request->ip(),
             'request_user_agent' => \Illuminate\Support\Str::limit((string) $request->userAgent(), 255, ''),
+            // Recorded so a legacy-read path and the admin console can resolve the
+            // network without joining anything.
+            'network_key' => $networkKey,
+            'network_name' => $networkName,
         ];
-
-        $fee = $product === 'airtime'
-            ? round($amount * 0.02, 2)
-            : 50.0;
 
         try {
             $result = $this->bills->purchase(
                 user: $user,
                 product: $product,
                 amount: $amount,
-                fee: $fee,
+                fee: 0.0,
                 recipient: $recipient,
                 providerLabel: $providerLabel,
                 description: $description,
@@ -253,6 +466,9 @@ class AirtimeDataController extends Controller
                 successMessage: $successMessage,
                 pin: $pin,
                 idempotencyKey: $idempotencyKey,
+                quote: $quote,
+                networkKey: $networkKey,
+                networkName: $networkName,
             );
         } catch (Throwable $e) {
             return back()->withInput()->with('error', $e->getMessage());

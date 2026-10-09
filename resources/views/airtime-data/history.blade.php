@@ -68,8 +68,14 @@
                                             class="h-4 w-4 shrink-0 text-ink-400" />
                                     <span>{{ ucfirst($transaction->service_type ?? 'unknown') }}</span>
                                 </span>
-                                @if($transaction->provider)
-                                    <p class="mt-1 text-xs text-muted-foreground">{{ $transaction->provider }}</p>
+                                {{--
+                                    The mobile network, not the upstream provider. An
+                                    older row resolves its network from the meta it
+                                    stored at the time; a row that never captured one
+                                    shows the neutral label rather than the provider.
+                                --}}
+                                @if($transaction->hasResolvedNetwork())
+                                    <p class="mt-1 text-xs text-muted-foreground">{{ $transaction->network_display }}</p>
                                 @endif
                             </td>
 

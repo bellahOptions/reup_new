@@ -148,12 +148,39 @@ class BillPaymentService
         ?string $pin = null,
         ?string $idempotencyKey = null,
         array $providerParams = [],
+        ?\App\Pricing\PriceQuote $quote = null,
+        ?string $networkKey = null,
+        ?string $networkName = null,
     ): array {
-        // All money is integer kobo from here on. `fee` is optional, hence the
-        // explicit zero rather than a null check at every use.
-        $amountMoney = Money::fromNaira($amount);
-        $feeMoney = Money::fromNaira($fee ?? 0);
-        $total = $amountMoney->plus($feeMoney);
+        /*
+         * ---- The quoted price is the price ---------------------------------
+         *
+         * When a caller has priced the sale through the pricing engine, the
+         * engine's figure is authoritative for every money movement, and `amount`
+         * is the customer-facing *amount of service* rather than what it cost us.
+         *
+         * The two differ, deliberately:
+         *
+         *   * `transactions.amount` is what the customer bought. For airtime that
+         *     is the face value (₦1,000 of airtime), which is also what the
+         *     provider payload must carry. For cost-plus products it is the price.
+         *     It is never the provider cost — a receipt reading "₦970 airtime"
+         *     would be wrong about what the customer received.
+         *   * `transactions.total_amount` is what was debited, and comes from the
+         *     quote so it cannot diverge from the price the customer was shown.
+         *   * the provider cost lives on the pricing snapshot, which is where
+         *     margin is computed from.
+         *
+         * The legacy `$amount`/`$fee` pair is unused when a quote is present, except
+         * that keeping it in the idempotency hash preserves the request shape.
+         */
+        $amountMoney = $quote
+            ? Money::fromMinor($this->customerAmountMinor($quote))
+            : Money::fromNaira($amount);
+
+        $feeMoney = $quote ? Money::fromMinor($quote->customerFeeMinor) : Money::fromNaira($fee ?? 0);
+
+        $total = $quote ? $quote->price() : $amountMoney->plus($feeMoney);
 
         if (! $total->isPositive()) {
             throw new RuntimeException('Transaction amount must be greater than zero.');
@@ -220,7 +247,7 @@ class BillPaymentService
 
         // ---- Debit under a row lock --------------------------------------
         try {
-            $transaction = DB::transaction(function () use ($user, $product, $amountMoney, $feeMoney, $total, $recipient, $providerLabel, $description, $meta, $idempotencyKey) {
+            $transaction = DB::transaction(function () use ($user, $product, $amountMoney, $feeMoney, $total, $recipient, $providerLabel, $description, $meta, $idempotencyKey, $quote, $networkKey, $networkName) {
                 $reference = $this->wallets->generateReference('TXN');
 
                 $transaction = Transactions::create([
@@ -233,7 +260,16 @@ class BillPaymentService
                     'service_fee' => $feeMoney->toDecimalString(),
                     'total_amount' => $total->toDecimalString(),
                     'recipient' => $recipient,
+                    /*
+                     * `provider` is the upstream that served the request — an
+                     * internal detail. The *network* the customer bought is stored
+                     * separately, below, because the two are different things and
+                     * conflating them is what put "ClubKonnect" on a customer's
+                     * receipt under the heading "Network".
+                     */
                     'provider' => $providerLabel,
+                    'network_code' => $networkKey,
+                    'network_name' => $networkName,
                     'payment_method' => 'wallet',
                     'payment_status' => 'success',
                     'status' => 'processing',
@@ -256,6 +292,21 @@ class BillPaymentService
                     'balance_before' => $movement['balance_before'],
                     'balance_after' => $movement['balance_after'],
                 ])->save();
+
+                /*
+                 * The pricing snapshot is written here, inside the same transaction
+                 * as the debit, for the same reason `ServiceOrderService` writes its
+                 * own there: a charge with no recorded price makes the margin
+                 * unanswerable, and a recorded price with no charge makes the record
+                 * a lie. Either alone is worse than both together.
+                 */
+                if ($quote) {
+                    $transaction->attachPricingSnapshot($quote, [
+                        'product' => $product,
+                        'recipient' => $recipient,
+                        'customer_amount_minor' => $amountMoney->minor(),
+                    ]);
+                }
 
                 return $transaction;
             });
@@ -446,6 +497,30 @@ class BillPaymentService
             'provider' => null,
             'outcome' => self::OUTCOME_FAILED,
         ];
+    }
+
+    /**
+     * The `transactions.amount` figure for a quoted purchase: what the customer
+     * bought, not what it cost us.
+     *
+     * For a FACE_VALUE sale (airtime) the customer bought a face value, which is
+     * what the provider payload must also carry — sending the discounted cost
+     * upstream would vend ₦970 of airtime for a ₦1,000 request. For every other
+     * strategy the price and the amount are the same thing.
+     */
+    private function customerAmountMinor(\App\Pricing\PriceQuote $quote): int
+    {
+        if ($quote->priceBasisMinor !== null && $quote->priceBasisMinor > 0) {
+            return $quote->priceBasisMinor;
+        }
+
+        /*
+         * `customerPriceMinor` already includes the customer fee. Reporting it as
+         * `amount` and setting `service_fee` to zero would double-count it in
+         * `total_amount`, so the fee is subtracted back out here and recorded in
+         * its own column.
+         */
+        return $quote->customerPriceMinor - $quote->customerFeeMinor;
     }
 
     /**

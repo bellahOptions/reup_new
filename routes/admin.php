@@ -229,6 +229,19 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'admin'])->group(fun
             ->middleware('admin:manage_pricing')->name('bulk.update');
 
         /*
+         * Provider costs.
+         *
+         * What a provider charges ReUp is not a price rule but the input a rule
+         * prices against, so it has its own screen. It sits inside `view_pricing`
+         * because the figures are commercially sensitive, and the write action
+         * additionally requires `manage_pricing` — a cost change moves every margin
+         * that depends on it.
+         */
+        Route::get('/costs', [PricingController::class, 'costs'])->name('costs');
+        Route::put('/costs', [PricingController::class, 'updateCosts'])
+            ->middleware('admin:manage_pricing')->name('costs.update');
+
+        /*
          * Preview is a read-only calculation, so it needs no write permission —
          * but it does reveal cost and margin, which is why it sits inside the
          * group that requires `view_pricing`. Throttled because it prices a rule

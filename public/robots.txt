@@ -1,6 +1,6 @@
 # robots.txt for reup.com.ng
 # Last Updated: 2026-01-18
-# Contact: admin@reup.com.ng
+# Contact: support@reup.com.ng
 
 User-agent: *
 Allow: /

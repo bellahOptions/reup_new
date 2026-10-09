@@ -42,6 +42,13 @@ class PricingRuleService
         'scope',
         'category_id',
         'provider_id',
+        /*
+         * The mobile network a rule is scoped to. Tracked so a change to which
+         * network a rule applies to is versioned and diffed like any other
+         * financially significant edit — moving a rule from MTN to Airtel silently
+         * would re-price every Airtel sale.
+         */
+        'network',
         'service_product_id',
         'provider_product_id',
         'markup_type',
@@ -369,6 +376,7 @@ class PricingRuleService
         $required = match ($scope) {
             PricingRule::SCOPE_CATEGORY => 'category_id',
             PricingRule::SCOPE_PROVIDER => 'provider_id',
+            PricingRule::SCOPE_NETWORK => 'network',
             PricingRule::SCOPE_PRODUCT => 'service_product_id',
             PricingRule::SCOPE_PROVIDER_PRODUCT => 'provider_product_id',
             default => null,
@@ -378,7 +386,11 @@ class PricingRuleService
             throw new RuntimeException("A {$scope} pricing rule must name its subject ({$required}).");
         }
 
-        // The other subject keys must be empty, or the rule is ambiguous.
+        /*
+         * `network` is deliberately excluded from the "must not also set" list: a
+         * network rule names the provider as well, because the same network can be
+         * priced differently through different upstreams.
+         */
         foreach (['category_id', 'provider_id', 'service_product_id', 'provider_product_id'] as $key) {
             if ($key !== $required && ! empty($attributes[$key])) {
                 throw new RuntimeException(

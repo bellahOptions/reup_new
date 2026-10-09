@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Pricing\PricingEngine;
+use App\Pricing\ProviderCost;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -40,7 +42,14 @@ class ClubKonnectCatalogue
 
     private const ENDPOINT = 'https://www.nellobytesystems.com/APIDatabundlePlansV2.asp';
 
-    /** Margin added on top of the upstream price to get the customer price. */
+    /**
+     * Margin added on top of the upstream price to get the customer price.
+     *
+     * @deprecated Superseded by the pricing engine. Kept only so the historical
+     *             constant is greppable and the change is reviewable; the value is
+     *             no longer used to compute a customer price. Set the margin on a
+     *             pricing rule instead — see `App\Pricing\PricingRuleService`.
+     */
     private const PROFIT_MARGIN = 0.015;
 
     private const NETWORK_NAMES = [
@@ -52,8 +61,9 @@ class ClubKonnectCatalogue
 
     private ?string $clientId;
 
-    public function __construct()
-    {
+    public function __construct(
+        private readonly PricingEngine $pricing,
+    ) {
         $this->clientId = config('services.clubkonnect.client_id');
     }
 
@@ -247,21 +257,33 @@ class ClubKonnectCatalogue
                 }
 
                 $planDetails = $this->extractPlanDetails($productName);
-                $yourPrice = $this->calculateWithProfit($basePrice);
+                $yourPrice = $this->customerPriceFor((float) $basePrice, (string) $networkCode, (string) $productCode);
 
                 $processedPlans[] = [
                     'network_code' => $networkCode,
                     'network' => $networkName,
+                    'network_key' => NetworkResolver::key((string) $networkCode, 'clubkonnect'),
                     'plan_id' => $productId,
                     'plan_code' => $productCode,
                     'plan_name' => $productName,
                     'data_volume' => $planDetails['data_volume'],
                     'validity' => $planDetails['validity'],
                     'plan_type' => $this->determinePlanType($productName),
+                    /*
+                     * What the provider charges ReUp. This is provider-confidential:
+                     * the pricelist view must not render it, and it is present here
+                     * because `ProviderManager` compares it across providers to route
+                     * the sale to the cheaper upstream.
+                     */
                     'clubkonnect_price' => $basePrice,
+                    /*
+                     * What the customer pays, from the pricing engine. Null when no
+                     * active rule covers the bundle: the sale is refused rather than
+                     * priced at a guess, and the page renders the bundle as
+                     * unavailable instead of inventing a number.
+                     */
                     'your_price' => $yourPrice,
-                    'profit_margin' => '1.5%',
-                    'profit_amount' => $yourPrice - $basePrice,
+                    'price_available' => $yourPrice !== null,
                     'sort_key' => $this->createSortKey($basePrice, $networkName),
                 ];
             }
@@ -338,12 +360,62 @@ class ClubKonnectCatalogue
         return sprintf('%02d-%010d', $networkValue, $price * 100);
     }
 
-    private function calculateWithProfit(float $price): float
+    /**
+     * The price a customer pays for a bundle, from the central pricing engine.
+     *
+     * ## What this replaced
+     *
+     * `calculateWithProfit()` multiplied the provider cost by 1.015 and published
+     * the result as `your_price`. That meant every bundle on every network carried
+     * the same 1.5% margin, the margin could not be changed without a deploy, no
+     * network could be priced differently, and — because the pricelist is a
+     * *display* surface — the number a customer saw was computed independently of
+     * the number the purchase path charged.
+     *
+     * Routing both through `PricingEngine` means one rule decides the price, the
+     * page shows that rule's output, and the purchase re-prices through the same
+     * rule. The margin is set per network in the admin console.
+     *
+     * Returns null when the engine refuses — no rule configured, cost below the
+     * profit floor, or no usable cost. The caller renders the bundle as unavailable.
+     * A null here is deliberate: substituting the provider cost would sell at zero
+     * margin, and substituting the old 1.5% would hide a configuration gap that the
+     * operator needs to see.
+     *
+     * @return float|null naira, or null when the bundle cannot be priced
+     */
+    private function customerPriceFor(float $providerCost, string $networkCode, string $planCode): ?float
     {
-        if ($price <= 0) {
-            return 0.0;
+        if ($providerCost <= 0) {
+            return null;
         }
 
-        return round($price * (1 + self::PROFIT_MARGIN), 2);
+        $costMinor = (int) round($providerCost * 100);
+
+        $quote = $this->pricing->quote(
+            providerCost: $costMinor,
+            quantity: 1,
+            context: [
+                'network' => NetworkResolver::key($networkCode, 'clubkonnect'),
+                'capability' => 'data',
+            ],
+            costMeta: [
+                'source' => ProviderCost::SOURCE_CATALOGUE,
+                'estimated' => false,
+            ],
+        );
+
+        if (! $quote->isSellable()) {
+            Log::info('Data bundle has no sellable price', [
+                'plan_code' => $planCode,
+                'network_code' => $networkCode,
+                'provider_cost_minor' => $costMinor,
+                'reason' => $quote->refusalReason,
+            ]);
+
+            return null;
+        }
+
+        return round($quote->customerPriceMinor / 100, 2);
     }
 }

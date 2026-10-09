@@ -65,6 +65,22 @@ final class PriceQuote
         public readonly string $profitability,
         /** Populated when the rule refused the sale. */
         public readonly ?string $refusalReason,
+        /**
+         * The face value the customer asked for, in kobo, when it differs from
+         * cost (airtime). Null for cost-plus products. Stored so a snapshot can
+         * prove *why* a face-value price was what it was.
+         */
+        public readonly ?int $priceBasisMinor = null,
+        /**
+         * Where the provider cost came from: 'transaction', 'catalogue',
+         * 'configured' or 'provider_product'. The snapshot keeps this so a cost
+         * can be re-verified against its origin rather than guessed at.
+         */
+        public readonly ?string $costSource = null,
+        /** When that cost was last verified upstream, if it ever was. */
+        public readonly ?string $costVerifiedAt = null,
+        /** True when the cost is a configured assumption rather than a quote. */
+        public readonly bool $costIsEstimated = false,
     ) {
     }
 
@@ -167,6 +183,10 @@ final class PriceQuote
             'gross_profit_minor' => $this->grossProfitMinor,
             'profit_margin_bps' => $this->profitMarginBps,
             'currency' => $this->currency,
+            'price_basis_minor' => $this->priceBasisMinor,
+            'cost_source' => $this->costSource,
+            'cost_verified_at' => $this->costVerifiedAt,
+            'cost_is_estimated' => $this->costIsEstimated,
         ];
     }
 
@@ -251,6 +271,10 @@ final class PriceQuote
             pricingRuleVersion: $this->pricingRuleVersion,
             profitability: $profitability,
             refusalReason: $reason,
+            priceBasisMinor: $this->priceBasisMinor,
+            costSource: $this->costSource,
+            costVerifiedAt: $this->costVerifiedAt,
+            costIsEstimated: $this->costIsEstimated,
         );
     }
 }

@@ -109,6 +109,43 @@ class PaystackService
     }
 
     /**
+     * The transaction split every checkout is initialised with, or null when
+     * splitting is disabled.
+     *
+     * ## Why a malformed code is refused rather than sent
+     *
+     * A split code decides where the money goes. The dangerous failure is not a
+     * rejected one — Paystack rejects an unknown code and the customer sees a
+     * funding error, which is recoverable. The dangerous failure is a code that is
+     * *accepted* but is not the intended split: a settlement then routes to the
+     * wrong subaccount, and nothing surfaces it until somebody reconciles the
+     * bank. So a value that cannot be a Paystack split code (`SPL_` followed by
+     * the identifier) throws here, at configuration time, rather than being handed
+     * to the gateway to interpret.
+     *
+     * @throws RuntimeException when the configured code is malformed
+     */
+    public function splitCode(): ?string
+    {
+        $code = trim((string) config('services.paystack.split_code', ''));
+
+        if ($code === '') {
+            // Splitting deliberately disabled: settlements land in full in the
+            // main account.
+            return null;
+        }
+
+        if (! preg_match('/^SPL_[A-Za-z0-9]+$/', $code)) {
+            throw new RuntimeException(
+                'PAYSTACK_SPLIT_CODE [' . $code . '] is not a valid Paystack split code. '
+                . 'Expected the SPL_ code from the Paystack dashboard (Splits), or empty to disable splitting.'
+            );
+        }
+
+        return $code;
+    }
+
+    /**
      * Create a Paystack transaction and return the hosted checkout URL.
      *
      * @throws RuntimeException when the gateway rejects the request.
@@ -120,8 +157,9 @@ class PaystackService
         }
 
         $callbackUrl = $this->callbackUrl();
+        $splitCode = $this->splitCode();
 
-        $response = $this->client()->post('https://api.paystack.co/transaction/initialize', [
+        $payload = [
             'email' => $user->email,
             'amount' => Money::fromDatabase($transaction->total_amount)->minor(),
             'currency' => 'NGN',
@@ -136,7 +174,26 @@ class PaystackService
                 'transaction_id' => $transaction->id,
                 'display_reference' => $transaction->reference,
             ],
-        ]);
+        ];
+
+        /*
+         * The transaction split — added only when one is configured.
+         *
+         * Sent on every checkout rather than being optional per payment: the split
+         * is how the platform's share is routed, and a checkout that omits it
+         * settles wholly into the main account, a discrepancy nobody notices until
+         * reconciliation.
+         *
+         * Assigned conditionally rather than filtered out afterwards so the
+         * required fields above cannot be caught by a filter's notion of "empty":
+         * dropping `amount` or `email` from an initialise request would be a far
+         * more expensive mistake than an unwanted split code.
+         */
+        if ($splitCode !== null) {
+            $payload['split_code'] = $splitCode;
+        }
+
+        $response = $this->client()->post('https://api.paystack.co/transaction/initialize', $payload);
 
         $body = $response->json() ?? [];
 
@@ -157,6 +214,13 @@ class PaystackService
                 // Recorded so support can answer "where were you sent back
                 // to?" long after the fact, when the environment has changed.
                 'callback_url' => $callbackUrl,
+                /*
+                 * Which split this charge was initialised under. Recorded because
+                 * the split can be changed between a payment and the question
+                 * "why did this settle there?" — the row has to carry the answer,
+                 * and Paystack's own verify response does not always echo it.
+                 */
+                'paystack_split_code' => $splitCode,
             ]),
         ])->save();
 

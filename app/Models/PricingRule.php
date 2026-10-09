@@ -30,6 +30,7 @@ class PricingRule extends Model
     public const SCOPE_GLOBAL = 'global';
     public const SCOPE_CATEGORY = 'category';
     public const SCOPE_PROVIDER = 'provider';
+    public const SCOPE_NETWORK = 'network';
     public const SCOPE_PRODUCT = 'product';
     public const SCOPE_PROVIDER_PRODUCT = 'provider_product';
 
@@ -38,6 +39,7 @@ class PricingRule extends Model
         self::SCOPE_GLOBAL,
         self::SCOPE_CATEGORY,
         self::SCOPE_PROVIDER,
+        self::SCOPE_NETWORK,
         self::SCOPE_PRODUCT,
         self::SCOPE_PROVIDER_PRODUCT,
     ];
@@ -46,6 +48,23 @@ class PricingRule extends Model
     public const MARKUP_FIXED = 'fixed';
     public const MARKUP_PERCENTAGE_PLUS_FIXED = 'percentage_plus_fixed';
     public const MARKUP_NONE = 'none';
+
+    /**
+     * Sell at the value the customer asked for, ignoring provider cost as a
+     * price input.
+     *
+     * This is the airtime strategy. A customer buying ₦200 of airtime pays
+     * ₦200: the provider cost (face value less the provider's discount) is used
+     * only to measure margin, never to build the price. Without this strategy
+     * the engine's cost-plus default would mark airtime up on top of cost, which
+     * is not the ReUp pricing model.
+     *
+     * `price_basis_minor` carries the face value to the engine. When it is
+     * absent the base cost is used, so a face-value rule on a service with no
+     * separate face value (a data bundle, where cost and price basis are both
+     * the bundle price) behaves correctly without special-casing.
+     */
+    public const MARKUP_FACE_VALUE = 'face_value';
 
     public const ON_UNPROFITABLE_UNAVAILABLE = 'unavailable';
     public const ON_UNPROFITABLE_WARNING = 'warning';
@@ -62,6 +81,7 @@ class PricingRule extends Model
         'scope',
         'category_id',
         'provider_id',
+        'network',
         'service_product_id',
         'provider_product_id',
         'markup_type',
@@ -221,6 +241,8 @@ class PricingRule extends Model
         return match ($this->scope) {
             self::SCOPE_CATEGORY => $this->category?->name ?? 'Category (deleted)',
             self::SCOPE_PROVIDER => $this->provider?->name ?? 'Provider (deleted)',
+            self::SCOPE_NETWORK => ($this->provider?->name ?? 'Any provider')
+                . ' / ' . (\App\Services\NetworkResolver::labelFor($this->network) ?? (string) $this->network),
             self::SCOPE_PRODUCT => $this->serviceProduct?->name ?? 'Product (deleted)',
             self::SCOPE_PROVIDER_PRODUCT => $this->providerProduct?->provider_name ?? 'Provider product (deleted)',
             default => 'All services',

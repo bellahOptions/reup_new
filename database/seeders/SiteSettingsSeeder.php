@@ -248,19 +248,34 @@ class SiteSettingsSeeder extends Seeder
     ],
     [
         'key' => 'airtime_service_fee',
-        'value' => '2',
+        /*
+         * Zero, because no such fee is applied. The airtime purchase path prices
+         * through the pricing engine under FACE_VALUE: ₦1,000 of airtime costs
+         * ₦1,000. The previous value here was '2', which described a hard-coded 2%
+         * charge in the controller that this setting never actually controlled.
+         *
+         * Retained as a setting (rather than deleted) so an existing deployment's
+         * stored row is not orphaned, but the customer fee is configured on a
+         * pricing rule.
+         */
+        'value' => '0',
         'type' => 'number',
         'category' => 'payment',
-        'description' => 'Airtime service fee percentage',
+        'description' => 'Airtime service fee percentage (not applied — configure a customer fee on a pricing rule instead)',
         'order' => 2,
         'is_public' => false
     ],
     [
         'key' => 'data_service_fee',
-        'value' => '1.5',
+        /*
+         * Zero for the same reason: a data bundle is charged at the price the
+         * pricing rule produces, and the flat ₦50 this once implied came from
+         * `Transactions::calculateServiceFee()`, which has been removed.
+         */
+        'value' => '0',
         'type' => 'number',
         'category' => 'payment',
-        'description' => 'Data service fee percentage',
+        'description' => 'Data service fee percentage (not applied — configure a customer fee on a pricing rule instead)',
         'order' => 3,
         'is_public' => false
     ],

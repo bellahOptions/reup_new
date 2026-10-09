@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasPricingSnapshot;
+use App\Services\NetworkResolver;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
@@ -9,6 +11,7 @@ use Illuminate\Support\Str;
 class Transactions extends Model
 {
     use HasFactory;
+    use HasPricingSnapshot;
 
     protected $table = 'transactions';
 
@@ -26,6 +29,8 @@ class Transactions extends Model
         'balance_after',
         'recipient',
         'provider',
+        'network_code',
+        'network_name',
         'plan_name',
         'plan_type',
         'payment_method',
@@ -150,13 +155,120 @@ class Transactions extends Model
     }
 
     // Methods - Make this STATIC
-    public static function calculateServiceFee($serviceType, $amount)
+    /**
+     * The mobile network shown to a customer for this transaction.
+     *
+     * ## Why this is not `provider`
+     *
+     * `provider` is the upstream API that served the request (ClubKonnect,
+     * Pairgate). It is *not* the customer's mobile operator, and a receipt that
+     * printed it under "Network" told the customer nothing true about where their
+     * airtime went. This accessor is the single place the customer-facing network
+     * is decided, so no template has to reason about it.
+     *
+     * Resolution order:
+     *
+     *   1. `network_name`, written when the purchase was made — authoritative and
+     *      stable, so a historical receipt never changes when configuration does;
+     *   2. the legacy `meta.network_name`, then `meta.network_code`, for rows
+     *      created before the column existed;
+     *   3. the neutral fallback.
+     *
+     * The provider name is never an acceptable answer at any step. If a legacy row
+     * has a provider label sitting in a network-shaped place, `NetworkResolver`
+     * recognises it and the fallback is used instead.
+     */
+    public function getNetworkDisplayAttribute(): string
     {
-        return match($serviceType) {
-            'airtime' => $amount * 0.02, // 2%
-            'data' => 50, // Fixed ₦50 for data
-            default => 0,
-        };
+        $resolved = $this->resolveNetworkName();
+
+        return $resolved ?? NetworkResolver::unavailableLabel();
+    }
+
+    /**
+     * The canonical network key for this transaction, or null when unresolved.
+     *
+     * Used by pricing context, per-network reporting and the admin console.
+     */
+    public function getNetworkKeyAttribute(): ?string
+    {
+        if (filled($this->network_code)) {
+            return (string) $this->network_code;
+        }
+
+        $meta = $this->meta ?? [];
+
+        return NetworkResolver::key(
+            $meta['network_code'] ?? $meta['network'] ?? null,
+            $meta['requested_provider'] ?? null,
+        );
+    }
+
+    /**
+     * Whether the network shown for this transaction is a real resolution rather
+     * than the neutral fallback.
+     *
+     * Lets a view omit the row entirely instead of printing "Network unavailable"
+     * on a product that never had a network (a refund, a wallet top-up).
+     */
+    public function hasResolvedNetwork(): bool
+    {
+        return $this->resolveNetworkName() !== null;
+    }
+
+    private function resolveNetworkName(): ?string
+    {
+        /*
+         * 1. The persisted label. Checked for a provider name first, because the
+         *    defect being fixed here was a provider name reaching this position and
+         *    a stored value is exactly what a future migration or manual fix might
+         *    have written.
+         */
+        if (filled($this->network_name) && ! NetworkResolver::isProviderName($this->network_name)) {
+            return (string) $this->network_name;
+        }
+
+        $meta = $this->meta ?? [];
+
+        // 2a. A legacy row that recorded the resolved name in meta.
+        $metaName = $meta['network_name'] ?? null;
+
+        if (filled($metaName) && ! NetworkResolver::isProviderName($metaName)) {
+            return (string) $metaName;
+        }
+
+        // 2b. A legacy row that recorded only the provider's code.
+        $key = NetworkResolver::key(
+            $meta['network_code'] ?? $meta['network'] ?? null,
+            $meta['requested_provider'] ?? null,
+        );
+
+        if ($key !== null) {
+            return NetworkResolver::labelFor($key);
+        }
+
+        /*
+         * 3. Nothing resolvable. Note that `provider` is never consulted — that is
+         *    the fix, not an oversight.
+         */
+        return null;
+    }
+
+    /**
+     * The provider cost, customer price and gross profit for this transaction,
+     * for administrative interfaces only.
+     *
+     * Read from the immutable pricing snapshot rather than recomputed, so a later
+     * pricing change cannot restate a historical margin. Returns null when no
+     * snapshot exists (a wallet top-up, a refund, or a purchase made before this
+     * pricing path existed) — which is honest, rather than reporting zero profit
+     * as though it were measured.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function getPricingBreakdownAttribute(): ?array
+    {
+        return $this->pricingAnalysis();
     }
 
     // Instance methods

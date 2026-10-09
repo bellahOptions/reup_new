@@ -17,23 +17,24 @@
     $totalPlans = $data['total_plans'] ?? count($plans);
     $lastUpdated = !empty($data['last_updated']) ? \Illuminate\Support\Carbon::parse($data['last_updated']) : null;
 
+    /*
+     * Network names come from the catalogue's canonical labels ('MTN', 'Airtel',
+     * 'Glo', '9mobile'), which are the same strings a receipt prints. The filter is
+     * built from whatever the catalogue actually returned rather than a hard-coded
+     * uppercase list, so a network the catalogue names differently still appears
+     * instead of silently vanishing from the filters.
+     */
     $presentNetworks = collect($plans)->pluck('network')->filter()->unique()->values()->all();
-    $networks = collect(['MTN', 'AIRTEL', 'GLO', '9MOBILE'])
-        ->filter(fn ($network) => in_array($network, $presentNetworks, true))
-        ->values()
-        ->all();
 
-    foreach ($presentNetworks as $network) {
-        if (! in_array($network, $networks, true)) {
-            $networks[] = $network;
-        }
-    }
-
-    // Brand name => locally hosted logo, so the filters carry the same marks as
-    // the purchase forms. Derived from config('bills.networks') so the
-    // catalogue has a single definition.
+    /*
+     * Logo lookup keyed by canonical network *key* ('mtn', '9mobile'), which the
+     * catalogue now carries per plan. Keying by the display name was fragile: any
+     * change of capitalisation silently dropped the brand mark.
+     */
     $networkLogos = collect(config('bills.networks', []))
-        ->mapWithKeys(fn ($network) => [strtoupper($network['name']) => asset($network['logo'])])
+        ->mapWithKeys(fn ($network, $code) => [
+            strtolower((string) \App\Services\NetworkResolver::key((string) $code, 'clubkonnect')) => asset($network['logo']),
+        ])
         ->all();
 @endphp
 
@@ -111,15 +112,25 @@
                                     @click="network = $el.dataset.network">
                                 All networks
                             </button>
-                            @foreach($networks as $network)
+                            @foreach($presentNetworks as $network)
+                                @php
+                                    /*
+                                     * The canonical key for this label, so the brand mark
+                                     * resolves regardless of how the catalogue
+                                     * capitalised the name. A hard-coded uppercase
+                                     * lookup silently dropped the logo whenever the
+                                     * spelling changed.
+                                     */
+                                    $filterKey = strtolower((string) \App\Services\NetworkResolver::key($network));
+                                @endphp
                                 <button type="button"
                                         data-network="{{ $network }}"
                                         class="inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors"
                                         :class="network === $el.dataset.network ? 'border-brand-500 bg-brand-500 text-white' : 'border-border bg-white text-muted-foreground hover:bg-ink-50'"
                                         :aria-pressed="network === $el.dataset.network ? 'true' : 'false'"
                                         @click="network = $el.dataset.network">
-                                    @if(!empty($networkLogos[strtoupper($network)] ?? null))
-                                        <img src="{{ $networkLogos[strtoupper($network)] }}"
+                                    @if(!empty($networkLogos[$filterKey] ?? null))
+                                        <img src="{{ $networkLogos[$filterKey] }}"
                                              alt="" class="h-5 w-5 shrink-0 rounded-full object-contain">
                                     @endif
                                     {{ $network }}
@@ -224,8 +235,14 @@
                                         x-show="network === 'all' || $el.dataset.network === network">
                                         <td>
                                             <span class="flex items-center gap-2">
-                                                @if(!empty($networkLogos[strtoupper($plan['network'])] ?? null))
-                                                    <img src="{{ $networkLogos[strtoupper($plan['network'])] }}"
+                                                @php
+                                                    // Canonical key carried on the plan, so the
+                                                    // brand mark does not depend on the label's
+                                                    // capitalisation.
+                                                    $rowKey = strtolower((string) ($plan['network_key'] ?? \App\Services\NetworkResolver::key($plan['network'] ?? '')));
+                                                @endphp
+                                                @if(!empty($networkLogos[$rowKey] ?? null))
+                                                    <img src="{{ $networkLogos[$rowKey] }}"
                                                          alt="" class="h-6 w-6 shrink-0 rounded-full object-contain">
                                                 @else
                                                     <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-xs font-semibold text-muted-foreground"
@@ -241,19 +258,36 @@
                                         <td class="text-sm text-muted-foreground">{{ $plan['validity'] }}</td>
                                         <td><span class="badge badge-neutral">{{ $plan['plan_type'] }}</span></td>
                                         <td class="text-right text-sm font-semibold tabular-nums">
-                                            &#8358;{{ number_format((float) $plan['your_price'], 2) }}
+                                            {{--
+                                                `your_price` is null when no active pricing
+                                                rule can produce a sellable price for this
+                                                bundle. It is shown as unavailable rather
+                                                than as ₦0.00: the old code carried a
+                                                hard-coded 1.5% margin so a price always
+                                                existed, and a zero here would invite a
+                                                purchase at a price nobody configured.
+                                            --}}
+                                            @if(($plan['price_available'] ?? false) && $plan['your_price'] !== null)
+                                                &#8358;{{ number_format((float) $plan['your_price'], 2) }}
+                                            @else
+                                                <span class="text-xs font-normal text-muted-foreground">Unavailable</span>
+                                            @endif
                                         </td>
                                         @auth
                                             <td class="text-right">
-                                                <button type="button"
-                                                        class="btn btn-outline btn-sm"
-                                                        data-plan-code="{{ $plan['plan_code'] ?: $plan['plan_id'] }}"
-                                                        data-plan-name="{{ $plan['plan_name'] }}"
-                                                        data-plan-network="{{ $plan['network'] }}"
-                                                        data-plan-price="{{ $plan['your_price'] }}"
-                                                        @click="selectPlan($event.currentTarget)">
-                                                    Buy
-                                                </button>
+                                                @if(($plan['price_available'] ?? false) && $plan['your_price'] !== null)
+                                                    <button type="button"
+                                                            class="btn btn-outline btn-sm"
+                                                            data-plan-code="{{ $plan['plan_code'] ?: $plan['plan_id'] }}"
+                                                            data-plan-name="{{ $plan['plan_name'] }}"
+                                                            data-plan-network="{{ $plan['network'] }}"
+                                                            data-plan-price="{{ $plan['your_price'] }}"
+                                                            @click="selectPlan($event.currentTarget)">
+                                                        Buy
+                                                    </button>
+                                                @else
+                                                    <span class="text-xs text-muted-foreground">Not for sale</span>
+                                                @endif
                                             </td>
                                         @else
                                             <td class="text-right">

@@ -132,10 +132,12 @@
                                         <x-icon name="information-circle" class="h-3.5 w-3.5" />
                                         Minimum &#8358;100 &middot; maximum &#8358;10,000
                                     </p>
-                                    <p class="flex items-center gap-1.5 text-xs text-amber-700">
-                                        <x-icon name="exclamation-triangle" class="h-3.5 w-3.5" />
-                                        A 2% service fee applies (&#8358;1,000 costs &#8358;1,020).
-                                    </p>
+                                    {{--
+                                        No service-fee notice. There is no customer fee on
+                                        airtime: ₦1,000 of airtime costs ₦1,000. This block
+                                        previously warned of a 2% fee, which both described
+                                        and reinforced the charge being removed here.
+                                    --}}
                                 </div>
                             </div>
 
@@ -351,7 +353,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Get user's wallet balance
     const walletBalance = {{ (float) ($wallet->balance ?? 0) }};
-    const serviceFeeRate = 0.02; // 2% service fee
+    /*
+     * No client-side fee.
+     *
+     * This was `const serviceFeeRate = 0.02` and every balance check below added
+     * 2% on top of the amount. The browser's idea of the total and the server's had
+     * to agree, so a fee removed on the server but left here would have told a
+     * customer with exactly ₦1,000 that they could not afford ₦1,000 of airtime.
+     *
+     * The total is now the amount, which is what the server charges.
+     */
 
     // Store fetched data plans
     let fetchedDataPlans = [];
@@ -380,8 +391,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Function to check airtime balance
     function checkAirtimeBalance(amount) {
-        const serviceFee = amount * serviceFeeRate;
-        const totalAmount = amount + serviceFee;
+        // The customer pays the amount. No fee is added, so the total is the amount.
+        const totalAmount = amount;
 
         const submitBtn = airtimeForm.querySelector('button[type="submit"]');
         const balanceWarning = document.getElementById('airtimeBalanceWarning');
@@ -401,7 +412,6 @@ document.addEventListener('DOMContentLoaded', function() {
                             <p class="text-sm font-semibold text-red-800">Insufficient balance</p>
                             <p class="mt-1 text-xs text-red-700">
                                 Total needed: <strong>₦${totalAmount.toFixed(2)}</strong>
-                                (amount ₦${amount.toFixed(2)} + fee ₦${serviceFee.toFixed(2)})
                             </p>
                             <p class="text-xs text-red-700">
                                 Your balance: <strong>₦${walletBalance.toFixed(2)}</strong>
@@ -628,8 +638,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Function to check data balance
     function checkDataBalance(amount) {
-        const serviceFee = amount * serviceFeeRate;
-        const totalAmount = amount + serviceFee;
+        /*
+         * The quoted bundle price is the amount the engine charges, so the check is
+         * against the plan price alone. The old `+ 2%` here applied the *airtime*
+         * fee rate to data as well, which never matched what the server charged.
+         */
+        const totalAmount = amount;
 
         const submitBtn = dataForm.querySelector('button[type="submit"]');
         const balanceWarning = document.getElementById('dataBalanceWarning');
@@ -649,7 +663,6 @@ document.addEventListener('DOMContentLoaded', function() {
                             <p class="text-sm font-semibold text-red-800">Insufficient balance</p>
                             <p class="mt-1 text-xs text-red-700">
                                 Total needed: <strong>₦${totalAmount.toFixed(2)}</strong>
-                                (amount ₦${amount.toFixed(2)} + fee ₦${serviceFee.toFixed(2)})
                             </p>
                             <p class="text-xs text-red-700">
                                 Your balance: <strong>₦${walletBalance.toFixed(2)}</strong>
@@ -701,9 +714,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Airtime form submission
     airtimeForm.addEventListener('submit', function(e) {
-        const amount = parseFloat(amountInput.value) || 0;
-        const serviceFee = amount * serviceFeeRate;
-        const totalAmount = amount + serviceFee;
+        // No fee, so the total the customer needs is the amount they entered.
+        const totalAmount = parseFloat(amountInput.value) || 0;
 
         if (totalAmount > walletBalance) {
             e.preventDefault();

@@ -371,3 +371,128 @@ The only non-2xx responses are intended: `POST`-only guards, signed-URL routes, 
 > unstyled, because it asserted status codes and that views *rendered* — not what they rendered.
 > `tools/check-assets.php` closes that gap for asset loading. The lesson generalises and is worth
 > applying to any future check: assert on the output, not on the absence of an exception.
+
+---
+
+## 7. Airtime pricing, internal profit, and network display (2026-02-27)
+
+A second remediation pass, on three defects that were live in the customer-facing purchase path.
+
+### A1 — An unconditional 2% airtime service fee
+`AirtimeDataController` charged `round($amount * 0.02, 2)` on every airtime purchase, so ₦200 of
+airtime cost ₦204. `Transactions::calculateServiceFee()` carried the same 2% (and a flat ₦50 for
+data), and both the pricelist controller and the airtime page's client-side JavaScript applied the
+same rates — three copies of a fee that was never a configured commercial decision, plus a
+Super-Admin settings field (`airtime_service_fee`) that the purchase path never read.
+
+**Fix:** the fee is gone, not replaced. Airtime prices under a new `FACE_VALUE` strategy — the
+customer pays the airtime they asked for — and a customer fee appears only if a Super Admin enables
+one on the applicable rule. The client-side fee, the legacy model method and the dead setting are
+all removed or corrected. The settings screen now says plainly that it does not apply the fee.
+
+### A2 — Airtime and data did not use the pricing engine at all
+`PricingEngine`, `PricingRuleService`, `PriceQuote` and `pricing_snapshots` existed and were used by
+the Wave 1 catalogue pipeline, but the five bill products went through `BillPaymentService` with a
+float `fee` argument and no recorded cost. So the margin on an airtime sale was unknowable, and data
+bundle prices came from a hard-coded `1.5%` inside `ClubKonnectCatalogue` — one margin for every
+bundle on every network, changeable only by deploying code.
+
+**Fix:** both products now price through the existing engine, and the quote is authoritative for the
+wallet debit. Airtime's profit comes from the provider discount (3% by assumption, held as a
+configurable per-network term: ₦1,000 face → ₦970 cost → ₦30 gross profit). Data is cost-plus off
+the catalogue's verified per-bundle cost. `pricing_snapshots` gained a nullable `transaction_id` so a
+bill purchase records the same immutable snapshot a Wave 1 order does, rather than a parallel one.
+
+### A3 — The customer receipt printed the provider's name as their network
+`BillPaymentService::markSuccess()` stamps `transactions.provider` with the *adapter's* label, and
+the receipt read that column under the heading "Network". So a customer's receipt said
+**"Network: ClubKonnect"** — the upstream API ReUp buys from, not their mobile operator. The real
+network survived only inside `meta` JSON, which no template read.
+
+**Fix:** `App\Services\NetworkResolver` owns canonical network identity, and `transactions` gained
+`network_code` + `network_name`, written when the purchase is made. Every customer-facing surface now
+reads `$transaction->network_display`, which never returns a provider name under any combination of
+stored values and falls back to "Network unavailable". Historical rows resolve from their `meta`; a
+stored label wins over current configuration so a past receipt cannot be rewritten. The provider name
+remains on the transaction for administration, reconciliation and support.
+
+### Defects found in the shared pricing engine while doing the above
+
+| # | Defect | Effect |
+| --- | --- | --- |
+| E1 | `quote()` read a bare integer cost as **naira**, while `quoteWithRule()` read one as **kobo** | Every caller passing kobo had its cost multiplied by 100, which then read as a catastrophic loss and refused the sale. It silently corrupted `ServiceOrderService` and both admin pricing screens. |
+| E2 | Rounding was applied to a `FACE_VALUE` price | A ₦100 rounding step charged ₦100 for ₦101.50 of airtime, so ReUp absorbed the difference. Rounding now applies only to calculated prices. |
+| E3 | `allow_negative_margin` was inert whenever a profit or margin floor was set | The loss check passed, then the floor check refused the sale through `on_unprofitable`. The one case the flag exists for — a deliberate loss leader — could never be sold. |
+
+Each is covered by a regression test.
+
+### New configuration
+
+`config/networks.php` (canonical networks and provider code maps) and `config/pricing.php` (cost
+policy, seed rates). Provider costs live in the `provider_network_costs` table, editable by a Super
+Admin at **/admin/pricing/costs**, where a rate is either an *assumption* or *verified against a
+provider statement* — and only a verified rate lets profit be recorded as realised rather than
+estimated.
+
+### Deployment
+
+```
+php artisan migrate            # additive; three new migrations
+php artisan db:seed            # providers + default pricing rules (idempotent)
+php artisan pricing:seed-airtime-costs   # records the 3% per-network assumption
+```
+
+Then confirm the real ClubKonnect rate against a statement and promote it with
+`pricing:seed-airtime-costs --verify --note="…"`, or edit it in the console. Until that is done,
+airtime margin is reported as **estimated**, not realised.
+
+---
+
+## 8. Paystack transaction split (2026-02-27)
+
+Every card checkout is now initialised with the platform split
+`SPL_YsS8nTY0UJ` as a `split_code` on `POST /transaction/initialize`
+([Paystack Transaction API](https://paystack.com/docs/api/transaction/)), so Paystack applies the
+split's percentage and subaccount at settlement.
+
+**Configuration:** `PAYSTACK_SPLIT_CODE` (default `SPL_YsS8nTY0UJ` in `config/services.php`).
+Set it to empty to disable splitting; settlements then land wholly in the main account.
+
+**Why it is sent unconditionally rather than left to each payment:** a checkout that omits the split
+settles entirely into the main account, and nothing in a successful checkout response says whether a
+split was applied — the discrepancy only surfaces when somebody reconciles the bank. The request is
+therefore asserted in `PaystackSplitTest`, and the code is recorded on the transaction as
+`meta.paystack_split_code` so a later question ("why did this settle there?") is answerable from the
+row, since Paystack's verify response does not reliably echo it.
+
+**A malformed code is refused before it reaches the gateway.** `PaystackService::splitCode()`
+requires `SPL_` followed by the identifier and throws otherwise. The dangerous failure is not a
+*rejected* code — that produces a visible funding error — but an *accepted* one that is the wrong
+split, which misroutes money silently. Whitespace is trimmed, because a trailing space pasted into an
+env file would otherwise be sent verbatim.
+
+### Two operational facts worth knowing
+
+1. **A rejected or missing split does not surface as an error.** `WalletController` catches a
+   Paystack initialisation failure and falls back to **Bachs**, a separate card gateway where this
+   split does not apply. So a bad split code quietly changes which gateway settles the money rather
+   than failing. This is pre-existing fallback behaviour, not something the split introduced, but it
+   is what makes an unverified split code worth checking.
+2. **Test and live Paystack objects are separate.** The code is well-formed and the command runs, but
+   `GET /split/{id}` returns **404 against this install's test keys**, and `GET /split` lists zero
+   splits in test mode. A live-mode code is not usable in test mode, and vice versa. Verification
+   therefore has to happen with live credentials.
+
+### Verification command
+
+```
+php artisan paystack:check-split
+```
+
+Asks Paystack directly whether the split exists for this account, and whether it is active, in NGN
+and paying the expected subaccounts — the three things that make a split silently ineffective. Exits
+non-zero on any of them, so it is usable as a deployment check. It prints the split's configuration
+and never the secret key; `PaystackSplitTest` asserts the credential travels as a bearer header and
+never in the URL.
+
+

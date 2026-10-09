@@ -3,13 +3,17 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AdminLog;
 use App\Models\PricingRule;
 use App\Models\PricingRuleVersion;
 use App\Models\Provider;
+use App\Models\ProviderNetworkCost;
 use App\Models\ServiceCategory;
 use App\Models\ServiceProduct;
 use App\Pricing\PricingEngine;
 use App\Pricing\PricingRuleService;
+use App\Services\NetworkResolver;
+use App\Services\ProviderCostResolver;
 use App\Support\Money;
 use App\Support\Permissions;
 use Illuminate\Http\Request;
@@ -332,6 +336,155 @@ class PricingController extends Controller
     }
 
     /* =====================================================================
+     | Provider costs
+     | =================================================================== */
+
+    /**
+     * What each provider charges ReUp, per capability and network.
+     *
+     * ## Why this is separate from the rules screen
+     *
+     * A pricing rule answers "what do we charge". This answers "what does it cost
+     * us", and the second is an input to the first. Conflating them is how the
+     * airtime discount ended up as a constant inside a service class: there was
+     * nowhere else to put it.
+     *
+     * The airtime rate is a *rate* (3% off face value) rather than a price, so one
+     * row covers every denomination. Data bundle costs are real per-bundle prices
+     * and come from the provider catalogue, so they are shown read-only here and
+     * refreshed by the catalogue sync rather than typed in.
+     */
+    public function costs()
+    {
+        $providers = Provider::orderBy('priority')->orderBy('name')->get();
+
+        $terms = ProviderNetworkCost::with('provider', 'verifier')
+            ->orderBy('capability')
+            ->orderBy('provider_id')
+            ->orderBy('network')
+            ->get();
+
+        /*
+         * The per-network rates, keyed for the form. A missing network is shown as
+         * an empty input rather than as a zero, because "no term configured" and "a
+         * 0% discount" are different states — the first refuses the sale, the second
+         * sells at zero margin.
+         */
+        $airtimeTerms = $terms->where('capability', ProviderCostResolver::CAPABILITY_AIRTIME);
+
+        return view('admin.pricing.costs', [
+            'providers' => $providers,
+            'networks' => NetworkResolver::options(),
+            'airtimeTerms' => $airtimeTerms,
+            'policy' => (array) config('pricing.policy', []),
+            'maxAgeHours' => (int) config('pricing.policy.max_age_hours', 168),
+        ]);
+    }
+
+    /**
+     * Record an airtime discount rate for one provider and network.
+     *
+     * ## Why this is audited like a rule change
+     *
+     * The rate decides the margin on every airtime sale for that network. Lowering
+     * it by a percentage point silently removes that margin from every subsequent
+     * purchase, so the change is attributed, written to the admin log, and stamped
+     * with whether it has been verified against a real provider document.
+     *
+     * `verified` is deliberately a separate act from `saved`. Entering a rate is a
+     * configuration change; confirming it against an invoice is what turns the
+     * profit measured on it from *estimated* into *realised*. Defaulting it to
+     * verified would report assumed profit as earned.
+     */
+    public function updateCosts(Request $request)
+    {
+        $this->assertCanManage();
+
+        $validated = $request->validate([
+            'provider_id' => 'required|integer|exists:providers,id',
+            'network' => 'required|string|in:' . implode(',', array_keys((array) config('networks.networks', []))),
+            'discount_percentage' => 'required|numeric|min:0|max:50',
+            'verified' => 'nullable|boolean',
+            'verification_note' => 'nullable|string|max:191',
+        ]);
+
+        $actor = Auth::user();
+        $verified = $request->boolean('verified');
+
+        $term = DB::transaction(function () use ($validated, $actor, $verified) {
+            $existing = ProviderNetworkCost::where('provider_id', $validated['provider_id'])
+                ->where('capability', ProviderCostResolver::CAPABILITY_AIRTIME)
+                ->where('network', $validated['network'])
+                ->lockForUpdate()
+                ->first();
+
+            $attributes = [
+                'discount_bps' => (int) round($validated['discount_percentage'] * 100),
+                'currency' => 'NGN',
+                'is_active' => true,
+                /*
+                 * A rate edited without re-confirming it loses its verified status:
+                 * the previous verification was evidence about the *old* number, and
+                 * carrying it over would let an unconfirmed figure report as realised
+                 * profit.
+                 */
+                'verified_at' => $verified ? now() : null,
+                'verified_by' => $verified ? $actor->getKey() : null,
+                'verification_note' => $verified ? ($validated['verification_note'] ?? null) : null,
+            ];
+
+            if ($existing) {
+                $before = [
+                    'discount_bps' => (int) $existing->discount_bps,
+                    'verified_at' => $existing->verified_at?->toDateTimeString(),
+                ];
+
+                $existing->fill($attributes)->save();
+
+                AdminLog::log($actor->getKey(), 'provider_cost_updated', [
+                    'provider_id' => $validated['provider_id'],
+                    'network' => $validated['network'],
+                    'capability' => ProviderCostResolver::CAPABILITY_AIRTIME,
+                    'before' => $before,
+                    'after' => [
+                        'discount_bps' => $attributes['discount_bps'],
+                        'verified_at' => $attributes['verified_at']?->toDateTimeString(),
+                    ],
+                ]);
+
+                return $existing;
+            }
+
+            $created = ProviderNetworkCost::create($attributes + [
+                'provider_id' => $validated['provider_id'],
+                'capability' => ProviderCostResolver::CAPABILITY_AIRTIME,
+                'network' => $validated['network'],
+            ]);
+
+            AdminLog::log($actor->getKey(), 'provider_cost_created', [
+                'provider_id' => $validated['provider_id'],
+                'network' => $validated['network'],
+                'capability' => ProviderCostResolver::CAPABILITY_AIRTIME,
+                'after' => [
+                    'discount_bps' => $attributes['discount_bps'],
+                    'verified_at' => $attributes['verified_at']?->toDateTimeString(),
+                ],
+            ]);
+
+            return $created;
+        });
+
+        $message = $term->discountLabel() . ' recorded for '
+            . (NetworkResolver::labelFor($validated['network']) ?? $validated['network']) . '. ';
+
+        $message .= $verified
+            ? 'Marked verified — profit on this network will be recorded as realised.'
+            : 'Unverified — profit on this network will be recorded as ESTIMATED until it is confirmed against a provider statement.';
+
+        return back()->with('success', $message);
+    }
+
+    /* =====================================================================
      | Preview
      | =================================================================== */
 
@@ -486,13 +639,24 @@ class PricingController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:120',
-            'scope' => 'required|in:global,category,provider,product,provider_product',
+            'scope' => 'required|in:global,category,provider,network,product,provider_product',
             'category_id' => 'nullable|integer|exists:service_categories,id',
             'provider_id' => 'nullable|integer|exists:providers,id',
+            /*
+             * The canonical mobile network key. Constrained to the configured
+             * networks so a typo cannot create a network-scoped rule that never
+             * matches a real sale and silently looks active in the console.
+             */
+            'network' => 'nullable|string|in:' . implode(',', array_keys((array) config('networks.networks', []))),
             'service_product_id' => 'nullable|integer|exists:service_products,id',
             'provider_product_id' => 'nullable|integer|exists:provider_products,id',
 
-            'markup_type' => 'required|in:percentage,fixed,percentage_plus_fixed,none',
+            /*
+             * FACE_VALUE is the airtime strategy: the customer pays the face value
+             * and the margin comes from the provider discount, so no markup is
+             * applied. It appears here so a Super Admin can select it explicitly.
+             */
+            'markup_type' => 'required|in:percentage,fixed,percentage_plus_fixed,none,face_value',
             'markup_percentage' => 'nullable|numeric|min:0|max:1000',
             'markup_fixed' => 'nullable|numeric|min:0|max:100000000',
 
@@ -532,6 +696,7 @@ class PricingController extends Controller
             'scope' => $validated['scope'],
             'category_id' => $validated['category_id'] ?? null,
             'provider_id' => $validated['provider_id'] ?? null,
+            'network' => $validated['scope'] === 'network' ? ($validated['network'] ?? null) : null,
             'service_product_id' => $validated['service_product_id'] ?? null,
             'provider_product_id' => $validated['provider_product_id'] ?? null,
             'markup_type' => $validated['markup_type'],
@@ -583,6 +748,9 @@ class PricingController extends Controller
                 PricingRule::SCOPE_GLOBAL => 'All services (global default)',
                 PricingRule::SCOPE_CATEGORY => 'Service category',
                 PricingRule::SCOPE_PROVIDER => 'Provider',
+                // Narrower than provider, broader than a single product: the level
+                // at which per-network airtime pricing lives.
+                PricingRule::SCOPE_NETWORK => 'Mobile network',
                 PricingRule::SCOPE_PRODUCT => 'Product',
                 PricingRule::SCOPE_PROVIDER_PRODUCT => 'Individual provider product',
             ],

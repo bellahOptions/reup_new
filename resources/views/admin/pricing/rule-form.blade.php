@@ -79,6 +79,24 @@
                         @error('provider_id') <p class="form-error">{{ $message }}</p> @enderror
                     </div>
 
+                    {{--
+                        The network scope. Airtime is priced per network because a
+                        provider's discount differs by operator, and a single global
+                        airtime rule cannot express that.
+                    --}}
+                    <div x-show="scope === 'network'" x-cloak>
+                        <label for="network" class="form-label">Network</label>
+                        <select name="network" id="network" class="form-select">
+                            <option value="">Choose…</option>
+                            @foreach(\App\Services\NetworkResolver::options() as $key => $label)
+                                <option value="{{ $key }}" @selected(old('network', $rule->network) === $key)>
+                                    {{ $label }}
+                                </option>
+                            @endforeach
+                        </select>
+                        @error('network') <p class="form-error">{{ $message }}</p> @enderror
+                    </div>
+
                     <div x-show="scope === 'product'" x-cloak>
                         <label for="service_product_id" class="form-label">Product</label>
                         <select name="service_product_id" id="service_product_id" class="form-select">
@@ -121,6 +139,13 @@
                             <option value="fixed" @selected(old('markup_type', $rule->markup_type) === 'fixed')>Fixed amount</option>
                             <option value="percentage_plus_fixed" @selected(old('markup_type', $rule->markup_type) === 'percentage_plus_fixed')>Percentage + fixed</option>
                             <option value="none" @selected(old('markup_type', $rule->markup_type) === 'none')>None (sell at cost)</option>
+                            {{--
+                                FACE_VALUE: the customer pays the amount they asked to
+                                buy and no markup is applied. This is the airtime
+                                strategy — the margin comes from the provider discount
+                                recorded under Provider costs, not from the customer.
+                            --}}
+                            <option value="face_value" @selected(old('markup_type', $rule->markup_type) === 'face_value')>Face value (customer pays the amount purchased)</option>
                         </select>
                     </div>
 

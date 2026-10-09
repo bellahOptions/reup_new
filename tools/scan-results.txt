@@ -1,0 +1,1572 @@
+﻿== SCANNING 4869 FILES (excluding node_modules/.git/vendor) ==
+
+== 1. HIGH-RISK FILE NAMES / EXTENSIONS ==
+.bat              587 .\build.bat  [9B472F9DFF87C79E7AE426E0FCECC643A8A76938804411E99238639156D42983]
+.ps1             4658 .\tools\security_scan.ps1  [DFCB2B0FA70E8783C14C36CA067E5C8AD4C2BF8B9A5D385A05EEA590535FCB1D]
+
+== 2. DANGEROUS FUNCTION CALLS IN PROJECT PHP ==
+.\app\Catalogue\ServiceCatalogue.php:32: * `ServiceCatalogueTest` asserts it rather than trusting it.
+.\app\Catalogue\ServiceCatalogue.php:47: * `my_reup` is not a sellable group — it links to the customer's own saved bills,
+.\app\Catalogue\ServiceCatalogue.php:75: * `$onlyAvailable: false` returns the whole picture, with each service's reason, so
+.\app\Catalogue\ServiceCatalogue.php:77: * customer-facing uses it — `unavailable_reason` is null on every available service
+.\app\Catalogue\ServiceCatalogue.php:222: * `ProviderProduct::available()` already excludes rows withdrawn from a
+.\app\Catalogue\ServiceCatalogue.php:263: * Reordered by the operator's own `sort_order` rather than by an assumed
+.\app\Catalogue\ServiceCatalogue.php:291: * `$onlyAvailable` follows `sections()`: the customer-facing payload carries what
+.\app\Console\Commands\CheckProviderBalances.php:25: * fail. Every adapter's `balance()` is a read, and this command never disables a
+.\app\Console\Commands\CheckProviderBalances.php:27: * history is recorded, `providers.health_status` is updated, and an alert is raised
+.\app\Console\Commands\CheckProviderBalances.php:111: * `ProviderMonitor::probe()`, so the command, the dashboard and the scheduled
+.\app\Console\Commands\DispatchBillReminders.php:16: * `WalletService` on this path, no reference to a transaction, and no column on
+.\app\Console\Commands\DispatchBillReminders.php:17: * `bill_reminders` that could be read as permission to pay.
+.\app\Console\Commands\DispatchBillReminders.php:25: * `RetentionService::emitDueReminders()` claims each reminder for its due date
+.\app\Console\Commands\DispatchBillReminders.php:28: * which is why the schedule does not need `withoutOverlapping` as a correctness
+.\app\Console\Commands\EnvDoctor.php:18: *  2. **SMTP encryption mismatch.** `config/mail.php` defaults `encryption` to
+.\app\Console\Commands\PruneProviderHealth.php:18: * Only `provider_health_checks` rows older than the window. It never touches
+.\app\Console\Commands\PruneProviderHealth.php:19: * `provider_price_snapshots` or `pricing_snapshots`: a provider's *cost* history and
+.\app\Console\Commands\PruneProviderHealth.php:23: * `providers.health_status` — the current state the storefront reads — is untouched,
+.\app\Console\Commands\ReconcilePaystackPayments.php:21: * the transaction sits `pending` forever and the wallet is never credited —
+.\app\Console\Commands\ReconcilePaystackPayments.php:32: * `payment_method = paystack` and not by status alone.
+.\app\Console\Commands\ReconcilePaystackPayments.php:36: * - Never writes `success` itself; it hands the verified payload to
+.\app\Console\Commands\ReconcilePaystackPayments.php:37: *   `PaystackService::settle()`, which is idempotent, locks the row and checks
+.\app\Console\Commands\ReconcilePaystackPayments.php:40: * - `--dry-run` reports without writing.
+.\app\Console\Commands\ReconcilePaystackPayments.php:102: *   * never reached checkout -> `--unreached` (default 30m). The
+.\app\Console\Commands\ReconcilePaystackPayments.php:108: *   * reached checkout -> the full `--lookback`, because a customer may
+.\app\Console\Commands\ReconcilePaystackPayments.php:119: * expired, so a webhook arriving mid-run always wins — and `settle()`
+.\app\Console\Commands\ReconcilePaystackPayments.php:174: *   * `payment_status` must still be pending, so a settlement that
+.\app\Console\Commands\ReconcilePaystackPayments.php:264: * `settle()` is the single settlement path and is idempotent:
+.\app\Console\Commands\ReconcilePaystackPayments.php:342: * from a successful `initialize()` response, so its presence is the durable
+.\app\Console\Commands\ReconcilePaystackPayments.php:348: * Note `initiated_at` is deliberately NOT used for this: it is stamped when
+.\app\Console\Commands\ReviewUnconfirmedPurchases.php:17: * customer was vended. `BillPaymentService` therefore marks the row `unknown`,
+.\app\Console\Commands\ReviewUnconfirmedPurchases.php:23: * every purchase still `unknown`, and asks the provider directly (when the
+.\app\Console\Commands\ReviewUnconfirmedPurchases.php:114: * Logged at `error` because each of these is money in limbo. It is
+.\app\Console\Commands\ScheduleHealth.php:13: * `payments:reconcile` is the safety net for payments the Paystack webhook never
+.\app\Console\Commands\ScheduleHealth.php:15: * nothing at all unless something invokes `schedule:run` every minute (a cron
+.\app\Console\Commands\ScheduleHealth.php:16: * entry, `schedule:work` under a supervisor, or `schedule:work` as a container
+.\app\Console\Commands\ScheduleHealth.php:20: * `pending`, no error is logged, no page breaks, and the first symptom is a
+.\app\Console\Commands\ScheduleHealth.php:24: * `schedule:run` invokes this command every minute as a heartbeat. `--check`
+.\app\Console\Commands\ScheduleHealth.php:39: * The cache key `schedule:run` refreshes through the heartbeat entry.
+.\app\Console\Commands\ScheduleHealth.php:81: . '`schedule:run` is not being invoked every minute.'
+.\app\Console\Commands\SyncEsimProducts.php:18: *     See `providers.sogo.pending_capabilities`, which records the reason next to the
+.\app\Console\Commands\SyncEsimProducts.php:46: *   1 — an adapter claims `esim`, which means this command is now a stub that must be
+.\app\Console\Commands\SyncEsimProducts.php:59: * `driverIsRoutable` counts only capabilities some adapter actually declares.
+.\app\Console\Commands\SyncEsimProducts.php:60: * An `esim` entry on a `providers` row is therefore not enough to make this
+.\app\Console\Commands\SyncEsimProducts.php:88: * Reached only if somebody has added `esim` to an adapter's capability list.
+.\app\Console\Commands\SyncEsimProducts.php:92: $this->error('An adapter now claims the `esim` capability, but this command is still a stub.');
+.\app\Console\Commands\SyncGiftCards.php:16: * each card with a `discountPercentage`, and the margin is that discount minus
+.\app\Console\Commands\SyncGiftCards.php:22: * What this command does is run the standard sync for the `gift_cards` capability and
+.\app\Console\Commands\SyncInternationalProducts.php:23: * rate-limits. The walk is therefore bounded by `providers.sync.countries` (the
+.\app\Console\Commands\SyncInternationalProducts.php:24: * markets we actually sell into) or by `--country=` for a one-off, with a cap as the
+.\app\Console\Commands\SyncInternationalProducts.php:30: * A synced international product has no `service_product_id` until an operator maps
+.\app\Console\Commands\SyncProviderCatalogues.php:15: * It updates **costs**; it never creates a **product**. A `provider_products` row is
+.\app\Console\Commands\SyncProviderCatalogues.php:18: * it does not recognise is staged in `provider_catalogue_items` for an operator to
+.\app\Console\Commands\SyncProviderCatalogues.php:21: * The reason is not purity. A fuzzy match of `MTN 1GB Monthly` against our own
+.\app\Console\Commands\SyncProviderCatalogues.php:29: * `last_seen_at` and nothing else. An overlapping or retried run is harmless.
+.\app\Console\Commands\SyncProviderCatalogues.php:33: * `provider_products.provider_cost_minor` is current state and is updated. Each
+.\app\Console\Commands\SyncProviderCatalogues.php:34: * change also appends a `provider_price_snapshots` row, and `pricing_snapshots` — the
+.\app\Console\Commands\SyncProviderPrices.php:15: * This is `providers:sync-catalogues` with a *reporting* focus rather than a
+.\app\Console\Commands\SyncProviderPrices.php:22: * Every movement is read back from `provider_price_snapshots`, which is append-only.
+.\app\Console\Commands\SyncProviderPrices.php:23: * That matters here: a report built from the mutable `provider_products` column
+.\app\Console\Commands\SyncProviderPrices.php:34: * `--since` limits the report to movements in the last N days. The sync itself is
+.\app\Console\Commands\VerifyWallets.php:15: * outside `WalletService`, which is the one thing the architecture forbids.
+.\app\Console\Commands\VerifyWallets.php:28: * `ADMIN_ADJUSTMENT` entry recording the balance they held at the time, so the
+.\app\Console\Commands\VerifyWallets.php:35: * The `expected_from_transactions` column is printed for information and is not
+.\app\Console\Kernel.php:28: * REQUIRES a scheduler runner: `php artisan schedule:run` every minute
+.\app\Console\Kernel.php:29: * from cron/Task Scheduler, or `php artisan schedule:work` under a
+.\app\Console\Kernel.php:33: * `schedule:health --check` exists to make that failure loud rather than
+.\app\Console\Kernel.php:45: * `unknown` state rather than refunded, because the order may have been
+.\app\Console\Kernel.php:56: * A reminder notifies; it never debits. `reminders:dispatch` writes a
+.\app\Console\Kernel.php:64: * Duplicate prevention does not depend on `withoutOverlapping` — the
+.\app\Console\Kernel.php:75: * Written on every scheduler tick. `schedule:health --check` reads it, so
+.\app\Console\Kernel.php:93: * `withoutOverlapping` matters here because a provider that hangs would
+.\app\Exceptions\Handler.php:64: * machine; `config/app.php` already defaults it to false when the
+.\app\Http\Controllers\Admin\AdminController.php:247: // Authorisation is enforced by the route group (`admin:manage_settings`).
+.\app\Http\Controllers\Admin\AdminController.php:261: // Gated by `admin:manage_settings` on the route.
+.\app\Http\Controllers\Admin\BankTransferController.php:34: * Replaces `$query->orderBy($request->input('sort'), $request->input('order'))`,
+.\app\Http\Controllers\Admin\BankTransferController.php:138: * WalletService. Previously it incremented `balance` AND decremented
+.\app\Http\Controllers\Admin\BankTransferController.php:139: * `pending_balance`, but nothing ever *added* to `pending_balance`, so the
+.\app\Http\Controllers\Admin\BankTransferController.php:166: * attributed to the administrator who made it. `payment_reference`
+.\app\Http\Controllers\Admin\BankTransferController.php:312: * it. Previously `proof` was written to the `public` disk and served from
+.\app\Http\Controllers\Admin\BankTransferController.php:314: * referenced a class that does not exist (`Transaction`).
+.\app\Http\Controllers\Admin\BankTransferController.php:345: fn () => fpassthru(Storage::disk('local')->readStream($path)),
+.\app\Http\Controllers\Admin\DashboardController.php:173: * The layout has always read `$pendingTransfers` but no controller ever
+.\app\Http\Controllers\Admin\NotificationController.php:34: // `id` is the raw primary key. It was previously prefixed with the type
+.\app\Http\Controllers\Admin\NotificationController.php:145: * `badge_color` is validated as a hex colour because the form renders a
+.\app\Http\Controllers\Admin\NotificationController.php:146: * colour picker and the value is written straight into a `style` attribute.
+.\app\Http\Controllers\Admin\NotificationController.php:148: * names, which produce `background-color: bg-purple-100 text-purple-800` —
+.\app\Http\Controllers\Admin\NotificationController.php:151: * `icon` is constrained to names the icon component actually has, so a
+.\app\Http\Controllers\Admin\NotificationController.php:175: * Passed to the model explicitly rather than `$request->all()`, which
+.\app\Http\Controllers\Admin\NotificationController.php:176: * bypassed the model's `$fillable` entirely (the model defines no `$guarded`
+.\app\Http\Controllers\Admin\NotificationController.php:189: * An unchecked checkbox submits nothing, so `is_active` would be absent
+.\app\Http\Controllers\Admin\PricingController.php:25: * Every route is gated by `admin:view_pricing` or `admin:manage_pricing`, and
+.\app\Http\Controllers\Admin\PricingController.php:26: * those permissions are in `Permissions::SUPER_ADMIN_ONLY`. The middleware is the
+.\app\Http\Controllers\Admin\PricingController.php:27: * control; the `abort_unless` calls in the write actions are a second lock, so a
+.\app\Http\Controllers\Admin\PricingController.php:34: * figures that a moderator or support agent has no need for. `view_pricing` and
+.\app\Http\Controllers\Admin\PricingController.php:35: * `manage_pricing` are therefore distinct, so an operator can let someone audit
+.\app\Http\Controllers\Admin\PricingController.php:81: * of `view_pricing` alone (were one ever granted) sees cost and price, not
+.\app\Http\Controllers\Admin\PricingController.php:343: * `requires_confirmation` flag for a significant movement, which the view uses
+.\app\Http\Controllers\Admin\ProfitController.php:20: * Every total comes from `profit_records` filtered to `is_realized = true`, and
+.\app\Http\Controllers\Admin\ProfitController.php:21: * `ProfitRecorder` is what decides a row is realized — on a finalized, fulfilled
+.\app\Http\Controllers\Admin\ProfitController.php:50: * `today`, `week` and `month` are the three the brief names, and they are
+.\app\Http\Controllers\Admin\ProfitController.php:52: * at a time. `custom` and the longer periods are computed on demand.
+.\app\Http\Controllers\Admin\ProviderController.php:26: * `providers.priority`, `providers.is_active` and `providers.is_primary` are the
+.\app\Http\Controllers\Admin\ProviderController.php:27: * whole routing configuration — `ProviderRegistry` orders candidates by them. Rather
+.\app\Http\Controllers\Admin\ProviderController.php:35: * `manage_providers` is SUPER_ADMIN_ONLY. The middleware is the control; the
+.\app\Http\Controllers\Admin\ProviderController.php:36: * `abort_unless` in each write action is a second lock, so a route registered without
+.\app\Http\Controllers\Admin\ProviderController.php:123: * Normalised explicitly, because the `boolean` validation rule accepts `'1'`
+.\app\Http\Controllers\Admin\ProviderController.php:124: * and `'0'` without casting them and an unchecked checkbox posts `'0'`. A
+.\app\Http\Controllers\Admin\ProviderController.php:125: * comparison against `true` on the raw value would silently never match — which
+.\app\Http\Controllers\Admin\ProviderController.php:137: * Only one provider may be primary for a capability. `is_primary` is a
+.\app\Http\Controllers\Admin\TransactionController.php:178: *   * incremented `wallets.balance` directly, with no row lock, no ledger
+.\app\Http\Controllers\Admin\TransactionController.php:179: *     entry, and no `total_spent` correction;
+.\app\Http\Controllers\Admin\TransactionController.php:180: *   * wrote `balance_before`/`balance_after` from an unlocked read, so those
+.\app\Http\Controllers\Admin\TransactionController.php:188: * and the refund carries a `payment_reference` whose unique index makes a
+.\app\Http\Controllers\Admin\TransactionController.php:322: * `\League\Csv\Writer::createFromString()`, but `league/csv` is not a
+.\app\Http\Controllers\Admin\TransactionController.php:534: * Forcing a settled debit to `failed` does NOT move money: the customer
+.\app\Http\Controllers\Admin\TransactionController.php:560: * and wrote a refund row with `balance_before` computed as
+.\app\Http\Controllers\Admin\TransactionController.php:561: * `balance - amount` *after* the increment — which produced a before/after
+.\app\Http\Controllers\Admin\TransactionController.php:630: * `outcome` field is what the UI branches on.
+.\app\Http\Controllers\Admin\UserController.php:32: * `$query->orderBy($request->get('sort'), $request->get('order'))` fed an
+.\app\Http\Controllers\Admin\UserController.php:34: * not bind identifiers, so `?sort=id,(select ...)` was injectable.
+.\app\Http\Controllers\Admin\UserController.php:179: * The previous revision had already stopped being fatal (`Transaction` vs
+.\app\Http\Controllers\Admin\UserController.php:180: * `Transactions`, a nonexistent `total_withdrawn` column) but it still
+.\app\Http\Controllers\Admin\UserController.php:181: * mutated the balance itself: it read and wrote `wallets.balance` directly,
+.\app\Http\Controllers\Admin\UserController.php:182: * reimplemented the overdraft check, reimplemented `total_funded` and
+.\app\Http\Controllers\Admin\UserController.php:183: * `total_spent`, and wrote a transaction row **without a ledger entry**.
+.\app\Http\Controllers\Admin\UserController.php:192: * `set` is expressed as a *delta* against the locked balance rather than an
+.\app\Http\Controllers\Admin\UserController.php:218: // A single signed delta, so `add`, `deduct` and `set` are one code
+.\app\Http\Controllers\Admin\UserController.php:227: // `set` to the balance it already has. Nothing to record.
+.\app\Http\Controllers\Auth\AuthenticatedSessionController.php:29: *   * `throttle:10,1` on the route bounds attempts per client IP;
+.\app\Http\Controllers\Auth\AuthenticatedSessionController.php:30: *   * `LoginThrottle` adds a per-*account* counter, which is the key an IP
+.\app\Http\Controllers\Auth\OtpLoginController.php:31: * That leaves a real gap: `Auth::login()` writes the session, so any bug in the
+.\app\Http\Controllers\AirtimeDataController.php:51: * The view had always guarded with `$announcements ?? []`, so when
+.\app\Http\Controllers\AirtimeDataController.php:119: * like the pricelist page does it. The posted `plan_price` is only a
+.\app\Http\Controllers\AirtimeDataController.php:204: * The price for data comes from the posted `plan_price`, which the
+.\app\Http\Controllers\BachsController.php:27: * Bachs server-to-server webhook (`collection.succeeded` and friends).
+.\app\Http\Controllers\BachsController.php:29: * Outside `auth` (Bachs holds no session) and exempt from CSRF, for the
+.\app\Http\Controllers\BachsController.php:137: * Public and session-free by design: Bachs appends `?checkout_id=`, and the
+.\app\Http\Controllers\BachsController.php:215: * Turn a webhook `data` block into the shape `settle()` validates.
+.\app\Http\Controllers\ChatController.php:42: // `admin` is eager-loaded so the chat view can name the assigned agent
+.\app\Http\Controllers\ChatController.php:54: // `sender_type != 'admin'` for a customer, which is true for customer
+.\app\Http\Controllers\ChatController.php:95: // `sender_type` is the role label the schema documents and the value every
+.\app\Http\Controllers\ChatController.php:167: // `role` is not a column on users — admins are identified by the
+.\app\Http\Controllers\DashboardController.php:33: // `live()` is the shared active-and-in-window predicate; this query
+.\app\Http\Controllers\DashboardController.php:55: * As five separate `count()`/`sum()` calls this was five round trips for
+.\app\Http\Controllers\DashboardController.php:60: * The sums come back as decimal strings and are read through `Money`, so
+.\app\Http\Controllers\DashboardController.php:74: // `balance` and `status` were read from the users table by the old
+.\app\Http\Controllers\DashboardController.php:75: // controller (`$user->balance`, `$user->status`); balance lives on
+.\app\Http\Controllers\DashboardController.php:100: * `AVG()` is the one aggregate that is not a sum of `decimal(15,2)`
+.\app\Http\Controllers\DashboardController.php:102: * (e.g. `1666.666667`), which is not a representable naira amount.
+.\app\Http\Controllers\DashboardController.php:103: * It is rounded to the kobo *here*, explicitly, because `Money`
+.\app\Http\Controllers\DashboardController.php:138: * Driven off `tips_seen_at` rather than session state so it follows the
+.\app\Http\Controllers\DashboardController.php:156: * The greeting follows a local clock, and §51.8's copy uses `{first_name}`.
+.\app\Http\Controllers\DashboardController.php:158: * Neither is stored: the `users` table has a single `name` and no timezone
+.\app\Http\Controllers\HomeController.php:15: * previously nothing supplied the variable, so `layouts.marquee`
+.\app\Http\Controllers\HomeController.php:19: * `promotion_notifications` table is absent from the migration history
+.\app\Http\Controllers\JambPinController.php:116: // `request_id` was previously supplied by the browser; deriving it here
+.\app\Http\Controllers\PairgateWebhookController.php:19: *   1. the electricity token / exam PIN (`pin`) — the acknowledgement carries
+.\app\Http\Controllers\PairgateWebhookController.php:26: *   - the route sits outside `auth` (Pairgate holds no session) and is exempt
+.\app\Http\Controllers\PairgateWebhookController.php:41: /** Documented replay window for `X-Pairgate-Timestamp`, in seconds. */
+.\app\Http\Controllers\PairgateWebhookController.php:128: * Pairgate echoes our own `reference` and its `reference_code`; either can
+.\app\Http\Controllers\PairgateWebhookController.php:129: * identify the row. The model's scope covers `reference`, `uuid` and
+.\app\Http\Controllers\PairgateWebhookController.php:130: * `api_reference`, so a delivery that carries only one of them still lands.
+.\app\Http\Controllers\PairgateWebhookController.php:192: * Exam PINs are delivered one webhook per PIN, and `api_reference`
+.\app\Http\Controllers\PairgateWebhookController.php:235: // customer paid is `amount`; our fee is not part of Pairgate's figure.
+.\app\Http\Controllers\PairgateWebhookController.php:259: * `refund()` re-reads the row under its own lock and refuses a
+.\app\Http\Controllers\PaystackController.php:27: *   - the route sits outside the `auth` middleware (Paystack has no
+.\app\Http\Controllers\PaystackController.php:71: * marks it with `channel = dedicated_nuban` and names the receiving
+.\app\Http\Controllers\PaystackController.php:75: * carries no `reference` at all, so gating on one first would silently
+.\app\Http\Controllers\PricelistController.php:55: * `plan_price` from a data attribute and posted it back, so editing the
+.\app\Http\Controllers\PricelistController.php:177: * Authenticated by an HMAC of the raw body in `X-Reup-Signature`. Without
+.\app\Http\Controllers\ProfileController.php:22: * `public/` (and therefore never reachable at a guessable `/storage/...`
+.\app\Http\Controllers\ProfileController.php:35: * filename and extension are never used, so `evil.php` cannot become
+.\app\Http\Controllers\ProfileController.php:36: * `profile-1-1699999999.php` on a web-served path.
+.\app\Http\Controllers\ProfileController.php:86: // `mimes` compares the extension *guessed from the content*,
+.\app\Http\Controllers\ProfileController.php:87: // `mimetypes` compares the detected MIME itself. Both are
+.\app\Http\Controllers\ProfileController.php:89: // renamed to .jpg, and the explicit allowlist keeps `image`'s
+.\app\Http\Controllers\ProfileController.php:108: // the `in:` rule on the way back out.
+.\app\Http\Controllers\ProfileController.php:113: // Previously the file was written to the `public` disk under a name
+.\app\Http\Controllers\ProfileController.php:114: // built from `getClientOriginalExtension()`, so a GIF/PHP polyglot
+.\app\Http\Controllers\ProfileController.php:115: // named `x.php` passed `image` + `mimes:gif` on its content and was
+.\app\Http\Controllers\ProfileController.php:116: // then stored as `profiles/profile-<id>-<time>.php` — a web-reachable,
+.\app\Http\Controllers\ProfileController.php:181: // `../` or a null byte in the segment can never select another file
+.\app\Http\Controllers\ProfileController.php:205: fpassthru($stream);
+.\app\Http\Controllers\ProfileController.php:225: * of the form `/storage/profiles/<name>`; new ones are route URLs. Both are
+.\app\Http\Controllers\ProfileController.php:276: * in the response (`debug_code`) so the flow is testable; in production
+.\app\Http\Controllers\ProfileController.php:277: * `debug_code` is always null and delivery must be added before this
+.\app\Http\Controllers\ProfileController.php:389: * The code lives in the `pin` purpose, so it is independent of any sign-in
+.\app\Http\Controllers\ServiceCatalogueController.php:30: * server-rendered storefront. Both read the same `payload()`, so a service cannot
+.\app\Http\Controllers\WalletController.php:47: * Summed as integer kobo through `Money` rather than cast to float. A
+.\app\Http\Controllers\WalletController.php:162: * The amount is parsed once, exactly, into integer kobo. `round()` on a
+.\app\Http\Controllers\WalletController.php:364: * (`payments:reconcile`, the webhook, the balance card in the admin
+.\app\Http\Controllers\WalletController.php:446: * The funding form submits with `fetch()` so it can report the outcome
+.\app\Http\Controllers\WalletController.php:471: * there is nothing to reconcile, and `payments:reconcile` would otherwise
+.\app\Http\Controllers\WalletController.php:507: * `Money::percentage()` rounds half-up to the nearest kobo, which is what
+.\app\Http\Controllers\WalletController.php:508: * the previous `round($amount * $percentage / 100 + $additional, 2)` did —
+.\app\Http\Controllers\WalletController.php:538: * Deliberately NOT `exists:transactions,reference`.
+.\app\Http\Controllers\WalletController.php:548: * `mimes` compares the extension guessed from the content;
+.\app\Http\Controllers\WalletController.php:549: * `mimetypes` compares the detected MIME itself. Both are asserted
+.\app\Http\Controllers\WalletController.php:642: * that user's funding credited while `wallet.history` had already leaked
+.\app\Http\Controllers\WalletController.php:687: * server-to-server above, and `settle()` validates the reference, the
+.\app\Http\Controllers\WalletController.php:689: * `?reference=` in the URL is a hint about what to verify, never an
+.\app\Http\Controllers\WalletController.php:763: * `Auth::user()->wallet` directly, which returned null for a user whose
+.\app\Http\Middleware\AdminMiddleware.php:15: * Usage in routes: `->middleware('admin')` or `->middleware('admin:manage_users')`.
+.\app\Http\Middleware\SecurityHeaders.php:26: *   * Alpine.js evaluates every `x-data`/`x-on` expression with `new Function`
+.\app\Http\Middleware\SecurityHeaders.php:27: *     at runtime, which needs `script-src 'unsafe-eval'`. Without it the whole
+.\app\Http\Middleware\SecurityHeaders.php:29: *   * Layouts bootstrap state with inline `<script>` blocks and `@js(...)`
+.\app\Http\Middleware\SecurityHeaders.php:30: *     payloads, and Tailwind/Paystack flows rely on `style="..."` attributes —
+.\app\Http\Middleware\SecurityHeaders.php:31: *     `'unsafe-inline'` is required in both `script-src` and `style-src`.
+.\app\Http\Middleware\SecurityHeaders.php:39: *   * `<base href>` cannot be hijacked (`base-uri 'self'`), so a relative
+.\app\Http\Middleware\SecurityHeaders.php:41: *   * `object-src 'none'` kills the legacy plugin vector (including `<embed>`
+.\app\Http\Middleware\SecurityHeaders.php:42: *     of a `.php`/`.swf`), which matters here because the app accepts uploads;
+.\app\Http\Middleware\SecurityHeaders.php:43: *   * `form-action 'self'` stops an injected form from posting the transaction
+.\app\Http\Middleware\SecurityHeaders.php:45: *   * `frame-ancestors 'self'` is the modern half of the SAMEORIGIN clickjack
+.\app\Http\Middleware\SecurityHeaders.php:48: * `form-action 'self'` has a consequence that is easy to trip over: the
+.\app\Http\Middleware\SecurityHeaders.php:50: * port as part of that origin. Every `<form action>` in resources/views must
+.\app\Http\Middleware\SecurityHeaders.php:51: * therefore be origin-relative — `route($name, $parameters, false)` — because
+.\app\Http\Middleware\SecurityHeaders.php:52: * Laravel 8 renders `route()` as an absolute URL built from APP_URL. A form
+.\app\Http\Middleware\SecurityHeaders.php:56: * fund-wallet page while APP_URL was `http://localhost` and the page was
+.\app\Http\Middleware\SecurityHeaders.php:57: * being browsed at `127.0.0.1:8000`. Redirects and the Paystack
+.\app\Http\Middleware\SecurityHeaders.php:58: * `callback_url` still need absolute URLs, so this applies to form actions
+.\app\Http\Middleware\SecurityHeaders.php:67: * Cloudflare. Grepping the codebase for it finds nothing, and `curl` without
+.\app\Http\Middleware\SecurityHeaders.php:68: * `Accept: text/html` does not reproduce the injection either, so it is easy
+.\app\Http\Middleware\SecurityHeaders.php:71: * `npm run dev` is running so the HMR client is not blocked in development.
+.\app\Http\Middleware\SecurityHeaders.php:76: * production. Adding `Strict-Transport-Security` on a plain-HTTP local install
+.\app\Http\Middleware\SecurityHeaders.php:78: * Note this is driven by `$request->isSecure()`, which behind a TLS-terminating
+.\app\Http\Middleware\SecurityHeaders.php:109: // `crossdomain.xml` / `clientaccesspolicy.xml` from authorising a
+.\app\Http\Middleware\SecurityHeaders.php:187: // `connect-src 'self'` already covers it. See docs/RUNNING.md.
+.\app\Http\Middleware\SecurityHeaders.php:302: * `Vite::devServerUrl()` short-circuits on the absence of `public/hot`, so
+.\app\Http\Middleware\SecurityHeaders.php:303: * a production request pays one `file_exists` and nothing more.
+.\app\Models\AdminLog.php:23: * This pointed at a non-existent `admin_id` column, so every attempt to
+.\app\Models\AdminLog.php:24: * eager-load `with('user')` on the activity feed threw. The table's
+.\app\Models\AdminLog.php:25: * foreign key is `user_id`.
+.\app\Models\BillReminder.php:15: * `product_alerts` row. That is deliberate: the safest way to guarantee that
+.\app\Models\BillReminder.php:22: * `claimForDueDate()` is the guard. Two overlapping scheduler runs (or a retried
+.\app\Models\BillReminder.php:23: * job) both call it; only the one that transitions `next_due_at` succeeds, so
+.\app\Models\BillReminder.php:94: * Advance the next due date past `$from`.
+.\app\Models\BillReminder.php:96: * Month and year arithmetic uses `addMonthNoOverflow` / `addYearNoOverflow`
+.\app\Models\BillReminder.php:98: * `addMonth()` on 31 January produces 2 March, which would silently drop a
+.\app\Models\BillReminder.php:111: // `once` has no next occurrence; the caller deactivates instead.
+.\app\Models\BillReminder.php:119: * The claim is the duplicate guard: it moves `next_due_at` forward and
+.\app\Models\BillReminder.php:122: * second sees the already-advanced `next_due_at`.
+.\app\Models\ChatMessage.php:14: * A `creating` hook in this model used to rewrite both of these to
+.\app\Models\ChatMessage.php:16: * actually persisted — so every `where('sender_type', 'user')` and
+.\app\Models\ChatMessage.php:17: * `where('sender_type', 'admin')` in the codebase matched nothing. Among
+.\app\Models\ChatMessage.php:46: * This was a `morphTo()`, but `sender_type` is a role label ('user' /
+.\app\Models\ChatSession.php:39: * Guarded because `auth()->user()` is null whenever this is touched from a
+.\app\Models\IdempotencyKey.php:10: * The UNIQUE index on `key` is the authority that stops a repeated financial
+.\app\Models\IdempotencyKey.php:17: * trusted as the final word: see `App\Services\SecurityService`.
+.\app\Models\InternationalProduct.php:11: * ## Why this is not a `provider_products` row
+.\app\Models\InternationalProduct.php:14: * `provider_products.provider_cost_minor` is the whole story. An international
+.\app\Models\InternationalProduct.php:26: * `(provider_id, provider_product_id)` is unique. A catalogue sync that runs twice,
+.\app\Models\InternationalProduct.php:28: * two prices. The same reasoning as `service_orders.provider_idempotency_key`: the
+.\app\Models\LoginOtp.php:24: * Eloquent would pluralise the class name to `login_otps`, which reads
+.\app\Models\LoginOtp.php:30: * Note the absence of `code_hash` from any serialisation: like the
+.\app\Models\PricingRule.php:24: * Percentages are stored in basis points (`2000` = 20.00%) and amounts in kobo,
+.\app\Models\PricingRule.php:159: * discount does not (see `activeDiscountBps`).
+.\app\Models\PricingRuleVersion.php:19: *   * **`changes`** — the fields edit N moved, with both values, so the step from
+.\app\Models\PricingRuleVersion.php:22: * So a rule's state *at* version N is `snapshot`, and its current state is the
+.\app\Models\PricingRuleVersion.php:23: * live `pricing_rules` row.
+.\app\Models\PricingRuleVersion.php:93: * `getAttribute('changes')` rather than `$this->changes`. The cast is a
+.\app\Models\PricingSnapshot.php:18: * `pricing_rule_snapshot` stores the whole rule as it was at the time, so the
+.\app\Models\PricingSnapshot.php:86: * Refuse updates, the same way `WalletLedger` does.
+.\app\Models\ProductAlert.php:11: * The `fingerprint` unique index is the important part. A profitability check
+.\app\Models\ProductAlert.php:39: * distinct type rather than a variation on `provider_unavailable`, because the
+.\app\Models\ProfitRecord.php:12: * Distinct from `PricingSnapshot` on purpose. The snapshot records what was
+.\app\Models\ProfitRecord.php:15: * table and only counts rows where `is_realized` is true, so unearned profit is
+.\app\Models\ProfitRecord.php:19: * `revenue - provider_cost - fees - refunds` for a finalized order state; the
+.\app\Models\PromotionNotification.php:17: * The migration is named `create_promotions_notifications_table` but the
+.\app\Models\PromotionNotification.php:18: * table it actually creates is `promotion_notifications`. Laravel's
+.\app\Models\PromotionNotification.php:19: * pluraliser derives `promotion_notifications` from the class name (it does
+.\app\Models\PromotionNotification.php:32: * both admin screens call `->format()` on them:
+.\app\Models\PromotionNotification.php:37: * `created_at`/`updated_at` were unaffected because Eloquent treats those as
+.\app\Models\PromotionNotification.php:40: * `is_active` is cast for the same class of reason: the query builder and
+.\app\Models\PromotionNotification.php:41: * the `where('is_active', true)` filters elsewhere in the app compare
+.\app\Models\Provider.php:12: * environment; `credential_env_prefix` records which environment variable group
+.\app\Models\Provider.php:108: // `whereJsonContains` would emit the same function on this driver.
+.\app\Models\ProviderCatalogueItem.php:12: * leads from here to an order: an operator maps a row to a `ProviderProduct`, and
+.\app\Models\ProviderHealthCheck.php:10: * `providers.health_status` holds the latest state, which is all the storefront
+.\app\Models\ProviderHealthCheck.php:19: * `is_sandbox` is recorded per check rather than read from configuration at display
+.\app\Models\ProviderHealthCheck.php:55: * The single write path, so that `checked_at` and the sandbox flag can never be
+.\app\Models\ProviderPriceSnapshot.php:11: * `provider_products.provider_cost_minor` answers "what does it cost now". This
+.\app\Models\ProviderProduct.php:12: * This is where a provider's own identifier lives — Sogo's `variation_code`,
+.\app\Models\ProviderProduct.php:13: * VTpass's `variation_code`, Nitro's `service` — so that no controller ever
+.\app\Models\ProviderTransaction.php:19: * `transaction.completed` webhook carries no gift card code, PIN or eSIM
+.\app\Models\ProviderTransaction.php:23: * `App\Providers\Support\PayloadRedactor` first, so a response that *does* carry
+.\app\Models\SavedBill.php:13: * Every access path must scope to the owner. `maskedIdentifier()` exists so the
+.\app\Models\SavedBill.php:16: * protected by the `user_id` scope, not by hiding the identifier.
+.\app\Models\ServiceCategory.php:11: * The `group` is the navigation level the approved frontend copy uses; a
+.\app\Models\ServiceOrder.php:30: * `provider_idempotency_key` is generated once, persisted, and reused verbatim
+.\app\Models\ServiceProduct.php:13: * A product discovered in a provider catalogue is created `DISCOVERED` and is
+.\app\Models\ServiceProduct.php:15: * `ACTIVE`. That gate is the whole point of the status column: it is what stops
+.\app\Models\ServiceProduct.php:22: * `status` is a human decision. `availability` is computed from the margin: if a
+.\app\Models\ServiceProduct.php:24: * configured minimum profit, the product becomes `TEMPORARILY_UNAVAILABLE` (or
+.\app\Models\ServiceProduct.php:25: * `AVAILABLE_WITH_WARNING`) without anyone editing it. The two are separate so
+.\app\Models\ServiceProduct.php:78: * Stamping `published_at` when a product first goes active (and clearing
+.\app\Models\ServiceProduct.php:121: * A product flagged `AVAILABLE_WITH_WARNING` is still purchasable — that is
+.\app\Models\TermsPrivacy.php:44: * The `{type}` route parameter reached these lookups unvalidated, so a
+.\app\Models\Transactions.php:66: * Doing this in a `creating` hook rather than at each of the four call sites
+.\app\Models\Transactions.php:87: * Falls back to `reference` for rows created before `uuid` existed, so the
+.\app\Models\Transactions.php:118: * status chip in the product. Views render these as `badge {{ ... }}`.
+.\app\Models\Transactions.php:198: * Kept on the model so the `creating` hook has no dependency on
+.\app\Models\Transactions.php:221: * value came from: `reference` (what the customer sees), `uuid` (what the
+.\app\Models\Transactions.php:222: * gateway was given), and `api_reference` (what the gateway echoed back).
+.\app\Models\Transactions.php:228: * happened when `uuid` was introduced, and would have silently broken the
+.\app\Models\User.php:175: * The `users.wallet_balance` column exists but nothing writes to it (it is
+.\app\Models\User.php:176: * not fillable, so `$user->update(['wallet_balance' => ...])` was silently
+.\app\Models\User.php:299: * Grouped deliberately: the previous `where(...)->orWhere(...)` form leaked
+.\app\Models\User.php:300: * an OR across the parent query, so `$query->admins()->where('status', ...)`
+.\app\Models\Wallet.php:15: * `balance` and the aggregate columns are listed because the `User::created`
+.\app\Models\Wallet.php:16: * hook and `WalletService::forUser()` construct a wallet with them.
+.\app\Models\Wallet.php:18: * That makes `Wallet::create($request->all())` — or any `fill()` from
+.\app\Models\Wallet.php:20: * Every mutation goes through `App\Services\WalletService`, which is the only
+.\app\Models\Wallet.php:77: * Prefer this over reading `$wallet->balance` when the value is going to be
+.\app\Models\Wallet.php:79: * the decimal column and hand-rolling `(float)` around it is how the
+.\app\Models\Wallet.php:105: | `App\Services\WalletService` is the only approved mutation path: it locks
+.\app\Models\WalletLedger.php:12: * Rows are written by `App\Services\WalletService` inside the same database
+.\app\Models\WalletLedger.php:21: *   * `UPDATED_AT` is disabled — there is no `updated_at` column;
+.\app\Models\WalletLedger.php:22: *   * `save()` refuses to update an existing row;
+.\app\Models\WalletLedger.php:23: *   * `delete()` refuses outright;
+.\app\Notifications\CustomLoginOtp.php:17: * `ShouldQueue` is implemented so the class stays queue-ready, but the service
+.\app\Notifications\CustomLoginOtp.php:46: // `view`, not `markdown` — this is a full HTML document with inline
+.\app\Notifications\CustomPinOtp.php:45: // `view`, not `markdown` — full HTML document with inline styles.
+.\app\Notifications\CustomResetPassword.php:59: // `view`, not `markdown` — see CustomVerifyEmail for the rationale.
+.\app\Notifications\CustomVerifyEmail.php:54: // `view`, not `markdown`: this template is a full HTML document with
+.\app\Notifications\CustomVerifyEmail.php:58: // rewritten to avoid. Every other mailable in this app uses `view`.
+.\app\Orders\ProfitRecorder.php:18: * `pricing_snapshots` records what was **quoted**. This records what was
+.\app\Orders\ProfitRecorder.php:20: * dashboard reads `profit_records` and not the snapshots. A PENDING or UNKNOWN
+.\app\Orders\ProfitRecorder.php:21: * order has a row here with a zero revenue figure and `is_realized = false`, so
+.\app\Orders\ProfitRecorder.php:27: * money movements, and they belong to `WalletService` and `wallet_ledger`. Profit
+.\app\Orders\ProfitRecorder.php:36: * the provider cost was assumed to be. Reading prices from `transactions` instead
+.\app\Orders\ProfitRecorder.php:37: * would lose the cost basis entirely, and reading from the live `pricing_rules`
+.\app\Orders\ProfitRecorder.php:45: * Idempotent: `profit_records.service_order_id` is unique, so a webhook plus a
+.\app\Orders\ProfitRecorder.php:118: * The order's own `revenue_minor` is left intact and the refund is recorded
+.\app\Orders\ProfitRecorder.php:135: * A refunded order is not realized profit. Flipping `is_realized` off
+.\app\Orders\ProfitRecorder.php:170: * `gross_profit_minor`, which `recalculate()` derives from them. So the
+.\app\Orders\ProfitRecorder.php:206: * Refunded orders are excluded from realized rows by `markRefunded()`, so
+.\app\Orders\ProfitRecorder.php:314: * Used by the high-refund-rate alert. Counted from `service_orders` rather
+.\app\Orders\ProfitRecorder.php:315: * than `profit_records` because a refunded order is deliberately no longer
+.\app\Orders\ServiceOrderService.php:44: * The `service_orders.provider_idempotency_key` is generated once and reused for
+.\app\Orders\ServiceOrderService.php:47: * transaction and a new key is a new charge. `retrySafely()` enforces that.
+.\app\Orders\ServiceOrderService.php:264: * only ever permitted when the result says `RETRYABLE` — a state that means
+.\app\Orders\ServiceOrderService.php:305: * request may have been sent; `AbstractProviderAdapter` already
+.\app\Orders\ServiceOrderService.php:518: * Refuses unless the order is in `RETRYABLE`. That is the *only* state in
+.\app\Orders\ServiceOrderService.php:559: * Delegates to `BillPaymentService::refund()` so there is exactly one refund
+.\app\Orders\ServiceOrderService.php:561: * `payment_status` guard and the unique `payment_reference`. A second refund
+.\app\Orders\ServiceOrderService.php:564: * Refuses anything whose outcome is unresolved, and refuses `PARTIAL`, which
+.\app\Orders\ServiceOrderService.php:653: * `provider_product_id`, so a rule pinned to a specific provider's
+.\app\Pricing\PriceQuote.php:12: * This is what gets written to `pricing_snapshots`. It is deliberately a
+.\app\Pricing\PriceQuote.php:77: * so the per-unit figure is a display figure and `customerPriceMinor` remains
+.\app\Pricing\PriceQuote.php:146: * The complete record for `pricing_snapshots`.
+.\app\Pricing\PricingEngine.php:17: * multiplier in a controller, a `clubkonnect_price` column, a `bills.fees`
+.\app\Pricing\PricingEngine.php:18: * config value, and a `plan_price` data attribute the browser posted back. There
+.\app\Pricing\PricingEngine.php:22: * Every sellable price now comes from `quote()`, which is pure calculation over
+.\app\Pricing\PricingEngine.php:37: * `gross_profit` is computed from the **final** price. Rounding to the nearest
+.\app\Pricing\PricingEngine.php:46: * returned, and `PriceQuote` never conflates them.
+.\app\Pricing\PricingEngine.php:51: * basis points. The only division is `intdiv` with an explicit, documented
+.\app\Pricing\PricingEngine.php:171: * `PriceQuote` reports `customerFeeMinor` separately as well, so the two
+.\app\Pricing\PricingEngine.php:176: * fee is a pure pass-through to the provider, `provider_fee_minor` is
+.\app\Pricing\PricingEngine.php:177: * populated too, and `ProfitRecorder` deducts it — which is why the
+.\app\Pricing\PricingEngine.php:252: * `warning` keeps the product on sale at the calculated price and
+.\app\Pricing\PricingEngine.php:253: * records that it is under target. `AVAILABLE_WITH_WARNING` on the
+.\app\Pricing\PricingEngine.php:282: * `fallback` hands over to a broader rule. Guarded against a cycle:
+.\app\Pricing\PricingEngine.php:467: * `amount * bps / 10000` with integer arithmetic. The remainder decides the
+.\app\Pricing\PricingEngine.php:515: * `nearest` uses half-up, the convention the rest of the application's fee
+.\app\Pricing\PricingRuleService.php:21: *   * the **previous** state is written to `pricing_rule_versions` before the new
+.\app\Pricing\PricingRuleService.php:27: *   * an `AdminLog` entry is written for the privileged-action feed.
+.\app\Pricing\PricingRuleService.php:33: * `update()` means an actor and a reason are always available — and a seeder that
+.\app\Pricing\PricingRuleService.php:182: * Separate from `update()` so the audit entry says "deactivated" rather than
+.\app\Pricing\PricingRuleService.php:354: * A `product` rule with no `service_product_id` would resolve for nothing and
+.\app\Pricing\PricingRuleService.php:355: * sit in the console looking active; a `global` rule with a `provider_id` set
+.\app\Pricing\PricingRuleService.php:432: * `A → B → A` would recurse until the request died, and the customer would
+.\app\Pricing\PricingRuleService.php:480: * alone by the caller using the `_bps` field names directly.
+.\app\Pricing\PricingRuleService.php:587: * `$snapshot` is passed rather than derived, because the two callers need
+.\app\Providers\Adapters\NitroSmmProvider.php:20: * Nitro answers `{"error": "Not enough funds"}` with a 200 status, the SMM panel
+.\app\Providers\Adapters\NitroSmmProvider.php:21: * convention. A naive `$response->successful()` check would therefore read a
+.\app\Providers\Adapters\NitroSmmProvider.php:22: * refused order as a vended one. `normalise()` inspects the body for `error`
+.\app\Providers\Adapters\NitroSmmProvider.php:28: * ### 2. The charge is `rate × quantity ÷ 1000`
+.\app\Providers\Adapters\NitroSmmProvider.php:35: *   * `expectedCost()` computes it with integer arithmetic only;
+.\app\Providers\Adapters\NitroSmmProvider.php:36: *   * every order response's own `charge` field is compared against the
+.\app\Providers\Adapters\NitroSmmProvider.php:42: * ### 3. `description` must be read before a service is sold
+.\app\Providers\Adapters\NitroSmmProvider.php:46: * `provider_products.description` by the catalogue sync and surfaced in the
+.\app\Providers\Adapters\NitroSmmProvider.php:48: * `REVIEW` rather than published automatically.
+.\app\Providers\Adapters\NitroSmmProvider.php:52: * Nitro is asynchronous. `add` returns only an order id; the outcome arrives via
+.\app\Providers\Adapters\NitroSmmProvider.php:53: * `status` polling. Every order therefore starts PENDING and is resolved by the
+.\app\Providers\Adapters\NitroSmmProvider.php:68: * The complete set of statuses Nitro's `status` action can return.
+.\app\Providers\Adapters\NitroSmmProvider.php:70: * `error` is deliberately NOT in this list. It appears in the status map for
+.\app\Providers\Adapters\NitroSmmProvider.php:71: * completeness, but it is not a status the `status` action produces — it is
+.\app\Providers\Adapters\NitroSmmProvider.php:135: * `rate × quantity ÷ 1000`, in integer kobo, rounded half-up to the kobo
+.\app\Providers\Adapters\NitroSmmProvider.php:138: * @param  int  $rateMinor  the provider's rate, in kobo, per `rateDivisor()` units
+.\app\Providers\Adapters\NitroSmmProvider.php:171: * `normalise()` handles that shape before it looks for an envelope.
+.\app\Providers\Adapters\NitroSmmProvider.php:177: * parse for identifiers (`service` ids, rates, quantities), so it is read
+.\app\Providers\Adapters\NitroSmmProvider.php:231: * Only the `service` id, `link` and `quantity` are required. The order
+.\app\Providers\Adapters\NitroSmmProvider.php:232: * parameters (`comments`, `usernames`, `keywords`, `country`, `device`,
+.\app\Providers\Adapters\NitroSmmProvider.php:233: * `keyword`, `referrer`) are passed through from the order payload, because
+.\app\Providers\Adapters\NitroSmmProvider.php:234: * which of them apply is a property of the service's `type` — `Default`,
+.\app\Providers\Adapters\NitroSmmProvider.php:235: * `Custom Comments`, `SEO`, `Package` — which the catalogue stores and the
+.\app\Providers\Adapters\NitroSmmProvider.php:239: * `provider_products` row by the caller: this adapter will happily send any
+.\app\Providers\Adapters\NitroSmmProvider.php:241: * status is known. See `SmmOrderService`.
+.\app\Providers\Adapters\NitroSmmProvider.php:250: * `rate × quantity ÷ 1000` and would still create a provider order
+.\app\Providers\Adapters\NitroSmmProvider.php:275: * the 300 requests/minute limit, so `$orderIds` is the preferred form and
+.\app\Providers\Adapters\NitroSmmProvider.php:276: * `$orderId` is the singular convenience.
+.\app\Providers\Adapters\NitroSmmProvider.php:300: * Eligibility is the service's `refill` flag, which the catalogue stores on
+.\app\Providers\Adapters\NitroSmmProvider.php:301: * `provider_products.supports_refill`. Checked upstream rather than here,
+.\app\Providers\Adapters\NitroSmmProvider.php:312: * Nitro returns a per-order result: `{"order": 4211, "cancel": 1}` on success
+.\app\Providers\Adapters\NitroSmmProvider.php:313: * or `{"order": 4212, "cancel": {"error": "Order already completed"}}` on
+.\app\Providers\Adapters\NitroSmmProvider.php:344: * Every call is a POST to the same base URL with `key` and `action` in the
+.\app\Providers\Adapters\NitroSmmProvider.php:362: * matters for `orders=a,b,c`, which must survive as a single parameter.
+.\app\Providers\Adapters\NitroSmmProvider.php:383: *   1. **a bare JSON array** — the `services` catalogue;
+.\app\Providers\Adapters\NitroSmmProvider.php:384: *   2. **an `error` field** — a refusal, even though the HTTP status is 200;
+.\app\Providers\Adapters\NitroSmmProvider.php:385: *   3. **a `{balance, currency}` body** — a balance read;
+.\app\Providers\Adapters\NitroSmmProvider.php:386: *   4. **a `{order: N}` body** — a newly created order, PENDING;
+.\app\Providers\Adapters\NitroSmmProvider.php:387: *   5. **a `{status, charge, remains, …}` body** — a status poll;
+.\app\Providers\Adapters\NitroSmmProvider.php:388: *   6. **a `{refill: N}` body** — a refill acknowledgement;
+.\app\Providers\Adapters\NitroSmmProvider.php:400: * (`[{"order":1,"cancel":{"error":"Order already completed"}}]`) as well
+.\app\Providers\Adapters\NitroSmmProvider.php:411: * The `services` catalogue, and the bulk `cancel` batch, both arrive this
+.\app\Providers\Adapters\NitroSmmProvider.php:434: * `add` returns only an id. Nitro is asynchronous, so the order is
+.\app\Providers\Adapters\NitroSmmProvider.php:465: * `start_count` and `remains` are the only progress signal Nitro
+.\app\Providers\Adapters\NitroSmmProvider.php:478: // `{"refill": 1}` is accepted; `{"refill": {"error": "..."}}` is not.
+.\app\Providers\Adapters\NitroSmmProvider.php:500: * `default_error_status` from configuration, which is UNKNOWN — never FAILED.
+.\app\Providers\Adapters\NitroSmmProvider.php:520: * `Order not found` is a specific and important case: it means the order
+.\app\Providers\Adapters\SogoProvider.php:20: * card purchases, across the endpoints Sogo publishes. `esim` is **not** served:
+.\app\Providers\Adapters\SogoProvider.php:24: * `config/providers.php` → `sogo.pending_capabilities`, which records the reason
+.\app\Providers\Adapters\SogoProvider.php:29: * Sogo binds an `Idempotency-Key` **permanently and uniquely** to its
+.\app\Providers\Adapters\SogoProvider.php:31: * `GET /v1/transactions/{idempotency-key}?type=…`:
+.\app\Providers\Adapters\SogoProvider.php:33: *   * `404` → the transaction was never created, so retrying with the same key
+.\app\Providers\Adapters\SogoProvider.php:35: *   * `200` → it was created; the body's `status` decides what happens next;
+.\app\Providers\Adapters\SogoProvider.php:36: *   * `409 idempotency_request_in_progress` → an earlier attempt is still
+.\app\Providers\Adapters\SogoProvider.php:39: * Hence `reconcile()` returns UNKNOWN rather than FAILED for anything other than
+.\app\Providers\Adapters\SogoProvider.php:45: * Sogo documents `processing`, `completed`, `failed`, `refunded`, `cancelled`.
+.\app\Providers\Adapters\SogoProvider.php:46: * `processing` maps to PROCESSING, never to a failure: Sogo's own documentation
+.\app\Providers\Adapters\SogoProvider.php:85: * Uses `GET /v1/wallet`. Sandbox reports a fixed figure by design, so a
+.\app\Providers\Adapters\SogoProvider.php:86: * sandbox balance must never be read as a real one — `isSandbox()` is
+.\app\Providers\Adapters\SogoProvider.php:134: * `?type=` filters server-side; the whole catalogue is fetched when no type
+.\app\Providers\Adapters\SogoProvider.php:137: * Every catalogue method here reads through `sendRead()` rather than `send()`.
+.\app\Providers\Adapters\SogoProvider.php:139: * `payload` has none: the redactor matches by key name, and Sogo's gift card
+.\app\Providers\Adapters\SogoProvider.php:140: * `code` and a plan's `variation_code` collide with keys that must stay
+.\app\Providers\Adapters\SogoProvider.php:141: * redacted elsewhere. See `ProviderResult::$raw`.
+.\app\Providers\Adapters\SogoProvider.php:274: * ending `_formatted` are display strings that must not be parsed.
+.\app\Providers\Adapters\SogoProvider.php:319: * `service_type` is required by Sogo for WAEC only; JAMB needs `profile_id`.
+.\app\Providers\Adapters\SogoProvider.php:335: * The response carries the PINs. They are extracted into `ProviderDelivery`
+.\app\Providers\Adapters\SogoProvider.php:336: * and never written to the transaction log — see `extractDelivery()`.
+.\app\Providers\Adapters\SogoProvider.php:359: * `expected_amount_ngn` is Sogo's own expectation of what the order will cost
+.\app\Providers\Adapters\SogoProvider.php:378: * Every financial write goes through here so that the `Idempotency-Key`
+.\app\Providers\Adapters\SogoProvider.php:379: * header and the `write` scope are impossible to forget.
+.\app\Providers\Adapters\SogoProvider.php:417: *   * `404` → Sogo never created the transaction. `RETRYABLE`: nothing was
+.\app\Providers\Adapters\SogoProvider.php:419: *   * `200` → the body's status decides. `completed` is SUCCESS, `failed` is
+.\app\Providers\Adapters\SogoProvider.php:420: *     FAILED, `refunded` is REFUNDED, `processing` stays PROCESSING.
+.\app\Providers\Adapters\SogoProvider.php:437: * A transport failure during reconciliation is still unknown. `send()`
+.\app\Providers\Adapters\SogoProvider.php:478: * side. Gating on `verified: true` is the caller's job; this only fetches.
+.\app\Providers\Adapters\SogoProvider.php:498: *   * the **bills** endpoints return `{message, data: {reference, status, …}}`;
+.\app\Providers\Adapters\SogoProvider.php:500: *     `{status, message, transaction: {reference, status: {value, is_final}, amount: {raw, …}}}`.
+.\app\Providers\Adapters\SogoProvider.php:502: * A body that carries an `error` object is a rejection, and the error code
+.\app\Providers\Adapters\SogoProvider.php:523: * A non-2xx response carrying no `error` envelope. The status code is then
+.\app\Providers\Adapters\SogoProvider.php:559: * catalogue caller reads `payload` directly and never the status.
+.\app\Providers\Adapters\SogoProvider.php:587: * `is_final: false` on a status the map calls SUCCESS would be a
+.\app\Providers\Adapters\SogoProvider.php:631: * A catalogue response also nests under `data` but carries no `status`.
+.\app\Providers\Adapters\SogoProvider.php:671: * that the surrounding `payload` can be stored without them.
+.\app\Providers\Adapters\SogoProvider.php:736: * The three-way split is the point: `insufficient_funds` and
+.\app\Providers\Adapters\SogoProvider.php:737: * `service_unavailable` mean nothing was charged (RETRYABLE), a validation
+.\app\Providers\Adapters\SogoProvider.php:739: * (FAILED), and `idempotency_request_in_progress` means an earlier attempt is
+.\app\Providers\Adapters\SogoProvider.php:796: * `_formatted` fields must not be parsed. Parsing through `Money` keeps the
+.\app\Providers\Adapters\VtpassProvider.php:30: *   * **GET** — `api-key` + `public-key`
+.\app\Providers\Adapters\VtpassProvider.php:31: *   * **POST** — `api-key` + `secret-key`
+.\app\Providers\Adapters\VtpassProvider.php:35: * is rejected — so the method is passed into `authHeaders()` rather than picked
+.\app\Providers\Adapters\VtpassProvider.php:46: * `total_amount` is therefore the provider cost, and the adapter uses it. It also
+.\app\Providers\Adapters\VtpassProvider.php:47: * records `amount` and `commission` so the figure can be audited, because a
+.\app\Providers\Adapters\VtpassProvider.php:50: * `commission_details` when a caller needs it, and a fallback computation is used
+.\app\Providers\Adapters\VtpassProvider.php:51: * only when `total_amount` is missing.
+.\app\Providers\Adapters\VtpassProvider.php:55: * VTpass publishes a code table. `000` means "processed — now read
+.\app\Providers\Adapters\VtpassProvider.php:56: * `content.transactions.status`", and that inner status is the only thing that
+.\app\Providers\Adapters\VtpassProvider.php:57: * says `delivered`, `pending` or `initiated`. A code the table does not list is
+.\app\Providers\Adapters\VtpassProvider.php:167: * Documented as a **GET** with `serviceID`, `operator_id` and
+.\app\Providers\Adapters\VtpassProvider.php:168: * `product_type_id` as query parameters. The response's `convinience_fee` is
+.\app\Providers\Adapters\VtpassProvider.php:170: * `variation_amount` is the naira-equivalent charge for a fixed-price
+.\app\Providers\Adapters\VtpassProvider.php:171: * variation; a flexible-price variation instead documents a `variation_rate`
+.\app\Providers\Adapters\VtpassProvider.php:194: *   1. `contents` is **plural**, unlike every other VTpass response, which uses
+.\app\Providers\Adapters\VtpassProvider.php:195: *      `content`. A parser keyed on `content` finds nothing.
+.\app\Providers\Adapters\VtpassProvider.php:196: *   2. `code` is the integer `1`, not a response code. Read as a transaction
+.\app\Providers\Adapters\VtpassProvider.php:197: *      code it would be padded to `001` and interpreted as a requery.
+.\app\Providers\Adapters\VtpassProvider.php:202: * matches every other adapter's `balance()` so the provider health dashboard
+.\app\Providers\Adapters\VtpassProvider.php:250: * `$requestId` is our own reference and VTpass binds it to the transaction:
+.\app\Providers\Adapters\VtpassProvider.php:251: * reusing it returns `014 REQUEST ID ALREADY EXIST`, and a requery with an id
+.\app\Providers\Adapters\VtpassProvider.php:252: * VTpass never saw returns `015`. That pair is what makes reconciliation
+.\app\Providers\Adapters\VtpassProvider.php:254: * unresolved order — the same rule as `service_orders.provider_idempotency_key`.
+.\app\Providers\Adapters\VtpassProvider.php:256: * `phone` is the *customer's* number for VTpass's records and `billersCode` is
+.\app\Providers\Adapters\VtpassProvider.php:259: * here rather than a single `$phone`.
+.\app\Providers\Adapters\VtpassProvider.php:311: *   1. A transport failure never reaches here — `send()` returns UNKNOWN.
+.\app\Providers\Adapters\VtpassProvider.php:312: *   2. The balance envelope is checked first, because its `code` is not a
+.\app\Providers\Adapters\VtpassProvider.php:314: *   3. The body's `code` decides the class of outcome. `000` and `001` mean
+.\app\Providers\Adapters\VtpassProvider.php:325: /* ---- Balance: `contents` (plural) and a non-response `code` ----- */
+.\app\Providers\Adapters\VtpassProvider.php:339: * operator and variation responses with a `response_description` and a
+.\app\Providers\Adapters\VtpassProvider.php:340: * `content` — and **no `code` field at all** — unlike `/pay` and
+.\app\Providers\Adapters\VtpassProvider.php:341: * `/requery`, which both carry one. Requiring a code here would classify
+.\app\Providers\Adapters\VtpassProvider.php:345: * A 2xx carrying `content` and no code is therefore a successful read —
+.\app\Providers\Adapters\VtpassProvider.php:396: * buried in a `match` arm.
+.\app\Providers\Adapters\VtpassProvider.php:422: * `unknown_codes` can see that every code VTpass documents as ambiguous has
+.\app\Providers\Adapters\VtpassProvider.php:434: * Build a result from a `content.transactions` envelope.
+.\app\Providers\Adapters\VtpassProvider.php:444: * `000` with no transaction object. This happens on a catalogue call
+.\app\Providers\Adapters\VtpassProvider.php:487: * `requestId` is preferred over `transactionId` because `requestId` is the
+.\app\Providers\Adapters\VtpassProvider.php:489: * lookup table; `transactionId` is VTpass's own and is kept in the payload.
+.\app\Providers\Adapters\VtpassProvider.php:505: * `total_amount` is the debit — the documented relationship is
+.\app\Providers\Adapters\VtpassProvider.php:506: * `total_amount = amount − commission` — so it is the provider cost. When it
+.\app\Providers\Adapters\VtpassProvider.php:508: * round: deriving `total_amount` from `amount` alone would overstate the cost
+.\app\Providers\Adapters\VtpassProvider.php:536: * A `rate_type` of `flat` is an amount, not a percentage, and is reported as
+.\app\Providers\Adapters\VtpassProvider.php:576: * matters: a provider that answered `16` instead of `016` would otherwise miss
+.\app\Providers\Adapters\VtpassProvider.php:599: * The balance endpoint returns values such as `1081.8199999998` — a float
+.\app\Providers\Adapters\VtpassProvider.php:601: * places before conversion. `Money` rejects excess precision by design, which
+.\app\Providers\Adapters\VtugateProvider.php:32: * The response envelope is `{status: bool, message: string, data: {…}}`.
+.\app\Providers\Adapters\VtugateProvider.php:44: * Sending `recipient` where the API expects `phone` does not fail loudly — it
+.\app\Providers\Adapters\VtugateProvider.php:48: *   * every field name is read from `providers.vtugate.fields` / `response_fields`
+.\app\Providers\Adapters\VtugateProvider.php:50: *   * `isOperational()` returns false until an operator sets
+.\app\Providers\Adapters\VtugateProvider.php:51: *     `VTUGATE_FIELDS_VERIFIED=true`, and the registry skips an adapter that is
+.\app\Providers\Adapters\VtugateProvider.php:94: * docblock. `ProviderRegistry` consults this and falls through to the next
+.\app\Providers\Adapters\VtugateProvider.php:131: * The balance is nested under `data.wallet_balance` in the documented
+.\app\Providers\Adapters\VtugateProvider.php:132: * response. Like every other adapter's `balance()`, this returns the same shape
+.\app\Providers\Adapters\VtugateProvider.php:233: * `$reference` is our own identifier, sent under whichever field name the
+.\app\Providers\Adapters\VtugateProvider.php:234: * vendor documents (`fields.reference`). It is the value reconciliation uses,
+.\app\Providers\Adapters\VtugateProvider.php:287: * Decode VTUGate's `{status, message, data}` envelope.
+.\app\Providers\Adapters\VtugateProvider.php:289: * `status` is documented as a boolean, so:
+.\app\Providers\Adapters\VtugateProvider.php:291: *   * `true` on a call that carries no transaction — a catalogue read — is a
+.\app\Providers\Adapters\VtugateProvider.php:293: *   * `true` on a call that carries a transaction is a success, but only once
+.\app\Providers\Adapters\VtugateProvider.php:296: *   * `false` is a rejection, and the message decides its class. A message
+.\app\Providers\Adapters\VtugateProvider.php:297: *     matching `retryable_errors` means nothing was vended; anything else is
+.\app\Providers\Adapters\VtugateProvider.php:302: * The `false` case deliberately does **not** consult an error-code table even
+.\app\Providers\Adapters\VtugateProvider.php:372: * Pull the transaction object out of `data`, if there is one.
+.\app\Providers\Adapters\VtugateProvider.php:374: * The status endpoint may nest it under `data.transaction`, and a bare top-up
+.\app\Providers\Adapters\VtugateProvider.php:375: * response may put the fields directly under `data`. Both are accepted, and
+.\app\Providers\Adapters\VtugateProvider.php:427: * sending `phone` because nobody configured `recipient` is precisely the silent
+.\app\Providers\Adapters\VtugateProvider.php:477: /** VTUGate documents `status` as a boolean, but JSON may carry a string. */
+.\app\Providers\Adapters\VtugateProvider.php:487: * Lower-cased with punctuation and spaces removed, so `"Insufficient balance."`
+.\app\Providers\Adapters\VtugateProvider.php:488: * and `insufficient_balance` match the same configured entry. The messages are
+.\app\Providers\Support\DeliveryTokenStore.php:26: *   * a `mysqldump` attached to a support ticket;
+.\app\Providers\Support\DeliveryTokenStore.php:35: * It does not store the token on the order row where a careless `toArray()` would
+.\app\Providers\Support\DeliveryTokenStore.php:37: * order, so returning an order never returns a token. `retrieve()` is the only
+.\app\Providers\Support\DeliveryTokenStore.php:45: * Idempotent per order: the table has a unique index on `service_order_id`,
+.\app\Providers\Support\PayloadRedactor.php:7: * a log file or a `provider_transactions` row.
+.\app\Providers\Support\PayloadRedactor.php:29: * Matched as substrings so that `access_token`, `x-api-key` and
+.\app\Providers\Support\PayloadRedactor.php:30: * `paystack_secret_key` are all caught, but combined with the exact delivery
+.\app\Providers\Support\PayloadRedactor.php:31: * check below so `token` is classified as the credential it usually is.
+.\app\Providers\Support\PayloadRedactor.php:43: * with innocuous fields: `code` is a substring of `countryCode`, `pin` of
+.\app\Providers\Support\PayloadRedactor.php:44: * `shipping`, and `ac` of almost everything. A substring match on these
+.\app\Providers\Support\PayloadRedactor.php:97: * `$depth` bounds the recursion so a self-referential structure cannot hang
+.\app\Providers\Support\PayloadRedactor.php:111: * identifier mask, because the lists overlap. `pin` is a delivery token
+.\app\Providers\Support\PayloadRedactor.php:159: *   * the long fragments (`activation_code`, `matching_id`) are matched as
+.\app\Providers\Support\PayloadRedactor.php:161: *   * the short names (`pin`, `code`, `ac`, `qr`) are matched as whole
+.\app\Providers\Support\PayloadRedactor.php:163: *     `countryCode` contains `code` and `shipping` contains `pin`. A
+.\app\Providers\Support\PayloadRedactor.php:187: * A compound name such as `pinCode` or `giftCode` normalises to
+.\app\Providers\Support\PayloadRedactor.php:188: * `pincode`/`giftcode`. Requiring the exact token to sit at a word
+.\app\Providers\Support\PayloadRedactor.php:191: * keeps `countryCode` out while catching `pinCode`.
+.\app\Providers\Support\PayloadRedactor.php:208: * An allowlist rather than a heuristic: `pin` + anything is a PIN, but `code`
+.\app\Providers\Support\PayloadRedactor.php:223: * The `*_code` suffix rule is deliberately conservative — anything ending in
+.\app\Providers\Support\PayloadRedactor.php:224: * `code` is redacted unless it is named here — because a delivery token this
+.\app\Providers\Support\PayloadRedactor.php:229: * That distinction matters more than it looks. `provider_products` is keyed by
+.\app\Providers\Support\PayloadRedactor.php:230: * the provider's own variation code, so redacting `variation_code` does not
+.\app\Providers\Support\PayloadRedactor.php:232: * `[redacted]` key and the catalogue silently becomes one product. Found by the
+.\app\Providers\Support\PayloadRedactor.php:238: * `serialCode`, `pinCode`, `giftCode` and friends.
+.\app\Providers\Support\PayloadRedactor.php:265: // `errorcode` and friends are caught by the false-positive list
+.\app\Providers\Support\PayloadRedactor.php:282: * inline `key=value` or `Bearer xyz`.
+.\app\Providers\Support\ProviderCredentials.php:20: *      never returned to a caller. `Provider` rows record the *env prefix*, not
+.\app\Providers\Support\ProviderCredentials.php:24: *      `PayloadRedactor` strips credential-shaped keys from anything an adapter
+.\app\Providers\Support\ProviderCredentials.php:28: *      uses the write key. `credentialFor($provider, ProviderScope::READ)` is the
+.\app\Providers\Support\ProviderCredentials.php:33: * A provider row's `credential_env_prefix` is a prefix such as `SOGO`. The
+.\app\Providers\Support\ProviderCredentials.php:144: * `env()` is used rather than `config()` deliberately: a provider credential
+.\app\Providers\Support\ProviderCredentials.php:146: * a `config:cache` artefact or a debug endpoint.
+.\app\Providers\Support\ProviderCredentials.php:191: *   * Sogo and VTUGate want `Authorization: Bearer {key}` — `authorisedRequest()`;
+.\app\Providers\Support\ProviderCredentials.php:197: * All three must still share the timeout, the `Cache-Control` header and —
+.\app\Providers\Support\ProviderCredentials.php:198: * crucially — the absence of `retry()`. This method is that shared part, so an
+.\app\Providers\Support\ProviderCredentials.php:213: * No `retry()`. Laravel's retry helper turns every non-2xx into an
+.\app\Providers\Support\ProviderCredentials.php:226: * `$scope` selects a scoped credential when one is configured, which is what
+.\app\Providers\Support\ProviderCredentials.php:238: * that echoes the request in a `X-Debug` header would otherwise write the key
+.\app\Providers\Support\ProviderDelivery.php:17: * token has to reach for `$result->delivery`, and a caller that is merely logging
+.\app\Providers\Support\ProviderDelivery.php:20: * `toLogContext()` returns field *names* only — never a value — so a debugging
+.\app\Providers\Support\ProviderDelivery.php:26: * `App\Providers\Support\DeliveryTokenStore`). This object holds it in memory for
+.\app\Providers\Support\ProviderNotConfiguredException.php:24: * `AbstractProviderAdapter::send()` catches this type specifically and converts it
+.\app\Providers\Support\ProviderNotConfiguredException.php:28: * It extends `RuntimeException` so that existing callers — and the order service's
+.\app\Providers\Support\ProviderNotConfiguredException.php:29: * blanket `catch (Throwable)` — keep working unchanged.
+.\app\Providers\Support\ProviderResult.php:11: * The important part is that `status` is always one of the canonical
+.\app\Providers\Support\ProviderResult.php:12: * `ProviderStatus` values, and that a *transport* failure and a *provider*
+.\app\Providers\Support\ProviderResult.php:13: * rejection are distinguishable. `fromTransportFailure()` produces UNKNOWN,
+.\app\Providers\Support\ProviderResult.php:48: * `payload` is redacted, which is right for anything persisted or logged but
+.\app\Providers\Support\ProviderResult.php:51: * VTpass uses `code` for a country code; Sogo uses `code` for a gift card
+.\app\Providers\Support\ProviderResult.php:53: * and a catalogue sync reading `payload` sees `[redacted]` where the country
+.\app\Providers\Support\ProviderResult.php:59: * read-only catalogue calls (`sendRead()`), precisely so the order pipeline
+.\app\Providers\Support\ProviderResult.php:60: * never holds one — a purchase result's `raw` is null by construction. Code
+.\app\Providers\Support\ProviderResult.php:63: * `toLogContext()` deliberately does not include it.
+.\app\Providers\Support\ProviderResult.php:186: * `rate × quantity ÷ 1000` then either the rate changed under us or the
+.\app\Providers\Support\ProviderResult.php:204: * already absent from `payload`; the message is scrubbed again defensively.
+.\app\Providers\Support\ProviderStatus.php:13: *   * Sogo: `processing`, `completed`, `failed`, `refunded`, `cancelled`
+.\app\Providers\Support\ProviderStatus.php:14: *   * VTUGate: a boolean `status`, so a stringified `true`/`false`
+.\app\Providers\Support\ProviderStatus.php:15: *   * VTpass: `delivered`, `pending`, `failed`, plus a three-digit `code`
+.\app\Providers\Support\ProviderStatus.php:16: *   * Nitro: `Pending`, `In progress`, `Completed`, `Partial`, `Canceled`, `Refunded`
+.\app\Providers\Support\ProviderStatus.php:18: * If a controller branched on `$response['status']` then "Canceled" and
+.\app\Providers\Support\ProviderStatus.php:111: * and then failed may still have delivered it, and a `failed` from one
+.\app\Providers\Support\ProviderStatus.php:147: * Lower-cases, strips punctuation and whitespace, so `In progress`,
+.\app\Providers\Support\ProviderStatus.php:148: * `IN_PROGRESS` and `in-progress` all reduce to the same token.
+.\app\Providers\AbstractProviderAdapter.php:23: *      times out may have delivered the request. `send()` catches the transport
+.\app\Providers\AbstractProviderAdapter.php:33: *      messages and stack traces are all passed through `PayloadRedactor` before
+.\app\Providers\AbstractProviderAdapter.php:37: *   4. **A single choke point for outbound calls.** `send()` is the only method
+.\app\Providers\AbstractProviderAdapter.php:39: *      the set of endpoints in `config/providers.php`. "No arbitrary provider API
+.\app\Providers\AbstractProviderAdapter.php:248: * Returns a `ProviderResult` for every outcome — including transport
+.\app\Providers\AbstractProviderAdapter.php:279: * was never made. `attempt()` deliberately builds the request
+.\app\Providers\AbstractProviderAdapter.php:322: * `raw`, which exists because the redactor is path-blind: `code` is a gift card
+.\app\Providers\AbstractProviderAdapter.php:324: * first destroys the second. See `ProviderResult::$raw` for the rule about
+.\app\Providers\AbstractProviderAdapter.php:375: * reason. `send()` catches the type and resolves it to RETRYABLE.
+.\app\Providers\AbstractProviderAdapter.php:489: * Declared, not inferred, by the provider's `auth` config key:
+.\app\Providers\AbstractProviderAdapter.php:491: *   * `bearer` (default) — `Authorization: Bearer {key}`. Sogo and VTUGate.
+.\app\Providers\AbstractProviderAdapter.php:492: *   * `headers` — named API-key headers, supplied by `authHeaders()`.
+.\app\Providers\AbstractProviderAdapter.php:493: *     VTpass uses `api-key` with `public-key` on a GET and `secret-key` on a
+.\app\Providers\AbstractProviderAdapter.php:495: *   * `body` — no credential in any header; the key travels as a form field
+.\app\Providers\AbstractProviderAdapter.php:497: *   * `none` — a public endpoint.
+.\app\Providers\AbstractProviderAdapter.php:499: * `$scope` selects a scoped credential where the provider issues them (Sogo
+.\app\Providers\AbstractProviderAdapter.php:505: * Most of these providers accept `application/x-www-form-urlencoded` only, and
+.\app\Providers\AbstractProviderAdapter.php:508: * provider, declared as `encoding` in its config block, rather than a parameter
+.\app\Providers\AbstractProviderAdapter.php:513: * `asForm()` must be applied *after* the credential headers, which set JSON.
+.\app\Providers\AbstractProviderAdapter.php:515: * `protected` so a provider with unusual authentication overrides this in one
+.\app\Providers\AbstractProviderAdapter.php:516: * place instead of bypassing the single HTTP choke point in `send()`.
+.\app\Providers\AbstractProviderAdapter.php:559: * Turn an HTTP response into a `ProviderResult`.
+.\app\Providers\AbstractProviderAdapter.php:561: * Subclasses override `normalise()` where the provider's envelope needs
+.\app\Providers\AbstractProviderAdapter.php:562: * decoding; the default handles a plain JSON body with a `status` field.
+.\app\Providers\AbstractProviderAdapter.php:580: * `config('providers.*')` for a global key.
+.\app\Providers\AbstractProviderAdapter.php:645: * `ProviderResult` is immutable, so this rebuilds it. Done once, in the one
+.\app\Providers\AppServiceProvider.php:60: | `string()` column cannot be indexed: 255 × 4 bytes for utf8mb4 is
+.\app\Providers\AppServiceProvider.php:64: |   (alter table `personal_access_tokens` add index
+.\app\Providers\AppServiceProvider.php:65: |    `..._tokenable_type_tokenable_id_index` (`tokenable_type`, `tokenable_id`))
+.\app\Providers\AppServiceProvider.php:67: | because `morphs('tokenable')` is a VARCHAR(255) plus a bigint. 191 is
+.\app\Providers\AppServiceProvider.php:69: | bigint in that composite index, and it keeps `users.email`,
+.\app\Providers\AppServiceProvider.php:70: | `transactions.reference`, `site_settings.key` and `failed_jobs.uuid`
+.\app\Providers\AppServiceProvider.php:74: | affects `string()` columns created without an explicit length;
+.\app\Providers\AppServiceProvider.php:75: | `string('token', 64)`, `string('purpose', 32)` and the like are
+.\app\Providers\AppServiceProvider.php:76: | unaffected. Removing it re-breaks `php artisan migrate` on those
+.\app\Providers\AppServiceProvider.php:85: | Built once here rather than in each view. `wa.me` needs the number in
+.\app\Providers\AppServiceProvider.php:86: | international format with no `+` and no leading zero, and a wrong
+.\app\Providers\AppServiceProvider.php:130: | Laravel 8 has no `@vite` directive — it arrived in 9.19 — so the
+.\app\Providers\AppServiceProvider.php:135: | Accepts an array (`@vite(['a', 'b'])`) or a comma-separated list
+.\app\Providers\AppServiceProvider.php:136: | (`@vite('a', 'b')`), which is what `laravel-vite-plugin` documents.
+.\app\Providers\AppServiceProvider.php:171: * `if$x: ... endif;` rather than `if($x): ... endif;`.
+.\app\Providers\AppServiceProvider.php:188: // `$pendingTransfers`, but no controller ever passed it.
+.\app\Providers\CatalogueSync.php:23: * **It never creates a sellable product.** A `provider_products` row is a decision
+.\app\Providers\CatalogueSync.php:26: * go to `provider_catalogue_items`, where an operator maps them.
+.\app\Providers\CatalogueSync.php:28: * That restraint is the whole design. A sync that matched `MTN 1GB Monthly` to our
+.\app\Providers\CatalogueSync.php:33: * **It never rewrites history.** Costs on `provider_products` are current state and
+.\app\Providers\CatalogueSync.php:34: * are updated freely. Every change also appends a `provider_price_snapshots` row,
+.\app\Providers\CatalogueSync.php:35: * and `pricing_snapshots` — the price a customer actually agreed to — is never
+.\app\Providers\CatalogueSync.php:40: * Every write is keyed by a unique index: `provider_products` and
+.\app\Providers\CatalogueSync.php:41: * `international_products` by `(provider_id, provider_product_id)`,
+.\app\Providers\CatalogueSync.php:42: * `provider_catalogue_items` likewise. Running the sync twice changes
+.\app\Providers\CatalogueSync.php:43: * `last_seen_at` and nothing else, so an overlapping run or a retried scheduled job
+.\app\Providers\CatalogueSync.php:178: * would be a pile of `data_get` guesses that silently returns nothing when a
+.\app\Providers\CatalogueSync.php:207: * Checked rather than assumed. A `providers` row whose driver and whose
+.\app\Providers\CatalogueSync.php:290: // Nitro instructs that `description` be read before selling: it
+.\app\Providers\CatalogueSync.php:303: * VTpass rate-limits, so the walk is bounded by `--country=` when an operator
+.\app\Providers\CatalogueSync.php:306: * The rate is the important output: `variation_rate × amount` is the naira charge
+.\app\Providers\CatalogueSync.php:307: * for a flexible-price variation, and `variation_amount` is the charge for a
+.\app\Providers\CatalogueSync.php:308: * fixed-price one. Which of the two applies is decided by `fixedPrice`, never
+.\app\Providers\CatalogueSync.php:595: * falsy, which is why they must not go through the `array_filter` above: it
+.\app\Providers\CatalogueSync.php:596: * removes `false` and `0` along with `null`. A flexible-price variation
+.\app\Providers\CatalogueSync.php:685: * Separate from the update on purpose: `provider_products` is current state and
+.\app\Providers\CatalogueSync.php:707: * `unavailable_at` takes it out of routing immediately, which is the part that
+.\app\Providers\CatalogueSync.php:795: * `fixedPrice` decides which figure is the charge, and it is read rather
+.\app\Providers\CatalogueSync.php:797: * the naira charge is `variation_rate × amount`, where the amount is chosen
+.\app\Providers\CatalogueSync.php:930: * `raw` — the unredacted response — when the adapter attached one, which it does
+.\app\Providers\CatalogueSync.php:932: * by key name, and `code` is a gift card number to Sogo and a country code to
+.\app\Providers\CatalogueSync.php:933: * VTpass, so parsing the redacted `payload` finds `[redacted]` where the country
+.\app\Providers\CatalogueSync.php:936: * The fallback to `payload` keeps a mis-wired adapter (one calling `send()`
+.\app\Providers\CatalogueSync.php:937: * instead of `sendRead()`) working for the fields that are not redacted, rather
+.\app\Providers\CatalogueSync.php:939: * a missing `raw` fails loudly there rather than in production.
+.\app\Providers\ProviderMonitor.php:16: * ## Why this is separate from `ProviderBalanceService` and `ProviderHealthService`
+.\app\Providers\ProviderMonitor.php:18: * Those two serve the ClubKonnect/Pairgate path, which is built on `BillProvider`
+.\app\Providers\ProviderMonitor.php:21: * split already avoided. This service serves `AbstractProviderAdapter`, which is
+.\app\Providers\ProviderMonitor.php:32: * Both are answered by the same call, because every adapter exposes `balance()` and
+.\app\Providers\ProviderMonitor.php:39: * Every probe appends a `provider_health_checks` row and updates the provider's
+.\app\Providers\ProviderMonitor.php:40: * current `health_status`. Alerts are raised through `ProductAlert`, whose
+.\app\Providers\ProviderMonitor.php:45: * No credential is ever written: `error_code` records the provider's own error
+.\app\Providers\ProviderMonitor.php:87: * `balance()` is a read, so a failure here says nothing about whether a
+.\app\Providers\ProviderMonitor.php:522: * The unique index on the generated `open_fingerprint` column rejected
+.\app\Providers\ProviderRegistry.php:19: * `ProviderManager` routes the five products that ClubKonnect and Pairgate
+.\app\Providers\ProviderRegistry.php:24: *   * `ProviderManager` continues to serve airtime, data, cable, electricity,
+.\app\Providers\ProviderRegistry.php:26: *   * `ProviderRegistry` serves the Wave 1 capabilities from database-configured
+.\app\Providers\ProviderRegistry.php:34: * Ordering comes from `providers.priority` (lower first) with the `is_primary`
+.\app\Providers\ProviderRegistry.php:50: * reached, however a `providers` row is configured. Adding one is a code
+.\app\Providers\ProviderRegistry.php:68: * `BILL_PROVIDER_ORDER`: a decommissioned integration should disable itself
+.\app\Providers\ProviderRegistry.php:202: * database is configured. This is what stops an admin adding `esim` to a
+.\app\Providers\ViewServiceProvider.php:14: * `$globalPromotions` and `$globalAnnouncements`, then map them into an array
+.\app\Providers\ViewServiceProvider.php:15: * shape (`badgeColor`, `text`, `icon`) that nothing consumed:
+.\app\Providers\ViewServiceProvider.php:18: *   - `resources/views/components/announcement-modal.blade.php` was never
+.\app\Providers\ViewServiceProvider.php:25: * are now read where they are rendered, through `PromotionNotification::live()`.
+.\app\Providers\ViewServiceProvider.php:28: * test; do not reinstate a `View::composer('*')` that queries unconditionally.
+.\app\Providers\ViewServiceProvider.php:45: // `$pendingTransfers`, but no controller ever passed it.
+.\app\Retention\RetentionService.php:20: * Every read and write on a saved bill is scoped to the owner. `mine()` is the
+.\app\Retention\RetentionService.php:36: * `emitDueReminders()` writes a `product_alerts` row and nothing else. There is
+.\app\Retention\RetentionService.php:37: * no code path here that touches a wallet, and the `bill_reminders` table has no
+.\app\Retention\RetentionService.php:68: * Scoped by `user_id` on the query, so another user's id produces a
+.\app\Retention\RetentionService.php:69: * `ModelNotFoundException` — which Laravel renders as a 404, not a 403. A 403
+.\app\Retention\RetentionService.php:80: * The unique index on `(user_id, product_key, identifier)` means the same
+.\app\Retention\RetentionService.php:325: * A reminder is a notification, never a payment. `amount_minor` is stored for
+.\app\Retention\RetentionService.php:435: * `BillReminder::claimForDueDate()` is the guard: it advances `next_due_at`
+.\app\Retention\RetentionService.php:442: * The only write is a `product_alerts` row. There is no wallet call on this
+.\app\Retention\RetentionService.php:443: * path, and there is no column on `bill_reminders` that could authorise one.
+.\app\Services\Providers\BillProvider.php:91: *                `unknown` means the provider could not tell us either —
+.\app\Services\Providers\ClubKonnectProvider.php:74: * catalogue carries `clubkonnect_price` (the wholesale amount it bills for a
+.\app\Services\Providers\ClubKonnectProvider.php:209: * `APIStatusQueryV1` is keyed on the RequestID we sent, which is the
+.\app\Services\Providers\ClubKonnectProvider.php:217: *   * a completed/reversed/refunded order is `success` or `failed`
+.\app\Services\Providers\ClubKonnectProvider.php:219: *   * anything still in progress is `pending`;
+.\app\Services\Providers\ClubKonnectProvider.php:220: *   * **anything unrecognised is `unknown`, never `failed`.**
+.\app\Services\Providers\PairgateProvider.php:28: *   1. **Identifiers are Pairgate's own slugs** (`mtn`, `ikedc`, `bet9ja`) while
+.\app\Services\Providers\PairgateProvider.php:30: *      (`01`–`04`, `01`–`12`). Translation lives in config/bills.php under
+.\app\Services\Providers\PairgateProvider.php:31: *      `pairgate`; an identifier with no mapping is reported as `UNSUPPORTED`
+.\app\Services\Providers\PairgateProvider.php:33: *   2. **The envelope is `{code, status, data}`** and the fields that matter
+.\app\Services\Providers\PairgateProvider.php:34: *      sit inside `data`. Responses are normalised onto the status vocabulary
+.\app\Services\Providers\PairgateProvider.php:39: *      webhook. `issuedToken()` therefore returns whatever the acknowledgement
+.\app\Services\Providers\PairgateProvider.php:140: * No `retry()` here, deliberately.
+.\app\Services\Providers\PairgateProvider.php:143: * once retries are enabled (`PendingRequest` calls `$response->throw()`
+.\app\Services\Providers\PairgateProvider.php:144: * when `tries > 1`), which would throw away the error body — and the
+.\app\Services\Providers\PairgateProvider.php:160: * Test mode is a documented prefix on the same path (`/test/airtime/purchase`)
+.\app\Services\Providers\PairgateProvider.php:216: * Look a value up in one of the `pairgate` maps in config/bills.php.
+.\app\Services\Providers\PairgateProvider.php:238: * `errorMessage()` has no canned text for this status — so it names the
+.\app\Services\Providers\PairgateProvider.php:253: . ($hint !== '' ? ' ' . $hint : ' Add a mapping to config/bills.php under `pairgate`.'),
+.\app\Services\Providers\PairgateProvider.php:270: * The maps started as `clubkonnect-plan-id => pairgate-plan-id`. Cost
+.\app\Services\Providers\PairgateProvider.php:277: * `plan_type` lets the live catalogue be consulted for the current price;
+.\app\Services\Providers\PairgateProvider.php:278: * `price` short-circuits that with a figure the operator has recorded.
+.\app\Services\Providers\PairgateProvider.php:415: * `{"MTN": [{"plan_id": "45", "name": "...", "price": 500}]}`.
+.\app\Services\Providers\PairgateProvider.php:472: * `Authorization` header value. It is scrubbed before it is logged,
+.\app\Services\Providers\PairgateProvider.php:475: * `EXCEPTION` is classified retryable by ProviderManager — a request
+.\app\Services\Providers\PairgateProvider.php:494: * A `ConnectionException` from Guzzle/Laravel quotes the full request URL,
+.\app\Services\Providers\PairgateProvider.php:495: * so a query string (which for other adapters carries `UserID`/`APIKey`) and
+.\app\Services\Providers\PairgateProvider.php:496: * any `Bearer`/`token=`-style fragment are removed before the text reaches a
+.\app\Services\Providers\PairgateProvider.php:520: * Success is `{"status":"success","data":{"status":true,…}}`; failure is an
+.\app\Services\Providers\PairgateProvider.php:521: * HTTP error whose only explanation is a human-readable `message`, which is
+.\app\Services\Providers\PairgateProvider.php:582: * Verification responses carry the account name inside `data`, while every
+.\app\Services\Providers\PairgateProvider.php:583: * controller reads `customer_name` off the top level (that is where
+.\app\Services\Providers\PairgateProvider.php:706: 'Populate `pairgate.data_plans` from GET /data-plans.'
+.\app\Services\Providers\PairgateProvider.php:732: 'Populate `pairgate.cable_packages` from GET /cable-plans.'
+.\app\Services\Providers\PairgateProvider.php:836: * Purchases return `data.reference_code`. Exam pins are the exception:
+.\app\Services\Providers\PairgateProvider.php:837: * the acknowledgement carries our own reference in `data.reference`
+.\app\Services\Providers\PairgateProvider.php:838: * and one generated reference_code per pin in `data.details`.
+.\app\Services\Providers\PairgateProvider.php:876: * ## Why this can honestly return `unknown`
+.\app\Services\Providers\PairgateProvider.php:879: * reference query takes Pairgate's own `reference_code` — which for an
+.\app\Services\Providers\PairgateProvider.php:882: * answer is `unknown`.
+.\app\Services\Providers\PairgateProvider.php:886: * `PairgateWebhookController` is what ultimately resolves them — a webhook
+.\app\Services\Providers\PairgateProvider.php:892: * @param  array<string,mixed>  $params  expects an optional `reference_code`
+.\app\Services\AffiliateService.php:28: *      `referrals.referred_id`, so a user cannot farm rewards by funding
+.\app\Services\AffiliateService.php:32: *      `referrals.transaction_id`. Paystack retries webhooks until it gets a
+.\app\Services\AffiliateService.php:36: *      uses `wallets.total_funded`, which accumulates across every funding
+.\app\Services\BachsService.php:24: * offers "Card"; `WalletController::initiateCardPayment()` decides which
+.\app\Services\BachsService.php:34: * kobo; `Money` bridges the two and the conversion is asserted in tests.
+.\app\Services\BachsService.php:38: * There is no `balance()` and no dedicated-virtual-account support. Bank
+.\app\Services\BachsService.php:55: * Both halves matter: `enabled` is a deliberate switch so the fallback does
+.\app\Services\BachsService.php:69: // `env()` hands back the *string* "false", which is truthy in PHP, so
+.\app\Services\BachsService.php:115: * `currency_options` is deliberately NOT used, since pinning an
+.\app\Services\BachsService.php:117: * invite exactly the amount mismatch `settle()` refuses.
+.\app\Services\BachsService.php:210: * Validation mirrors `PaystackService::settle()` exactly, because the risk
+.\app\Services\BachsService.php:379: * `X-Bachs-Signature-V2` is preferred: it carries the timestamp inline and
+.\app\Services\BachsService.php:380: * may hold several `v1=` signatures during a secret rotation, so accepting
+.\app\Services\BachsService.php:381: * only the first one fails during a rotation. `X-Bachs-Signature` (plain
+.\app\Services\BachsService.php:436: * `?checkout_id=`, and the session cookie may not survive the round trip
+.\app\Services\BillPaymentService.php:22: *   1. **Customer balance** — `WalletService::debit()` re-reads the wallet under
+.\app\Services\BillPaymentService.php:23: *      a `SELECT ... FOR UPDATE` row lock and refuses when the balance is short.
+.\app\Services\BillPaymentService.php:36: *      reverses the debit. A failed refund is logged at `critical`, since it
+.\app\Services\BillPaymentService.php:43: * *and* written to `transactions.status` (except `retryable`, which is
+.\app\Services\BillPaymentService.php:54: * Product key => the value stored in `transactions.service_type`.
+.\app\Services\BillPaymentService.php:60: *   * cable TV is stored as `cable-tv` — the spelling every history page and
+.\app\Services\BillPaymentService.php:62: *   * WAEC and JAMB are both `exam`, which is what the two PIN pages and the
+.\app\Services\BillPaymentService.php:78: * The `transactions.service_type` value for a product key.
+.\app\Services\BillPaymentService.php:132: *        Exactly what `$dispatch` passes to `BillProvider::purchase()`. Given
+.\app\Services\BillPaymentService.php:152: // All money is integer kobo from here on. `fee` is optional, hence the
+.\app\Services\BillPaymentService.php:165: * The database is the authority: `reserve()` inserts a row whose UNIQUE
+.\app\Services\BillPaymentService.php:381: * from here. The adapter's own `post()` catches transport errors
+.\app\Services\BillPaymentService.php:514: * So the row is marked `unknown`, the money stays debited, and the outcome
+.\app\Services\BillPaymentService.php:576: * `unknown`, and it is flagged for review so it cannot be forgotten.
+.\app\Services\BillPaymentService.php:631: * Resolve an `unknown` purchase by asking the provider what happened.
+.\app\Services\BillPaymentService.php:633: * Called by the scheduled `payments:review-unconfirmed` sweep and available
+.\app\Services\BillPaymentService.php:641: *     stays `unknown` and stays visible. Refunding on a non-answer is how a
+.\app\Services\BillPaymentService.php:647: *                              while it still reads `pending`. The scheduled
+.\app\Services\BillPaymentService.php:649: *                              clear `unknown` rows, and widening it would
+.\app\Services\BillPaymentService.php:709: // `pending`, or the provider could not tell us. Leave it alone.
+.\app\Services\BillPaymentService.php:748: *      `payment_status` is checked; anything already `refunded` or
+.\app\Services\BillPaymentService.php:749: *      `reversed` returns early;
+.\app\Services\BillPaymentService.php:750: *   2. the refund transaction's `payment_reference` is derived from the
+.\app\Services\ClubKonnectCatalogue.php:13: * a plan costs *us* (`clubkonnect_price`) stopped being a display concern:
+.\app\Services\ClubKonnectCatalogue.php:21: *   * `plans()` fetches, processes and caches (ten minutes, plus a day-long
+.\app\Services\ClubKonnectCatalogue.php:23: *   * `planPrice()` reads the cache only. A price lookup happens while a
+.\app\Services\ClubKonnectCatalogue.php:87: * `plan_price` from a data attribute and posted it back, so editing the page
+.\app\Services\ClubKonnectCatalogue.php:146: // The config key is `client_id`; this previously read `user_id`,
+.\app\Services\ClubKonnectCatalogue.php:175: // The transport message embeds the request URL, and `UserID` sits
+.\app\Services\ClubKonnectService.php:16: * These were declared as non-nullable `string` properties and assigned
+.\app\Services\ClubKonnectService.php:21: * into AirtimeDataController, that fatal took out `php artisan route:list`
+.\app\Services\ClubKonnectService.php:117: * carries `UserID=...&APIKey=...` in the query string — so the
+.\app\Services\ClubKonnectService.php:118: * previous `$e->getMessage()` put both credentials into the log
+.\app\Services\ClubKonnectService.php:180: * more: `08031234567` becomes `*******4567`.
+.\app\Services\PaymentStatusResolver.php:17: * the app was backgrounded on a phone — and the row then sits `pending`
+.\app\Services\PaymentStatusResolver.php:33: * It never credits on a weaker signal than `PaystackService::settle()`, which
+.\app\Services\PaymentStatusResolver.php:36: * `unreachable` is a real outcome here, and the one case where the row is
+.\app\Services\PaymentStatusResolver.php:72: * payment page. `initiated_at` is deliberately not used: it is stamped when
+.\app\Services\PaymentStatusResolver.php:225: // `pending`, `ongoing`, `processing`, or a status we do not know:
+.\app\Services\PaystackService.php:63: * `route()` builds an absolute URL from APP_URL, which means:
+.\app\Services\PaystackService.php:66: *     silently wins over .env — see docs/RUNNING.md and `env:doctor`) sends
+.\app\Services\PaystackService.php:80: * 127.0.0.1, and `localhost`/`.test` installs must keep working.
+.\app\Services\PaystackService.php:130: // the gateway lodged. `gatewayReference()` falls back to `reference`
+.\app\Services\PaystackService.php:169: * @return array<string,mixed>|null the `data` block, or null when the
+.\app\Services\PaystackService.php:201: *   1. the transaction row is re-read **under a `SELECT ... FOR UPDATE` row
+.\app\Services\PaystackService.php:203: *      reading `pending`;
+.\app\Services\PaystackService.php:208: *   4. `transactions.payment_reference` carries a UNIQUE index, so even a
+.\app\Services\PaystackService.php:217: *   * **status** — only `success` settles;
+.\app\Services\PaystackService.php:259: * The only public door into `creditFunding`, for BachsService. It exists so
+.\app\Services\PaystackService.php:261: * once credit — the row lock, the `payment_reference` unique index and the
+.\app\Services\PaystackService.php:279: * This was extracted out of `settle()` when Bachs was added as a fallback:
+.\app\Services\PaystackService.php:304: * reference is also stamped onto `payment_reference`, whose unique
+.\app\Services\PaystackService.php:385: * Currency. `Money` is NGN-only by construction, and the platform has no
+.\app\Services\PaystackService.php:468: | transfer to it arrives as a `charge.success` webhook with
+.\app\Services\PaystackService.php:469: | `channel = dedicated_nuban`; because the payer types the number into
+.\app\Services\PaystackService.php:662: * Paystack sends one `charge.success` per deposit and retries until it gets
+.\app\Services\PaystackService.php:667: * @param  array<string,mixed>  $data  The webhook `data` payload.
+.\app\Services\PaystackService.php:712: * `provider` is stored lowercase ('paystack') across this codebase; the
+.\app\Services\SecurityService.php:35: * All monetary inputs and comparisons go through `App\Support\Money`, so a
+.\app\Services\SecurityService.php:229: * All arithmetic is on integer kobo via `Money`; the per-user and
+.\app\Services\SecurityService.php:338: | The database is the authority. `idempotency_keys.key` carries a UNIQUE
+.\app\Services\SecurityService.php:477: * before any debit. Marked `failed` rather than deleted so a retry is
+.\app\Services\SecurityService.php:576: * `unique` index inside its maximum length.
+.\app\Services\WalletService.php:19: * Every write to `wallets.balance`, `total_funded`, `total_spent` and
+.\app\Services\WalletService.php:20: * `transaction_count` happens inside one of the movement methods below, inside
+.\app\Services\WalletService.php:21: * a database transaction, holding a `SELECT ... FOR UPDATE` row lock, with a
+.\app\Services\WalletService.php:22: * matching immutable `wallet_ledger` row written in the same transaction.
+.\app\Services\WalletService.php:25: * `$wallet->increment('balance', ...)`, `$wallet->update([...])`,
+.\app\Services\WalletService.php:26: * `Wallet::credit()` — all bypass the lock, the ledger and the audit trail, and
+.\app\Services\WalletService.php:28: * legacy `Wallet::credit()`/`debit()` helpers throw rather than run.
+.\app\Services\WalletService.php:32: * Amounts are accepted as anything `App\Support\Money` can parse exactly
+.\app\Services\WalletService.php:33: * (decimal string, int, float, or a `Money`). They are converted to integer
+.\app\Services\WalletService.php:35: * kobo value, so `₦0.01` credits and hundreds of sequential movements stay
+.\app\Services\WalletService.php:43: *   3. `balance_after` = `balance_before` ± amount, exactly;
+.\app\Services\WalletService.php:55: * Resolve the wallet for a user, creating it if the `created` hook missed it.
+.\app\Services\WalletService.php:57: * `firstOrCreate` rather than "read, then create": the `wallets.user_id`
+.\app\Services\WalletService.php:254: * deliberately separate from `credit()`/`debit()` so that an accidental
+.\app\Services\WalletService.php:398: * `balance_before`/`balance_after` straight onto `decimal(15,2)`
+.\app\Services\WalletService.php:399: * columns — where a `Money` object would be cast to its string
+.\app\Services\WalletService.php:420: * prefix keeps the two namespaces distinct, and `unique()` on the column
+.\app\Services\WalletService.php:449: * The previous implementation used `uniqid()`, which is derived from the
+.\app\Services\WalletService.php:473: * (`wallet:verify`) when a customer disputes a balance.
+.\app\Services\WalletService.php:506: * but deliberately NOT part of `consistent`.
+.\app\Services\WalletService.php:509: * transaction as every balance change, so `from_ledger == stored` is a
+.\app\Support\LoginThrottle.php:14: * `throttle:10,1` on the login route keys on the client IP. That stops one host
+.\app\Support\LoginThrottle.php:47: // data, and cache keys end up in logs and in `redis-cli` output.
+.\app\Support\Money.php:12: * Every monetary value in this application was a PHP `float`, and floats cannot
+.\app\Support\Money.php:13: * represent decimal fractions exactly. `0.1 + 0.2 !== 0.3`, and
+.\app\Support\Money.php:14: * `(int) (1500.50 * 100)` is `150049` on some platforms because the nearest
+.\app\Support\Money.php:21: *   * converting naira to the gateway's kobo with `(int) round($x * 100)` is
+.\app\Support\Money.php:22: *     only correct because of the `round()`. Drop it once, as one code path
+.\app\Support\Money.php:26: * `150050` kobo, addition is exact, and comparison is exact.
+.\app\Support\Money.php:30: *   * construction is exact — `Money::fromNaira('0.01')` is 1 kobo;
+.\app\Support\Money.php:34: *   * `Money` is immutable; every operation returns a new instance;
+.\app\Support\Money.php:35: *   * `toDecimalString()` produces the exact `decimal(15,2)` representation the
+.\app\Support\Money.php:74: * Accepts `int`, `float` and numeric `string`. A float is accepted only
+.\app\Support\Money.php:97: // PHP renders a float at `precision` significant digits by default,
+.\app\Support\Money.php:112: * Rejects anything with more than two decimal places: `1.005` is not a
+.\app\Support\Money.php:151: * From what the database returns for a `decimal(15,2)` column.
+.\app\Support\Money.php:155: * (`transactions.balance_before` on rows written before the wallet service
+.\app\Support\Money.php:199: * `minor()` for both.
+.\app\Support\Money.php:207: * The exact `decimal(15,2)` representation, e.g. "1500.50".
+.\app\Support\Money.php:271: * plan). Deliberately not `float $factor`: a fractional multiplier on money
+.\app\Support\Money.php:285: * gateways use and what the previous `round()` calls did, so switching to
+.\app\Support\Money.php:289: * parsed into its own minor units (so `1.5` becomes 150, meaning 150/10000),
+.\app\Support\Money.php:294: * Written this way rather than as `minor * percent / 100` because that form
+.\app\Support\Money.php:300: // `1.5` -> 150, `2` -> 200, `0.25` -> 25.
+.\app\Support\Permissions.php:42: * deliberately absent from the `admin` role's defaults, so promoting a
+.\app\Support\Permissions.php:46: * `User::hasPermission()` already returns true for a super admin regardless,
+.\app\Support\Permissions.php:91: * Deliberately conservative: `moderator` and `support` can read and
+.\app\Support\Permissions.php:92: * respond, but cannot move money. Only `admin` gets the destructive
+.\app\Support\Permissions.php:93: * capabilities, and `manage_admins` is reserved for super admins.
+.\app\Support\RefreshStatusResult.php:72: * Deliberately distinct from `failed`: no money question was answered, so
+.\app\Support\UiCopy.php:26: * `App\Providers\Support\ProviderStatus` already provides the safe defaults
+.\app\Support\UiCopy.php:27: * (`customerLabel()` returns "Confirming" for UNKNOWN). This adds the *copy deck's*
+.\app\Support\UiCopy.php:37: * Both placeholder styles are supported — `{token}` and `:token` — because the
+.\app\Support\UiCopy.php:38: * approved copy deck writes `You are about to pay ₦{amount} for {service}` while
+.\app\Support\UiCopy.php:53: * renders as `outcome.failed.heading`, which somebody does.
+.\app\Support\UiCopy.php:124: * `$refundRecorded` distinguishes "your wallet has been refunded" from "the
+.\app\Support\UiCopy.php:163: * `reconciliationNote()` would stay silent about a transaction whose outcome
+.\app\Support\UiCopy.php:181: * Deliberately excludes `partial`: an order that delivered some of what was
+.\app\Support\UiCopy.php:194: * Read from `outcome.service_success` so a new service added to the catalogue
+.\app\Support\Vite.php:13: * The `@vite()` Blade directive is provided by Laravel itself, starting in
+.\app\Support\Vite.php:15: * no installed package registers it — so `@vite([...])` was emitted into the
+.\app\Support\Vite.php:38: * Accepts an array (`@vite(['a','b'])`), a single string
+.\app\Support\Vite.php:39: * (`@vite('a')`), or a comma-separated list (`@vite('a','b')`), because
+.\app\Support\Vite.php:58: * `public/hot` is written by `vite` while it runs, but it is not removed if
+.\app\Support\Vite.php:79: // cannot reach (`[::1]` when only IPv4 is available, or vice versa).
+.\app\Support\Vite.php:176: "Vite entry [{$entry}] is not in the build manifest. Run `npm run build`."
+.\app\Support\Vite.php:238: 'Vite build manifest not found at public/build/manifest.json. Run `npm run build`.'
+.\config\announcements.php:56: | New rows should use a name from `icons` above.
+.\config\avatars.php:22: | Background palettes. `from`/`to` drive a subtle two-stop gradient so the
+.\config\bills.php:6: * These lists were hardcoded inside controllers (`CableTvController::providers`,
+.\config\bills.php:7: * `ElectricityController::discos`) and duplicated in Blade templates. Keeping
+.\config\bills.php:8: * them here means the picker the customer sees and the `in:` validation rule
+.\config\bills.php:29: | `provider_order` is the failover sequence. For each purchase the
+.\config\bills.php:49: * No `jamb`: Pairgate sells WAEC / NECO / NABTEB pins only and
+.\config\bills.php:61: | (`mtn`, `ikedc`, `bet9ja`), while everything else in this application —
+.\config\bills.php:69: |   * `data_plans` and `cable_packages` map a ClubKonnect plan/bouquet id
+.\config\bills.php:70: |     to a Pairgate `plan_id`. The catalogues are provider-specific and
+.\config\bills.php:78: | and failed over, so prefer raising `ranges` over expecting Pairgate to
+.\config\bills.php:90: /** `discos` code above => Pairgate provider slug. */
+.\config\bills.php:107: * `cable_providers` key => Pairgate slug. Showmax is deliberately
+.\config\bills.php:117: * `betting_providers` key => Pairgate slug. Only the bookmakers
+.\config\bills.php:128: /** Exam product => Pairgate education slug (`nabt` spells NABTEB). */
+.\config\bills.php:143: * `plan_type` is one of CG, CG_LITE, SME, GIFTING, AWOOF. An entry
+.\config\bills.php:145: * its cost is unknown, and `optimise_cost` only reorders when every
+.\config\bills.php:154: * `data_plans` (`plan_type` is not used here). Fill from GET /cable-plans.
+.\config\bills.php:185: | candidate can be priced — one unknown price and `provider_order` stands —
+.\config\bills.php:189: | `provider_order` remains the tie-breaker, and the whole thing is a no-op
+.\config\bills.php:200: | `code` is the upstream identifier, `logo` is served from our own domain.
+.\config\bills.php:244: | `min` is the bookmaker's own floor for a wallet top-up.
+.\config\bills.php:290: | Applied before every debit. `platform_daily` bounds total exposure if
+.\config\copy.php:17: * that reads `copy.checkout.heading` and a `$total` from the pricing engine cannot
+.\config\copy.php:26: * `App\Catalogue\ServiceCatalogue` and the pricing engine. A number in this file
+.\config\cors.php:21: * Was `['*']` for methods, origins and headers alike. The wildcard is not
+.\config\cors.php:22: * currently exploitable — `supports_credentials` is false and the only API
+.\config\cors.php:24: * wildcard origin means any site can read any unauthenticated `api/*`
+.\config\cors.php:26: * `supports_credentials` were flipped on.
+.\config\filesystems.php:64: | `storage:link` Artisan command is executed. The array keys should be
+.\config\mail.php:92: | It was previously `MAIL_FROM_NAME="${APP_NAME}"`. Dotenv resolves `${...}`
+.\config\mail.php:96: | MAIL_FROM_NAME is itself exported as the literal `${APP_NAME}`, which
+.\config\mail.php:102: | unexpanded `${...}` placeholder is treated as "not set" so a leftover shell
+.\config\providers.php:12: * `App\Providers\Support\ProviderCredentials` directly from the environment, so
+.\config\providers.php:13: * that a `config:cache` artefact can never contain a secret and a debug endpoint
+.\config\providers.php:19: * Every provider here has a sandbox, and `PROVIDER_SANDBOX=true` switches all of
+.\config\providers.php:79: |   * `countries` bounds an international sync. VTpass's catalogue is a
+.\config\providers.php:83: |   * `vtpass_countries` is the fallback cap when no countries are named.
+.\config\providers.php:141: | Idempotency: every write requires an `Idempotency-Key` header, and Sogo
+.\config\providers.php:143: | asking `GET /v1/transactions/{idempotency-key}?type=…`, where a 404 means
+.\config\providers.php:194: * API. `esim` is deliberately ABSENT: Sogo's marketing page lists eSIM
+.\config\providers.php:201: * endpoint is published, by adding the path to `endpoints` and the token
+.\config\providers.php:260: *   * `processing`/`pending` are not retryable — Sogo is explicit that the
+.\config\providers.php:265: *   * `validation_failed` and `verification_failed` are NOT retryable.
+.\config\providers.php:317: | So every field name is configuration, listed under `fields` below with the
+.\config\providers.php:318: | name this integration *expects*. `VtugateProvider` reads them from here and
+.\config\providers.php:322: | itself as unverified — `VtugateProvider::isOperational()` returns false —
+.\config\providers.php:337: * VTUGate accepts only `application/x-www-form-urlencoded` bodies. A JSON
+.\config\providers.php:361: * vendor. `VtugateProvider::isOperational()` returns false while this is
+.\config\providers.php:403: * VTUGate answers with a boolean `status`, so the mapping is small. An
+.\config\providers.php:439: | `serviceID=foreign-airtime` for the international product family.
+.\config\providers.php:444: | effective provider cost is `total_amount` minus `commission`. VTpass
+.\config\providers.php:452: | `POST /api/requery` with the request_id is VTpass's status endpoint, and it
+.\config\providers.php:468: * the adapter supplies them from `headers` below. The values come from the
+.\config\providers.php:495: * `ProviderCredentials` resolves the values; only the header *names* are
+.\config\providers.php:505: * VTpass returns a three-digit `code` plus a human `response_description`.
+.\config\providers.php:513: * `000` is not success. It means "processed — now read
+.\config\providers.php:514: * `content.transactions.status`", which is the only field that says
+.\config\providers.php:515: * `delivered`, `pending` or `initiated`. `001` is the same shape on a
+.\config\providers.php:533: * The request was not fulfilled, provably. `091` is VTpass stating in as
+.\config\providers.php:537: * is a better answer than refusing the sale. `015` is a requery answering
+.\config\providers.php:561: * `016` is VTpass's own declaration that the transaction failed, which is a
+.\config\providers.php:587: * not appear in a purchase response at all (`020` is a verification code).
+.\config\providers.php:602: * `content.transactions.status` — the field that actually says whether the
+.\config\providers.php:603: * customer was served, and only ever meaningful when `code` is `000` or
+.\config\providers.php:604: * `001`.
+.\config\providers.php:606: * `initiated` and `pending` both mean "not finished". They are PENDING
+.\config\providers.php:609: * `reversed` is REFUNDED — the money is back in the VTpass wallet.
+.\config\providers.php:629: | A single POST endpoint at the base URL with a `key` and an `action`
+.\config\providers.php:635: |   1. **Errors arrive with HTTP 200.** The body carries an `error` field
+.\config\providers.php:637: |      treat `{"error":"Not enough funds"}` as a vended order. Every response
+.\config\providers.php:638: |      is inspected for `error` before anything else.
+.\config\providers.php:639: |   2. **The charge is `rate × quantity ÷ 1000`.** The rate is a per-1000
+.\config\providers.php:644: |      compared against the provider's own `charge` response field.
+.\config\providers.php:645: |   3. **The provider explicitly instructs that `description` be read before
+.\config\providers.php:647: |      why the field is stored on `provider_products` and surfaced in the
+.\config\providers.php:659: * key: it is sent as the `key` form field, never as an authorization
+.\config\providers.php:677: * `rate × quantity ÷ 1000`. Named rather than inlined because it is the
+.\config\providers.php:687: * `Partial` (some of the order delivered) and `Refunded`. Both are final
+.\config\providers.php:691: * `error` maps to UNKNOWN, not FAILED. It is the marker Nitro uses on a
+.\config\providers.php:694: * status string of `error` is not evidence that an order was not
+.\config\providers.php:714: * Nitro answers HTTP 200 with `{"error": "..."}`, so the body text is the
+.\config\services.php:48: | `Authorization: Bearer …` on every call. `test_mode` prefixes each path
+.\config\services.php:53: | config/bills.php under `pairgate`.
+.\config\services.php:63: * `X-Pairgate-Signature` against it and refuses to act when it is
+.\config\services.php:95: | accidentally charge real cards, and `enabled` defaults to false so the
+.\config\services.php:98: | `payment_method_type` is the corridor Bachs is told to offer. NGN_CARD
+.\config\services.php:130: | `wa.me` requires the international format with no plus sign and no
+.\config\services.php:136: | A separate key from `phone`: this is the number customers message,
+.\database\factories\UserFactory.php:18: * `password` is pre-hashed rather than passed to Hash::make() at call time. The
+.\database\factories\UserFactory.php:19: * User model sets no `password` mutator, so the value is stored verbatim — which
+.\database\migrations\2026_02_10_000000_add_is_fraudulent_to_transactions_table.php:12: * LIKE '%fraud%' against the free-text `status_message` column, so any admin
+.\database\migrations\2026_02_10_000001_add_status_and_activity_columns_to_users_table.php:14: *   - `status`                — read and written by suspend/activate, filter
+.\database\migrations\2026_02_10_000001_add_status_and_activity_columns_to_users_table.php:16: *   - `last_activity`         — written by TrackUserActivity middleware and
+.\database\migrations\2026_02_10_000001_add_status_and_activity_columns_to_users_table.php:19: *   - `last_activity_at`      — written by AdminMiddleware;
+.\database\migrations\2026_02_10_000001_add_status_and_activity_columns_to_users_table.php:20: *   - `requires_phone_update` — read by the layout to show the phone nudge;
+.\database\migrations\2026_02_10_000001_add_status_and_activity_columns_to_users_table.php:21: *   - `is_blocked`            — written by the fraud flow.
+.\database\migrations\2026_02_10_000001_add_status_and_activity_columns_to_users_table.php:23: * `wallet_balance` already exists on `users` but the model never wrote to it
+.\database\migrations\2026_02_10_000001_add_status_and_activity_columns_to_users_table.php:25: * and backfilled once here; `User::wallet_balance` now resolves from the
+.\database\migrations\2026_02_10_000002_create_terms_privacy_versions_table.php:12: * (AdminController::termsHistory / restoreVersion), but `terms_privacies` is
+.\database\migrations\2026_02_10_000002_create_terms_privacy_versions_table.php:13: * unique on `type` — one row per document — so there was nothing to restore
+.\database\migrations\2026_02_10_000003_add_phone_verified_at_to_users_table.php:10: * A migration removed `phone_verified_at` early on, but ProfileController has
+.\database\migrations\2026_02_10_000004_normalise_chat_message_sender_type.php:7: * Normalise `chat_messages.sender_type`.
+.\database\migrations\2026_02_10_000004_normalise_chat_message_sender_type.php:9: * A `creating` hook on the ChatMessage model rewrote the documented values
+.\database\migrations\2026_02_10_000005_add_transaction_pin_to_users_table.php:12: * bcrypt digest — `$hidden` on the model keeps it out of JSON responses.
+.\database\migrations\2026_02_10_000006_add_dedicated_virtual_account_to_users_table.php:12: * reported as a `charge.success` webhook with `channel = dedicated_nuban`. So
+.\database\migrations\2026_02_10_000006_add_dedicated_virtual_account_to_users_table.php:15: * `dva_account_number` is indexed because the webhook identifies the customer
+.\database\migrations\2026_02_11_000000_create_auth_one_time_codes_table.php:10: * A dedicated table rather than a column on `users`, for three reasons:
+.\database\migrations\2026_02_11_000000_create_auth_one_time_codes_table.php:12: *   1. Codes are stored as a bcrypt hash, so verification is a `Hash::check`
+.\database\migrations\2026_02_11_000000_create_auth_one_time_codes_table.php:16: *   3. `user_id` is indexed so "invalidate every outstanding code" is cheap.
+.\database\migrations\2026_02_11_000000_create_auth_one_time_codes_table.php:18: * There is deliberately no unique constraint on `user_id`: several rows exist
+.\database\migrations\2026_02_11_000001_add_uuid_to_transactions_table.php:12: * `reference` is a human-facing string ("FND-261007-XXAGSJUUZXC4") that support
+.\database\migrations\2026_02_11_000001_add_uuid_to_transactions_table.php:16: * `uuid` splits the two concerns: it is the stable machine identifier, it is what
+.\database\migrations\2026_02_11_000001_add_uuid_to_transactions_table.php:18: * uses to poll `GET /transaction/verify/{uuid}`. Keeping it distinct means the
+.\database\migrations\2026_02_11_000002_add_reconciliation_index_to_transactions_table.php:12: * scan of `transactions` once a minute, growing forever — on a busy
+.\database\migrations\2026_02_11_000003_add_avatar_to_users_table.php:18: * broken-image state. `profile_picture` is kept and still takes precedence when
+.\database\migrations\2026_02_11_000005_create_referrals_tables.php:23: * unique index on `referrals.transaction_id` is a database-level guarantee that
+.\database\migrations\2026_02_12_000000_add_bill_service_types_to_transactions_table.php:8: * Widen `transactions.service_type`.
+.\database\migrations\2026_02_12_000000_add_bill_service_types_to_transactions_table.php:12: * the vending pipeline stored its product key (`cable_tv`, `waec`, `jamb`,
+.\database\migrations\2026_02_12_000000_add_bill_service_types_to_transactions_table.php:13: * `betting`), a compensating refund is stored as `refund`, and an admin
+.\database\migrations\2026_02_12_000000_add_bill_service_types_to_transactions_table.php:14: * adjustment as `manual_adjustment`.
+.\database\migrations\2026_02_12_000000_add_bill_service_types_to_transactions_table.php:24: * application reads (`cable_tv` => `cable-tv`, `waec`/`jamb` => `exam`), and this
+.\database\migrations\2026_02_12_000000_add_bill_service_types_to_transactions_table.php:31: * whole so nothing that already reads `other`, `transfer` or `funding`
+.\database\migrations\2026_02_12_000000_add_bill_service_types_to_transactions_table.php:76: 'ALTER TABLE `transactions` MODIFY `service_type` '
+.\database\migrations\2026_02_12_000000_add_bill_service_types_to_transactions_table.php:94: 'ALTER TABLE `transactions` MODIFY `service_type` '
+.\database\migrations\2026_02_20_000000_create_wallet_ledger_table.php:12: * answers "why is this balance what it is" — the question the `transactions`
+.\database\migrations\2026_02_20_000000_create_wallet_ledger_table.php:18: * `direction` says which way the money moved; `entry_type` says why. A refund
+.\database\migrations\2026_02_20_000000_create_wallet_ledger_table.php:33: *   * `wallet_id` and `transaction_id` use `restrictOnDelete`, so a wallet or a
+.\database\migrations\2026_02_20_000000_create_wallet_ledger_table.php:35: *   * `WalletLedger` has no `updated_at` and overrides `save()`/`delete()` to
+.\database\migrations\2026_02_20_000000_create_wallet_ledger_table.php:43: * `ADMIN_ADJUSTMENT` opening entry per wallet whose current balance is non-zero,
+.\database\migrations\2026_02_20_000000_create_wallet_ledger_table.php:44: * with `reference` = `OPENING-<wallet id>`. That gives every ledger a true
+.\database\migrations\2026_02_20_000001_add_financial_idempotency_constraints.php:13: * Idempotency was enforced in `Illuminate\Support\Facades\Cache`. That is a
+.\database\migrations\2026_02_20_000001_add_financial_idempotency_constraints.php:23: *   * `Cache::put` has no compare-and-set, so two concurrent requests that both
+.\database\migrations\2026_02_20_000001_add_financial_idempotency_constraints.php:39: *   * `transactions.reference` — already UNIQUE from the create migration;
+.\database\migrations\2026_02_20_000001_add_financial_idempotency_constraints.php:40: *   * `transactions.uuid`      — already UNIQUE (2026_02_11_000001);
+.\database\migrations\2026_02_20_000001_add_financial_idempotency_constraints.php:41: *   * `transactions.api_reference` — the provider's own order id. Two rows
+.\database\migrations\2026_02_20_000001_add_financial_idempotency_constraints.php:44: *   * `transactions.payment_reference` — the gateway reference for funding rows.
+.\database\migrations\2026_02_20_000001_add_financial_idempotency_constraints.php:53: * check is a `GROUP BY ... HAVING COUNT(*) > 1`, which uses any existing index
+.\database\migrations\2026_02_20_000001_add_financial_idempotency_constraints.php:69: * One wallet per customer. `WalletService::lockForUser()` uses
+.\database\migrations\2026_02_20_000001_add_financial_idempotency_constraints.php:70: * `firstOrFail()` on a row lock, so two wallets for one user means the
+.\database\migrations\2026_02_20_000001_add_financial_idempotency_constraints.php:112: * Declared here in source order rather than with `->after('scope')`:
+.\database\migrations\2026_02_20_000001_add_financial_idempotency_constraints.php:113: * MySQL does not accept an `AFTER` clause inside `CREATE TABLE`, and
+.\database\migrations\2026_02_20_000001_add_financial_idempotency_constraints.php:127: // The transaction the key produced. `restrictOnDelete` so a key
+.\database\migrations\2026_02_20_000002_widen_transaction_status_columns.php:12: * `transactions.payment_status` was created as
+.\database\migrations\2026_02_20_000002_widen_transaction_status_columns.php:13: * `ENUM('pending','processing','success','failed','cancelled')`. Application
+.\database\migrations\2026_02_20_000002_widen_transaction_status_columns.php:16: *   * `'refunded'` — `BillPaymentService`, `PairgateWebhookController` and the
+.\database\migrations\2026_02_20_000002_widen_transaction_status_columns.php:18: *   * `'verifying'` — `WalletController::submitBankTransferProof()`, when a
+.\database\migrations\2026_02_20_000002_widen_transaction_status_columns.php:33: * `ENUM` is kept (rather than converting to `string`) because the values are a
+.\database\migrations\2026_02_20_000002_widen_transaction_status_columns.php:38: * `ALTER TABLE ... MODIFY` is used directly: Laravel 8's schema builder would
+.\database\migrations\2026_02_20_000002_widen_transaction_status_columns.php:39: * require doctrine/dbal for `change()`, and emitting the exact DDL is both
+.\database\migrations\2026_02_20_000002_widen_transaction_status_columns.php:46: * `down()` restores the original, narrower lists. It will fail if rows have
+.\database\migrations\2026_02_20_000002_widen_transaction_status_columns.php:48: * discarding `refunded` status would falsify a transaction's financial state.
+.\database\migrations\2026_02_20_000002_widen_transaction_status_columns.php:53: /** Every value application code can write to `transactions.payment_status`. */
+.\database\migrations\2026_02_20_000002_widen_transaction_status_columns.php:61: /** Every value application code can write to `transactions.status`. */
+.\database\migrations\2026_02_20_000002_widen_transaction_status_columns.php:66: // Explicitly distinct from `failed`: see App\Services\BillPaymentService.
+.\database\migrations\2026_02_20_000002_widen_transaction_status_columns.php:106: "ALTER TABLE `{$table}` MODIFY `{$column}` ENUM({$list}) NOT NULL DEFAULT {$default}"
+.\database\migrations\2026_02_20_000003_add_transaction_indexes_and_idempotency_key.php:9: * `transactions`, which cannot be added in the same migration that creates them
+.\database\migrations\2026_02_20_000003_add_transaction_indexes_and_idempotency_key.php:22: * `idempotency_keys` so the provenance of a purchase is visible from
+.\database\migrations\2026_02_20_000003_add_transaction_indexes_and_idempotency_key.php:33: * `total_amount` filtered by (user_id, type, status, created_at).
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:12: * Nothing here replaces `transactions` or `wallets`. Those remain the financial
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:17: * The two are joined by `service_orders.transaction_id`, one row per wallet
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:18: * debit. A single `transactions` row can have at most one `service_orders` row,
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:23: * Every monetary column is `decimal(15,2)`, matching the existing schema, and is
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:24: * written from `App\Support\Money` so the values are exact to the kobo. `Money`
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:31: * index. This is the same defence used for `transactions.payment_reference`:
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:59: * existing financial tables, so dropping these leaves `transactions`,
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:60: * `wallets` and `wallet_ledger` completely untouched.
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:189: * Reuses the vocabulary in config/bills.php `products` — 'airtime',
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:248: * A `service_product` is the thing the customer buys; a `provider_product`
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:268: * `variation_code`, VTpass's `variation_code`, Nitro's `service`.
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:302: * Provider-catalogue metadata. `description` is stored because Nitro
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:323: | `unavailable_at` and kept, never deleted: historical orders and
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:352: * The `provider_products` row holds the *current* cost; this table holds
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:390: * Specificity is resolved by the `scope` column plus the nullable foreign
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:396: * `priority` wins; ties break on the most recently updated rule. Only active
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:413: /* Exactly one of these is set, according to `scope`. */
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:420: | `markup_type` decides which of the three amount columns apply.
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:430: | All in kobo. `minimum_profit_minor` is the rule that turns "20%
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:538: * Links the existing financial record (`transaction_id`, the wallet debit)
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:711: * Deliberately separate from `pricing_snapshots`: a snapshot records what was
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:781: * Separate from `service_orders` because one order can have many provider
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:851: * `masked_identifier` is what gets rendered in a list; the full identifier is
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:852: * kept in `identifier` and is only ever read by the owner's own request.
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:900: * There is deliberately no `autopay` column. A reminder notifies; it never
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:940: * This is the `(reminder, due_at)` pair the job claims before sending.
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:957: *   * `reminder`  — an emitted bill reminder, which is the notification
+.\database\migrations\2026_02_25_000000_create_wave1_catalogue_and_pricing_tables.php:960: *   * `alert`      — a profitability or provider-health alert raised by the
+.\database\migrations\2026_02_25_000001_add_wave1_service_types_to_transactions_table.php:8: * Widen `transactions.service_type` for the Wave 1 products.
+.\database\migrations\2026_02_25_000001_add_wave1_service_types_to_transactions_table.php:15: * Wave 1 adds six product families whose `service_type` is written by the
+.\database\migrations\2026_02_25_000001_add_wave1_service_types_to_transactions_table.php:28: * `exam` is deliberately left alone: WAEC and JAMB keep writing it, so every
+.\database\migrations\2026_02_25_000001_add_wave1_service_types_to_transactions_table.php:31: * `down()` maps the new values to `other` before narrowing, so a rollback never
+.\database\migrations\2026_02_25_000001_add_wave1_service_types_to_transactions_table.php:90: 'ALTER TABLE `transactions` MODIFY `service_type` '
+.\database\migrations\2026_02_25_000001_add_wave1_service_types_to_transactions_table.php:106: 'ALTER TABLE `transactions` MODIFY `service_type` '
+.\database\migrations\2026_02_25_000002_create_delivery_tokens_and_wallet_floor.php:12: * ## `delivery_tokens`
+.\database\migrations\2026_02_25_000002_create_delivery_tokens_and_wallet_floor.php:16: * than as a column on `service_orders` for one reason: so that no `toArray()`, no
+.\database\migrations\2026_02_25_000002_create_delivery_tokens_and_wallet_floor.php:19: * `App\Providers\Support\DeliveryTokenStore::retrieve()` after an ownership or
+.\database\migrations\2026_02_25_000002_create_delivery_tokens_and_wallet_floor.php:22: * The unique index on `service_order_id` is the idempotency guard: a webhook and
+.\database\migrations\2026_02_25_000002_create_delivery_tokens_and_wallet_floor.php:28: * `WalletService` already refuses an overdraft under a row lock, and that is the
+.\database\migrations\2026_02_25_000002_create_delivery_tokens_and_wallet_floor.php:41: * MySQL 8.0.16+ enforces `CHECK`; older versions parse and ignore it, which is
+.\database\migrations\2026_02_25_000002_create_delivery_tokens_and_wallet_floor.php:69: * `restrictOnDelete`: a delivered token is evidence that goods were
+.\database\migrations\2026_02_25_000002_create_delivery_tokens_and_wallet_floor.php:106: * Named rather than swallowed. `php artisan wallet:verify` and the
+.\database\migrations\2026_02_25_000002_create_delivery_tokens_and_wallet_floor.php:112: . 'balance. Resolve them, then re-run `php artisan migrate`. No data was changed.'
+.\database\migrations\2026_02_25_000002_create_delivery_tokens_and_wallet_floor.php:123: 'ALTER TABLE `wallets` ADD CONSTRAINT `wallets_balance_non_negative` CHECK (`balance` >= 0)'
+.\database\migrations\2026_02_25_000002_create_delivery_tokens_and_wallet_floor.php:137: DB::statement('ALTER TABLE `wallets` DROP CHECK `wallets_balance_non_negative`');
+.\database\migrations\2026_02_25_000002_create_delivery_tokens_and_wallet_floor.php:142: * when they are next due. `service_orders_reconcile` covers status first,
+.\database\migrations\2026_02_26_000000_create_international_products_and_provider_health_checks.php:10: * ## `international_products`
+.\database\migrations\2026_02_26_000000_create_international_products_and_provider_health_checks.php:15: * commission on top. A single `provider_cost_minor` column on `provider_products`
+.\database\migrations\2026_02_26_000000_create_international_products_and_provider_health_checks.php:23: * price that was derived at the time of the last sync. `provider_products` remains
+.\database\migrations\2026_02_26_000000_create_international_products_and_provider_health_checks.php:27: * The unique index on `(provider_id, provider_product_id)` is what makes the sync
+.\database\migrations\2026_02_26_000000_create_international_products_and_provider_health_checks.php:31: * ## `provider_health_checks`
+.\database\migrations\2026_02_26_000000_create_international_products_and_provider_health_checks.php:33: * `providers.health_status` holds only the latest state, which is what the
+.\database\migrations\2026_02_26_000000_create_international_products_and_provider_health_checks.php:108: * `rate_per_unit_micros` exists alongside it.
+.\database\migrations\2026_02_26_000000_create_international_products_and_provider_health_checks.php:181: * `error_code` records.
+.\database\migrations\2026_02_26_000001_create_provider_catalogue_items.php:13: * `provider_products.service_product_id` is non-nullable, and that is deliberate:
+.\database\migrations\2026_02_26_000001_create_provider_catalogue_items.php:18: * That invention is the failure mode this table prevents. Sogo's `variation_code`
+.\database\migrations\2026_02_26_000001_create_provider_catalogue_items.php:19: * `MTN-1GB-30D` and its display name `MTN 1GB Monthly` are provider vocabulary; a
+.\database\migrations\2026_02_26_000001_create_provider_catalogue_items.php:31: * `(provider_id, provider_product_id)` is unique, so re-running a sync updates one
+.\database\migrations\2026_02_26_000001_create_provider_catalogue_items.php:32: * row per provider variant rather than accumulating a row per run. `first_seen_at`
+.\database\migrations\2026_02_26_000001_create_provider_catalogue_items.php:33: * and `last_seen_at` are what make a variant's history visible — a product that
+.\database\migrations\2026_02_26_000001_create_provider_catalogue_items.php:80: * Set when an operator maps this variant to a `provider_products` row.
+.\database\migrations\2026_02_26_000002_make_open_alerts_unique_per_condition.php:13: * `product_alerts.fingerprint` was declared globally UNIQUE. The intent, as written
+.\database\migrations\2026_02_26_000002_make_open_alerts_unique_per_condition.php:14: * in `ProductAlert`'s own docblock, was "one condition produces one open alert" —
+.\database\migrations\2026_02_26_000002_make_open_alerts_unique_per_condition.php:25: * The code path in `ProviderMonitor::alert()` had the right check — look for an
+.\database\migrations\2026_02_26_000002_make_open_alerts_unique_per_condition.php:44: * The `fingerprint` column keeps its own non-unique index so the existing lookups
+.\database\migrations\2026_02_26_000002_make_open_alerts_unique_per_condition.php:45: * (including `resolveAlerts()`, which queries by fingerprint) stay fast.
+.\database\migrations\2026_02_26_000002_make_open_alerts_unique_per_condition.php:47: * `STORED` rather than `VIRTUAL` because a virtual generated column cannot be indexed
+.\database\migrations\2026_02_26_000002_make_open_alerts_unique_per_condition.php:61: * migration; a `Schema::table` drop would need the name anyway and this
+.\database\migrations\2026_02_26_000002_make_open_alerts_unique_per_condition.php:64: DB::statement('ALTER TABLE `product_alerts` DROP INDEX `product_alerts_fingerprint_unique`');
+.\database\migrations\2026_02_26_000002_make_open_alerts_unique_per_condition.php:75: 'ALTER TABLE `product_alerts`
+.\database\migrations\2026_02_26_000002_make_open_alerts_unique_per_condition.php:76: ADD COLUMN `open_fingerprint` VARCHAR(64)
+.\database\migrations\2026_02_26_000002_make_open_alerts_unique_per_condition.php:77: GENERATED ALWAYS AS (IF(`resolved_at` IS NULL, `fingerprint`, NULL)) STORED'
+.\database\migrations\2026_02_26_000002_make_open_alerts_unique_per_condition.php:83: 'ALTER TABLE `product_alerts`
+.\database\migrations\2026_02_26_000002_make_open_alerts_unique_per_condition.php:84: ADD UNIQUE INDEX `product_alerts_open_fingerprint_unique` (`open_fingerprint`)'
+.\database\migrations\2026_02_26_000002_make_open_alerts_unique_per_condition.php:96: DB::statement('ALTER TABLE `product_alerts` DROP INDEX `product_alerts_open_fingerprint_unique`');
+.\database\migrations\2026_02_26_000002_make_open_alerts_unique_per_condition.php:100: DB::statement('ALTER TABLE `product_alerts` DROP COLUMN `open_fingerprint`');
+.\database\migrations\2026_02_26_000002_make_open_alerts_unique_per_condition.php:104: DB::statement('ALTER TABLE `product_alerts` ADD UNIQUE INDEX `product_alerts_fingerprint_unique` (`fingerprint`)');
+.\database\seeders\AdminSeeder.php:19: * (`super@reup.test` / `admin@reup.test` / `support@reup.test`, all named
+.\database\seeders\AdminSeeder.php:21: * single word, and `.test` is not a routable domain, so a password reset or
+.\database\seeders\AdminSeeder.php:35: * `updateOrCreate` on email, so re-running updates the existing row instead of
+.\database\seeders\PromotionNotificationSeeder.php:13: *  1. `icon` holds an icon-component name (`sparkles`), not an emoji. The old
+.\database\seeders\PromotionNotificationSeeder.php:18: *  2. `badge_color` / `text_color` hold hex (`#0b891a`), not Tailwind class
+.\database\seeders\PromotionNotificationSeeder.php:20: *     straight into a `style` attribute by the admin preview, producing
+.\database\seeders\PromotionNotificationSeeder.php:21: *     `background-color: bg-purple-100 text-purple-800` — invalid CSS that the
+.\database\seeders\PromotionNotificationSeeder.php:24: * `insert()` is used rather than `create()` because these are static rows, but
+.\database\seeders\ServiceCatalogueSeeder.php:16: * It seeds **no products**. A `service_products` row is a decision that ReUp sells a
+.\database\seeders\ServiceCatalogueSeeder.php:22: * So it is safe to run in production, repeatedly: `firstOrCreate` keyed on the slug
+.\resources\views\admin\admins\create.blade.php:192: const checkbox = document.querySelector(`input[value="${permission}"]`);
+.\resources\views\admin\admins\edit.blade.php:196: const checkbox = document.querySelector(`input[value="${permission}"]`);
+.\resources\views\admin\admins\index.blade.php:22: |   $recentLogs       AdminLog with `user` eager-loaded
+.\resources\views\admin\admins\index.blade.php:26: | metrics with `$admins->where(...)`, which only ever counted the current
+.\resources\views\admin\admins\index.blade.php:29: | `Attempt to read property "name" on int` because the activity feed used
+.\resources\views\admin\admins\index.blade.php:30: | `$log->user_id->name` instead of `$log->user->name`.
+.\resources\views\admin\admins\index.blade.php:34: | the global `onclick`/`onkeyup` handlers.
+.\resources\views\admin\admins\index.blade.php:525: // Called from `x-show` on every row, so it must stay pure.
+.\resources\views\admin\admins\index.blade.php:547: // back out of the DOM once Alpine has applied `x-show`.
+.\resources\views\admin\admins\index.blade.php:569: url: `{{ url('admin/admins') }}/${toggle.dataset.toggleId}/toggle-status`,
+.\resources\views\admin\admins\index.blade.php:581: url: `{{ url('admin/admins') }}/${remove.dataset.deleteId}`,
+.\resources\views\admin\announcements\form.blade.php:125: {{-- The `icon` column existed and the seeder populated it, but the form
+.\resources\views\admin\announcements\form.blade.php:239: counter.textContent = `${length} / 500 characters`;
+.\resources\views\admin\announcements\index.blade.php:165: {{-- The default paginator view: `vendor.pagination.tailwind`
+.\resources\views\admin\announcements\index.blade.php:188: // `onclick="return confirm(...)"` handler on the delete button.
+.\resources\views\admin\bank-transfers\index.blade.php:313: // `/admin/bank-transfers/{id}?modal=true` and inject the returned HTML.
+.\resources\views\admin\bank-transfers\index.blade.php:314: // Visibility is Alpine-driven (`open`) instead of hand-toggled classes.
+.\resources\views\admin\bank-transfers\index.blade.php:345: fetch(`{{ route('admin.bank-transfers.show', '') }}/${transferId}?modal=true`, {
+.\resources\views\admin\bank-transfers\index.blade.php:350: if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+.\resources\views\admin\bank-transfers\show.blade.php:8: * `meta` arrives already decoded: Transactions casts it with
+.\resources\views\admin\bank-transfers\show.blade.php:9: * `'meta' => 'array'`, and BankTransferController::show passes
+.\resources\views\admin\bank-transfers\show.blade.php:10: * `$transfer->meta ?? []`. Decoding it again threw
+.\resources\views\admin\bank-transfers\show.blade.php:26: // The proof lives on the private disk; `Storage::url()` on the default
+.\resources\views\admin\bank-transfers\show.blade.php:27: // (`local`) disk returns a bogus `/payment-proofs/...` path that resolves to
+.\resources\views\admin\chat\index.blade.php:127: <p class="card-description truncate" x-text="current ? `Chat with ${current.name} \u2022 ${current.email}` : 'Select a chat to begin'">
+.\resources\views\admin\chat\index.blade.php:204: x-show="draft.length" x-cloak x-text="`${draft.length}/1000`"></p>
+.\resources\views\admin\chat\index.blade.php:242: // innerHTML from fetch handlers and wired with `onclick="selectChat(...)"`,
+.\resources\views\admin\chat\index.blade.php:244: // They are now Alpine templates, so `x-text` escapes every value.
+.\resources\views\admin\chat\index.blade.php:308: const response = await fetch(`{{ route('admin.chat.sessions') }}?status=${encodeURIComponent(this.statusFilter)}`, {
+.\resources\views\admin\chat\index.blade.php:351: const response = await fetch(`{{ route('admin.chat.messages', '') }}/${sessionId}/messages`, {
+.\resources\views\admin\contact\show.blade.php:312: // `onclick="..."` globals and innerHTML string building; they now run
+.\resources\views\admin\contact\show.blade.php:380: await this.post(`{{ route('admin.contact.mark-read', '') }}/${id}`, true);
+.\resources\views\admin\contact\show.blade.php:385: await this.post(`{{ route('admin.contact.mark-responded', '') }}/${id}`, true);
+.\resources\views\admin\contact\show.blade.php:412: const response = await fetch(`{{ route('admin.contact.delete', '') }}/${id}`, {
+.\resources\views\admin\layouts\app.blade.php:31: // Grouped navigation. `permission` mirroring the route middleware keeps
+.\resources\views\admin\layouts\app.blade.php:317: //     it only checked `total_unread > 0` rather than a change, which
+.\resources\views\admin\providers\index.blade.php:90: `ProviderRegistry` will pick. --}}
+.\resources\views\admin\settings\index.blade.php:621: // Endpoints, payload shape (`settings: [{key, value, type, category}]`)
+.\resources\views\admin\settings\index.blade.php:622: // and every `data-key` / `data-type` / `data-category` / `.settings-input`
+.\resources\views\admin\settings\index.blade.php:628: //     their `onclick="..."` globals and are declared as Alpine methods
+.\resources\views\admin\settings\index.blade.php:822: throw new Error(`HTTP ${response.status}`);
+.\resources\views\admin\transactions\index.blade.php:348: From `sm` up there is room for the centred dialog. --}}
+.\resources\views\admin\transactions\index.blade.php:381: // `/admin/transactions/{id}?modal=true` and injects the returned HTML.
+.\resources\views\admin\transactions\index.blade.php:382: // The open/close state now lives in Alpine (`detailsId`), so the view no
+.\resources\views\admin\transactions\index.blade.php:383: // longer toggles Tailwind's `hidden`/`flex` classes by hand.
+.\resources\views\admin\transactions\index.blade.php:408: fetch(`{{ route('admin.transactions.show', '') }}/${transactionId}?modal=true`, {
+.\resources\views\admin\transactions\index.blade.php:416: if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+.\resources\views\admin\transactions\index.blade.php:433: ? `Reference: ${reference}`
+.\resources\views\admin\transactions\show.blade.php:2: {{-- `data-transaction-reference` is read by viewTransactionDetails() to fill the
+.\resources\views\admin\transactions\show.blade.php:229: {{-- `api_response` is cast to 'array'. Echoing it directly made
+.\resources\views\admin\users\show.blade.php:324: // The inline `onclick="verifyUser(...)"` global is gone; the confirm and
+.\resources\views\admin\users\show.blade.php:336: const response = await fetch(`/admin/users/{{ $user->id }}/verify`, {
+.\resources\views\admin\edit-terms.blade.php:267: `manage_settings` permission, because the legal-document editor needs a
+.\resources\views\admin\edit-terms.blade.php:286: // templates were `onclick="..."` globals toggling Tailwind classes by
+.\resources\views\admin\index.blade.php:225: // The previous implementation inlined `onclick="toggleStatus(...)"` and
+.\resources\views\admin\index.blade.php:240: const response = await fetch(`{{ route('admin.admins.toggle-status', '') }}/${adminId}`, {
+.\resources\views\admin\index.blade.php:265: // `onclick="return confirm(...)"` handlers.
+.\resources\views\airtime-data\index.blade.php:363: // below. The old script toggled a `.hidden` class that Alpine would have
+.\resources\views\airtime-data\index.blade.php:461: optgroup.label = `${type} Plans`;
+.\resources\views\airtime-data\index.blade.php:467: const displayText = `${plan.name} - ₦${plan.price}`;
+.\resources\views\airtime-data\index.blade.php:604: selectedPlanType.textContent = `Type: ${planType}`;
+.\resources\views\airtime-data\index.blade.php:605: selectedPlanPrice.textContent = `₦${planPrice.toFixed(2)}`;
+.\resources\views\auth\login-otp-verify.blade.php:30: {{-- `data-no-loading`: this form renders its own "Verifying…" state
+.\resources\views\cable-tv\history.blade.php:12: | `status_badge` and `service_type_badge`; `balance_after`, `created_at`
+.\resources\views\cable-tv\history.blade.php:13: | and `completed_at` are all nullable and are guarded below.
+.\resources\views\cable-tv\index.blade.php:15: |            package, amount, phone}. `provider` is the config *code*
+.\resources\views\cable-tv\index.blade.php:16: |            (dstv/gotv/startimes/showmax) and `amount` is the bouquet price,
+.\resources\views\cable-tv\index.blade.php:447: // the native `pattern` check can never disagree with the bound state.
+.\resources\views\cable-tv\index.blade.php:478: // bouquet is chosen while `packageCode` is still empty.
+.\resources\views\components\auth-card.blade.php:4: Only `auth/confirm-password` still references it. It no longer renders its
+.\resources\views\components\avatar.blade.php:13: |   1. an uploaded photo (`profile_picture`), so existing uploads keep working
+.\resources\views\components\button.blade.php:6: product. Pass `variant` to pick a tone.
+.\resources\views\components\icon.blade.php:171: // ships them as one `d`, but keeping them in a single outline path makes
+.\resources\views\components\icon.blade.php:192: like `whatsapp` rely on it to cut the handset out of the bubble. --}}
+.\resources\views\components\marquee.blade.php:9: Icons are icon-component names (`megaphone`), annotated `aria-hidden`
+.\resources\views\components\marquee.blade.php:19: spacing lives inside each group (`gap` plus a matching `padding-right`) and
+.\resources\views\components\marquee.blade.php:20: the track carrying both groups has none — see the `.marquee-*` rules in
+.\resources\views\components\marquee.blade.php:24: The second group is `aria-hidden`, because it exists only for the animation:
+.\resources\views\components\transaction-pin.blade.php:7: `idempotency_key` accompanies it so a double submit — double click, refresh
+.\resources\views\electricity\history.blade.php:12: | `status_badge` and `service_type_badge`; `balance_after`, `created_at`
+.\resources\views\electricity\history.blade.php:13: | and `completed_at` are all nullable and are guarded below.
+.\resources\views\electricity\index.blade.php:116: a radio grid. Each option keeps the `disco` field name and
+.\resources\views\electricity\index.blade.php:497: // the native `pattern` check can never disagree with the bound state.
+.\resources\views\emails\transaction-receipt.blade.php:10: * recomputed: `balance_before` and `balance_after` are written by
+.\resources\views\jamb-pin\history.blade.php:12: | `status_badge` and `service_type_badge`; `balance_after`, `created_at`
+.\resources\views\jamb-pin\history.blade.php:13: | and `completed_at` are all nullable and are guarded below.
+.\resources\views\jamb-pin\index.blade.php:432: // the native `pattern` check can never disagree with the bound state.
+.\resources\views\layouts\guest.blade.php:43: {{-- Flash + validation feedback on the auth screens. `status` messages
+.\resources\views\layouts\navbar.blade.php:5: // Single source of truth for the primary nav. `active` is matched with
+.\resources\views\layouts\navbar.blade.php:25: * `$moreNav` (which the mobile drawer resolves through route()) and given
+.\resources\views\layouts\navbar.blade.php:43: `auth`, so sending a signed-out visitor there just bounced them
+.\resources\views\layouts\navbar.blade.php:52: These routes all sit behind `auth`, so rendering them to a
+.\resources\views\layouts\navbar.blade.php:202: nav: every one of these routes is behind `auth`, so a guest tapping one
+.\resources\views\partials\dashboard-tips.blade.php:15: | `x-show` WITHOUT `x-cloak`, so if the bundle fails to load the user still
+.\resources\views\partials\support-widget.blade.php:12: | `config('services.support.whatsapp')` — see the note there on the wa.me
+.\resources\views\partials\support-widget.blade.php:16: | `target="_blank"` with `rel="noopener noreferrer"`: noopener is required
+.\resources\views\partials\support-widget.blade.php:17: | so the opened page cannot reach back through `window.opener`, and
+.\resources\views\pricelist\index.blade.php:13: | Rows stay server-rendered (SEO + no-JS), filtering is Alpine `x-show` and
+.\resources\views\profile\index.blade.php:9: | ProfileController::index() supplies `$user` and `$states`.
+.\resources\views\profile\index.blade.php:11: | Rewritten onto the design system (see docs/UI_RUNBOOK.md): the 24 emoji
+.\resources\views\profile\index.blade.php:17: | `variant="solid"` is only used for names present in its $solid array — an
+.\resources\views\profile\index.blade.php:21: | `$user->profile_completion_percentage` and `$user->age` are model accessors
+.\resources\views\profile\index.blade.php:23: | `$user->phone_verified_at` is a datetime and stays null until the Alpine
+.\resources\views\profile\index.blade.php:130: `x-data` blocks — and the preview therefore never reacted to a
+.\resources\views\profile\index.blade.php:131: selection, because each block owned its own copy of `color`.
+.\resources\views\profile\index.blade.php:154: Avatar preview, driven by the shared `color`/`icon`
+.\resources\views\profile\index.blade.php:395: {{-- No local scope: `color` and `icon` are inherited from
+.\resources\views\services\index.blade.php:6: Every value on this page comes from `$catalogue`, which is assembled by
+.\resources\views\waec-pin\history.blade.php:12: | `status_badge` and `service_type_badge`; `balance_after`, `created_at`
+.\resources\views\waec-pin\history.blade.php:13: | and `completed_at` are all nullable and are guarded below.
+.\resources\views\waec-pin\index.blade.php:17: |              not wrapped in `data`).
+.\resources\views\waec-pin\index.blade.php:25: // Mirrors the controller's `max:10` validation rule.
+.\resources\views\waec-pin\index.blade.php:338: // the native `pattern` check can never disagree with the bound state.
+.\resources\views\wallet\fund.blade.php:22: |    onclick handlers and no jQuery. The form field names (`amount`,
+.\resources\views\wallet\fund.blade.php:23: |    `payment_method`), the @csrf token and the wallet.process-funding POST
+.\resources\views\wallet\fund.blade.php:116: `data-no-loading`: this form owns its own loading state
+.\resources\views\wallet\fund.blade.php:120: The third `route()` argument ($absolute = false) is
+.\resources\views\wallet\fund.blade.php:121: load-bearing, not cosmetic: `form-action 'self'` is
+.\resources\views\wallet\history.blade.php:9: | WalletController::history() passes `$wallet` and a paginated
+.\resources\views\wallet\history.blade.php:10: | `$transactions`. The previous view ignored both and rendered three
+.\resources\views\wallet\index.blade.php:9: | WalletController::index() passes `$wallet`, `$recentTransactions` and
+.\resources\views\wallet\index.blade.php:10: | `$monthlyStats`. The previous view read `$recent_transactions`, which is
+.\resources\views\wallet\index.blade.php:14: | `$monthlyStats` keys: spent, funded, transactions, today_volume.
+.\resources\views\dashboard.blade.php:24: there is no `$promotionsNotifications` reference and no fallback data.
+.\resources\views\dashboard.blade.php:31: | `Transactions::service_type` and `->status` are nullable, so both the
+.\resources\views\dashboard.blade.php:33: | come from the model accessors (`service_type_badge`, `status_badge`).
+.\resources\views\dashboard.blade.php:182: Rendered from `$catalogue`, which the controller assembles from the
+.\resources\views\dashboard.blade.php:215: {{-- Quick actions. `route` is a bare route name from the controller; a
+.\resources\views\dashboard.blade.php:230: // external WhatsApp link, so `url` wins when present.
+.\resources\views\privacy-policy.blade.php:9: | TermsController::showPrivacy() passes a nullable `$privacy` (the active row
+.\resources\views\privacy-policy.blade.php:10: | of terms_privacies). `content` is authored by admins, so it is the one
+.\resources\views\privacy-policy.blade.php:14: | typography now comes from the scoped `.legal-prose` rules in app.css.
+.\resources\views\terms-of-service.blade.php:9: | TermsController::showTerms() passes a nullable `$terms` (the active row of
+.\resources\views\terms-of-service.blade.php:10: | terms_privacies). `content` is authored by admins in a rich-text editor,
+.\resources\views\terms-of-service.blade.php:14: | inline <style> blocks with `@apply` (which Tailwind never processes inside
+.\resources\views\terms-of-service.blade.php:15: | a view). Typography now comes from the scoped `.legal-prose` rules in
+.\routes\admin.php:29: | which short-circuits to `false` for anonymous visitors, so anyone could
+.\routes\admin.php:55: | Every group below is gated by `auth` + `admin` and, where the surface is
+.\routes\admin.php:56: | destructive or sensitive, by a named permission via `admin:<permission>`.
+.\routes\admin.php:78: // Static segments first: `{user}` would otherwise swallow them.
+.\routes\admin.php:203: | Super Admin commercial controls. `view_pricing` and `view_profit` are in
+.\routes\admin.php:205: | reach these screens. Every write action also re-checks `manage_pricing` in
+.\routes\admin.php:213: // Static segments before `{rule}` so the model binding cannot swallow them.
+.\routes\admin.php:234: * group that requires `view_pricing`. Throttled because it prices a rule
+.\routes\admin.php:249: | Super Admin only (`manage_providers` is in Permissions::SUPER_ADMIN_ONLY).
+.\routes\admin.php:252: | `ProviderRegistry` already orders candidates by `priority` and `is_primary`.
+.\routes\admin.php:256: | Every write action re-checks `manage_providers` in the controller, so a route
+.\routes\auth.php:35: | under `guest` so an authenticated visitor is bounced away rather than
+.\routes\auth.php:40: | `login/code` is listed before `login/code/verify` for readability only —
+.\routes\web.php:60: | The webhook is server-to-server. It must NOT sit behind `auth` (Paystack
+.\routes\web.php:77: | `auth` and is exempt from CSRF, authenticated by HMAC over the raw body
+.\routes\web.php:82: | `collection.succeeded` (and `collection.failed` / `collection.underpaid`):
+.\routes\web.php:112: | Also server-to-server, and also outside `auth` + CSRF, authenticated by HMAC
+.\routes\web.php:155: | Both POST because they change state. `tips.replay` deliberately clears
+.\routes\web.php:181: | Route names keep the historical `airtime.*` / `data.*` keys that the
+.\routes\web.php:317: | These were previously public. `purchaseData` and `callback` move money,
+.\routes\web.php:337: // outside the `verified` group so a signed-in-but-unverified account still
+.\routes\web.php:359: | Required last so that the `login` route it defines is registered before any
+.\routes\web.php:360: | `guest`-middleware redirect targets it.
+.\storage\framework\views\0bd2fd2f8a124983d9ac7b8d82e75da84fa71ca0.php:10: | `Transactions::service_type` and `->status` are nullable, so both the
+.\storage\framework\views\0bd2fd2f8a124983d9ac7b8d82e75da84fa71ca0.php:12: | come from the model accessors (`service_type_badge`, `status_badge`).
+.\storage\framework\views\0bd2fd2f8a124983d9ac7b8d82e75da84fa71ca0.php:285: // external WhatsApp link, so `url` wins when present.
+.\storage\framework\views\176bb43493e2279e874cb6bd65bb51fb4c3ace0a.php:184: // ships them as one `d`, but keeping them in a single outline path makes
+.\storage\framework\views\21260b2284fd95dc873c53686ef6a9e88665a72b.php:519: // below. The old script toggled a `.hidden` class that Alpine would have
+.\storage\framework\views\21260b2284fd95dc873c53686ef6a9e88665a72b.php:628: optgroup.label = `${type} Plans`;
+.\storage\framework\views\21260b2284fd95dc873c53686ef6a9e88665a72b.php:634: const displayText = `${plan.name} - ₦${plan.price}`;
+.\storage\framework\views\21260b2284fd95dc873c53686ef6a9e88665a72b.php:771: selectedPlanType.textContent = `Type: ${planType}`;
+.\storage\framework\views\21260b2284fd95dc873c53686ef6a9e88665a72b.php:772: selectedPlanPrice.textContent = `₦${planPrice.toFixed(2)}`;
+.\storage\framework\views\2818370ce1125d816d6e31dd067e9e5b91e1f071.php:8: | ProfileController::index() supplies `$user` and `$states`.
+.\storage\framework\views\2818370ce1125d816d6e31dd067e9e5b91e1f071.php:10: | Rewritten onto the design system (see docs/UI_RUNBOOK.md): the 24 emoji
+.\storage\framework\views\2818370ce1125d816d6e31dd067e9e5b91e1f071.php:16: | `variant="solid"` is only used for names present in its $solid array — an
+.\storage\framework\views\2818370ce1125d816d6e31dd067e9e5b91e1f071.php:20: | `$user->profile_completion_percentage` and `$user->age` are model accessors
+.\storage\framework\views\2818370ce1125d816d6e31dd067e9e5b91e1f071.php:22: | `$user->phone_verified_at` is a datetime and stays null until the Alpine
+.\storage\framework\views\2841a09584555742177e056ae05a1b4032380f6b.php:8: | WalletController::history() passes `$wallet` and a paginated
+.\storage\framework\views\2841a09584555742177e056ae05a1b4032380f6b.php:9: | `$transactions`. The previous view ignored both and rendered three
+.\storage\framework\views\2dff33e6c7efbf5c548fbce6973fecae0a196521.php:6: * `meta` arrives already decoded: Transactions casts it with
+.\storage\framework\views\2dff33e6c7efbf5c548fbce6973fecae0a196521.php:7: * `'meta' => 'array'`, and BankTransferController::show passes
+.\storage\framework\views\2dff33e6c7efbf5c548fbce6973fecae0a196521.php:8: * `$transfer->meta ?? []`. Decoding it again threw
+.\storage\framework\views\2dff33e6c7efbf5c548fbce6973fecae0a196521.php:24: // The proof lives on the private disk; `Storage::url()` on the default
+.\storage\framework\views\2dff33e6c7efbf5c548fbce6973fecae0a196521.php:25: // (`local`) disk returns a bogus `/payment-proofs/...` path that resolves to
+.\storage\framework\views\2f93abb14dfa4bd3c7d1c626aa083d99a677c0a6.php:299: counter.textContent = `${length} / 500 characters`;
+.\storage\framework\views\3bdc0e3112aa785df2f5d6ae80be308be1ca8380.php:10: * recomputed: `balance_before` and `balance_after` are written by
+.\storage\framework\views\4be338ebb2609c51a48bd976a0ec845a3b770038.php:25: |   1. an uploaded photo (`profile_picture`), so existing uploads keep working
+.\storage\framework\views\6bed9e9d9fb7dcdc4765757977c99bd64e500b59.php:12: | `config('services.support.whatsapp')` — see the note there on the wa.me
+.\storage\framework\views\6bed9e9d9fb7dcdc4765757977c99bd64e500b59.php:16: | `target="_blank"` with `rel="noopener noreferrer"`: noopener is required
+.\storage\framework\views\6bed9e9d9fb7dcdc4765757977c99bd64e500b59.php:17: | so the opened page cannot reach back through `window.opener`, and
+.\storage\framework\views\83a48486b8f7be08324824f89b64cbfc59f56305.php:22: |    onclick handlers and no jQuery. The form field names (`amount`,
+.\storage\framework\views\83a48486b8f7be08324824f89b64cbfc59f56305.php:23: |    `payment_method`), the @csrf token and the wallet.process-funding POST
+.\storage\framework\views\86f8ef94ec44e692c2be0b2f40a8163c63261e46.php:31: // Grouped navigation. `permission` mirroring the route middleware keeps
+.\storage\framework\views\86f8ef94ec44e692c2be0b2f40a8163c63261e46.php:420: //     it only checked `total_unread > 0` rather than a change, which
+.\storage\framework\views\92ae7e17ebadd61e3deccbeb538a96e851163c7b.php:311: // `onclick="return confirm(...)"` handler on the delete button.
+.\storage\framework\views\b6c27a3945c7040fd34f9240f7e4b7931b630920.php:541: // `/admin/transactions/{id}?modal=true` and injects the returned HTML.
+.\storage\framework\views\b6c27a3945c7040fd34f9240f7e4b7931b630920.php:542: // The open/close state now lives in Alpine (`detailsId`), so the view no
+.\storage\framework\views\b6c27a3945c7040fd34f9240f7e4b7931b630920.php:543: // longer toggles Tailwind's `hidden`/`flex` classes by hand.
+.\storage\framework\views\b6c27a3945c7040fd34f9240f7e4b7931b630920.php:568: fetch(`<?php echo e(route('admin.transactions.show', ''), false); ?>/${transactionId}?modal=true`, {
+.\storage\framework\views\b6c27a3945c7040fd34f9240f7e4b7931b630920.php:576: if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+.\storage\framework\views\b6c27a3945c7040fd34f9240f7e4b7931b630920.php:593: ? `Reference: ${reference}`
+.\storage\framework\views\c659e4ce8a80def4e80aa09d4da555ec58027720.php:763: // Endpoints, payload shape (`settings: [{key, value, type, category}]`)
+.\storage\framework\views\c659e4ce8a80def4e80aa09d4da555ec58027720.php:764: // and every `data-key` / `data-type` / `data-category` / `.settings-input`
+.\storage\framework\views\c659e4ce8a80def4e80aa09d4da555ec58027720.php:770: //     their `onclick="..."` globals and are declared as Alpine methods
+.\storage\framework\views\c659e4ce8a80def4e80aa09d4da555ec58027720.php:964: throw new Error(`HTTP ${response.status}`);
+.\storage\framework\views\d2e348c460712f55e5f0cd95af7b75ef88aa4e48.php:15: | `x-show` WITHOUT `x-cloak`, so if the bundle fails to load the user still
+.\storage\framework\views\f57d03fa2adbae57e21d69b2d73b8108b061eda4.php:5: // Single source of truth for the primary nav. `active` is matched with
+.\storage\framework\views\f57d03fa2adbae57e21d69b2d73b8108b061eda4.php:25: * `$moreNav` (which the mobile drawer resolves through route()) and given
+.\tests\Feature\Admin\AnnouncementAdminTest.php:13: * Both the list and the edit form call `->format()` on `starts_at` and
+.\tests\Feature\Admin\AnnouncementAdminTest.php:14: * `ends_at`. The model had no `$casts`, so those columns came back from MySQL as
+.\tests\Feature\Admin\AnnouncementAdminTest.php:19: * `created_at`/`updated_at` hid the problem — Eloquent casts those by default,
+.\tests\Feature\Admin\AnnouncementAdminTest.php:20: * so a model with no `$casts` still appears to handle dates correctly until a
+.\tests\Feature\Admin\AnnouncementAdminTest.php:69: // The `elseif` branch, which formats a single date.
+.\tests\Feature\Admin\AnnouncementAdminTest.php:90: // The form formats the same columns into `datetime-local` values, which
+.\tests\Feature\Admin\AnnouncementAdminTest.php:105: // `isset($announcement)`, so the empty case needs its own check.
+.\tests\Feature\Admin\AnnouncementModuleTest.php:15: * page; `notification` and `news` announcements rendered nowhere; the badge
+.\tests\Feature\Admin\AnnouncementModuleTest.php:16: * colour field accepted Tailwind class names and wrote them into a `style`
+.\tests\Feature\Admin\AnnouncementModuleTest.php:91: * Previously only `type = promotion` reached a marquee: the
+.\tests\Feature\Admin\AnnouncementModuleTest.php:92: * `notification`/`news` half was destined for a modal component that was
+.\tests\Feature\Admin\AnnouncementModuleTest.php:176: * Anchored on the component's own `marquee` wrapper and closed by walking
+.\tests\Feature\Admin\AnnouncementModuleTest.php:177: * `<div`/`</div>` pairs until they balance, so the returned block is the
+.\tests\Feature\Admin\AnnouncementModuleTest.php:181: * these tests keyed on `animate-marquee`, and renaming that class for the seamless
+.\tests\Feature\Admin\AnnouncementModuleTest.php:285: * An unchecked checkbox submits nothing, so `is_active` was absent and
+.\tests\Feature\Admin\AnnouncementModuleTest.php:342: // The value is written into a `style` attribute, so a class name
+.\tests\Feature\Admin\AnnouncementModuleTest.php:343: // produced `background-color: bg-purple-100 text-purple-800` — invalid
+.\tests\Feature\Admin\AnnouncementModuleTest.php:379: // `support` has no manage_settings, so the announcement console is closed.
+.\tests\Feature\Admin\TransactionDetailViewTest.php:20: *   - `json_decode($transfer->meta)`  → TypeError, array given
+.\tests\Feature\Admin\TransactionDetailViewTest.php:21: *   - `{{ $transaction->api_response }}` → htmlspecialchars() on an array
+.\tests\Feature\AdminPricingTest.php:41: // An `admin` role without any of the commercial permissions.
+.\tests\Feature\AdminPricingTest.php:78: * `view_pricing` is in Permissions::SUPER_ADMIN_ONLY and is absent from
+.\tests\Feature\AdminPricingTest.php:79: * the `admin` role defaults, so an existing administrator does not
+.\tests\Feature\AdminPricingTest.php:197: * version 1. A rule created by a seeder or a direct `create()` has no
+.\tests\Feature\AdminPricingTest.php:370: * `assertNumericFieldsAreIntegers`, which the create and update paths
+.\tests\Feature\AdminProviderTest.php:68: * `is_super_admin` is deliberately left false and the permission list is set
+.\tests\Feature\AdminProviderTest.php:69: * explicitly. `User::hasPermission()` short-circuits to true for a super admin, so
+.\tests\Feature\AdminProviderTest.php:70: * a test that set the flag would pass whatever `Permissions::SUPER_ADMIN_ONLY`
+.\tests\Feature\AdminProviderTest.php:71: * contained — including if `manage_providers` were removed from it. Setting the list
+.\tests\Feature\AdminProviderTest.php:127: // An administrator without `manage_providers`: the support and moderator case.
+.\tests\Feature\AdminProviderTest.php:190: * `is_primary` is a tie-breaker inside the priority ordering. Two primaries
+.\tests\Feature\AffiliateRewardTest.php:75: // The boundary is inclusive; `>=` not `>`. Getting this wrong would
+.\tests\Feature\AnnouncementMarqueeTest.php:58: * The defect: `gap` on the animated element holding both copies makes the
+.\tests\Feature\AnnouncementMarqueeTest.php:59: * two-copy width `2 × (items + gaps) − gap`. Half of that is a group plus half
+.\tests\Feature\AnnouncementMarqueeTest.php:88: // braces, which a `[^}]*` cannot cross.
+.\tests\Feature\AnnouncementMarqueeTest.php:103: // `infinite` is the endless part; `linear` is what stops the loop pulsing as
+.\tests\Feature\AnnouncementMarqueeTest.php:126: // drop everything up to the first `>` — the `aria-hidden` flag is a deliberate
+.\tests\Feature\AnnouncementMarqueeTest.php:154: * The second copy exists only to make the loop seamless. Without `aria-hidden`
+.\tests\Feature\AnnouncementMarqueeTest.php:158: * Matched on the group element specifically: `<x-icon>` also emits
+.\tests\Feature\AnnouncementMarqueeTest.php:159: * `aria-hidden="true"`, so counting the attribute globally would count the icons.
+.\tests\Feature\AnnouncementMarqueeTest.php:181: * `animation` without a duration is `0s`: the row renders clipped and static,
+.\tests\Feature\AnnouncementMarqueeTest.php:216: * An endlessly scrolling row is precisely what `prefers-reduced-motion` is for.
+.\tests\Feature\AuthorizationIdorTest.php:19: * reference, a `?ref=`, a chat session id, an admin URL — and every test proves
+.\tests\Feature\AuthorizationIdorTest.php:22: * body and a 200 with a stranger's amount look identical to `assertOk()`, so
+.\tests\Feature\AuthorizationIdorTest.php:27: * `Auth::id()`, not from the caller not knowing the value.
+.\tests\Feature\BachsFallbackTest.php:113: * `$data` is merged over the defaults so a test can override just the field
+.\tests\Feature\BachsFallbackTest.php:628: * The funding form submits with `fetch`, so the answer has to be JSON. If
+.\tests\Feature\BachsFallbackTest.php:736: * That is the point: inline, Alpine evaluates it with `new Function` at
+.\tests\Feature\BachsFallbackTest.php:738: * and takes every binding on the page down with it. `.env`-independent
+.\tests\Feature\BillPaymentStateTest.php:70: * @param  array<string,mixed>|null  $response  what `purchase()` returns
+.\tests\Feature\BillPaymentStateTest.php:535: * an operator running `cache:clear` does. Under the previous
+.\tests\Feature\BladeDirectiveTest.php:13: * Blade passes an unrecognised `@directive` through to the browser as literal
+.\tests\Feature\BladeDirectiveTest.php:19: * `AppServiceProvider` backfills @checked / @selected / @disabled / @required /
+.\tests\Feature\BladeDirectiveTest.php:49: * The first attempt at these directives produced `if$x: echo …; endif;`
+.\tests\Feature\BladeDirectiveTest.php:67: exec('php -l ' . escapeshellarg($file) . ' 2>&1', $output, $exit);
+.\tests\Feature\ClientSideIntegrationTest.php:17: *      messages only appear where `partials/flash` is included, and two of the
+.\tests\Feature\LoginThrottleTest.php:14: * The route's `throttle:10,1` keys on the client IP, which stops one host
+.\tests\Feature\LoginThrottleTest.php:138: // Move past the one-minute window. `travel` rewinds the clock that the
+.\tests\Feature\LoginThrottleTest.php:178: // Cache/rate-limiter keys end up in logs and in `redis-cli` output, so
+.\tests\Feature\MySqlIndexLengthTest.php:10: * is 1000 bytes rather than 3072, where `php artisan migrate` dies on the very
+.\tests\Feature\MySqlIndexLengthTest.php:14: *   (alter table `personal_access_tokens` add index
+.\tests\Feature\MySqlIndexLengthTest.php:15: *    `personal_access_tokens_tokenable_type_tokenable_id_index`
+.\tests\Feature\MySqlIndexLengthTest.php:16: *    (`tokenable_type`, `tokenable_id`))
+.\tests\Feature\MySqlIndexLengthTest.php:18: * `morphs('tokenable')` is a VARCHAR(255) plus a bigint; under utf8mb4 the
+.\tests\Feature\MySqlIndexLengthTest.php:44: // `personal_access_tokens` indexes (tokenable_type, tokenable_id): the
+.\tests\Feature\PairgateProviderTest.php:111: // in `providers` would be dead weight that never vends.
+.\tests\Feature\PaymentStatusRefreshTest.php:388: // `initiated_at` is stamped before any gateway is called, so it must
+.\tests\Feature\PaystackSettlementTest.php:58: /** A pending card-funding row, as `processFunding` creates it. */
+.\tests\Feature\PaystackSettlementTest.php:113: * browser cannot reach. Paystack accepts an unreachable `callback_url`
+.\tests\Feature\PaystackSettlementTest.php:206: // The suite runs as `testing`, i.e. not production: no guard.
+.\tests\Feature\PaystackSettlementTest.php:215: * test. `config()` alone is not enough: `UrlGenerator` caches its root the
+.\tests\Feature\PricingEngineTest.php:19: * database. `RefreshDatabase` is present because the two rule-resolution tests
+.\tests\Feature\PricingEngineTest.php:20: * (`quote()` with no rule) genuinely query for one.
+.\tests\Feature\PricingEngineTest.php:125: * would make the `none` markup type unusable.
+.\tests\Feature\PricingEngineTest.php:198: * A 25% markup is reached with `markup_percentage_bps = 2500`.
+.\tests\Feature\PricingEngineTest.php:270: // Profit is derived from `customer_price_minor`, so it is 124000 - 100000.
+.\tests\Feature\PricingEngineTest.php:329: * `allow_negative_margin` false, the sale is refused — the brief's
+.\tests\Feature\ProfilePresentationTest.php:288: // `pin_code` is one of the keys that re-opens the form, so the customer can see
+.\tests\Feature\ProviderAdapterTest.php:26: *   * Nitro's `rate × quantity ÷ 1000` is right — an error of three orders of
+.\tests\Feature\ProviderAdapterTest.php:59: * Put a value where `ProviderCredentials` looks for it.
+.\tests\Feature\ProviderAdapterTest.php:61: * `ProviderCredentials` reads the process environment directly — never
+.\tests\Feature\ProviderAdapterTest.php:62: * `config()`, so that a cached config artefact cannot contain a secret — and
+.\tests\Feature\ProviderAdapterTest.php:63: * this is how a test supplies one without touching `.env`.
+.\tests\Feature\ProviderAdapterTest.php:83: * reach for different conventions — `Authorization` from `withToken()`,
+.\tests\Feature\ProviderAdapterTest.php:84: * `secret-key` from configuration. Comparing case-sensitively would make these
+.\tests\Feature\ProviderAdapterTest.php:213: * `error` is the marker Nitro puts on a refused *request*, not a value its
+.\tests\Feature\ProviderAdapterTest.php:214: * `status` action returns. It must map to UNKNOWN rather than FAILED, so
+.\tests\Feature\ProviderAdapterTest.php:222: // Every status the `status` action can actually return maps cleanly.
+.\tests\Feature\ProviderAdapterTest.php:347: * `status.value = completed` with `is_final: false` is a contradiction,
+.\tests\Feature\ProviderAdapterTest.php:514: * Documented: `rate × quantity ÷ 1000`. The docs' own worked example is a
+.\tests\Feature\ProviderAdapterTest.php:564: * `add` returns only an order id. Nitro is asynchronous, so reporting
+.\tests\Feature\ProviderAdapterTest.php:602: * The SMM panel convention: errors arrive with HTTP 200 and an `error`
+.\tests\Feature\ProviderAdapterTest.php:801: // `countryCode` contains `code`. Substring-matching the short delivery
+.\tests\Feature\ProviderAdapterTest.php:863: * 1.92 — `total_amount` is the debit, so it is the provider cost. Deriving
+.\tests\Feature\ProviderAdapterTest.php:864: * the cost from `amount` instead would overstate it by the commission and
+.\tests\Feature\ProviderAdapterTest.php:1014: // Documented shape: a catalogue read carries `response_description` and
+.\tests\Feature\ProviderAdapterTest.php:1015: // `content`, and no `code` at all.
+.\tests\Feature\ProviderAdapterTest.php:1056: * `contents` is plural here and `code` is not a response code, unlike every
+.\tests\Feature\ProviderAdapterTest.php:1203: * environment change. This proves the indirection is real: renaming `phone`
+.\tests\Feature\ProviderAdapterTest.php:1204: * to `recipient` changes what leaves the process.
+.\tests\Feature\ProviderAdapterTest.php:1400: // that claims `gift_cards` for Nitro must not be honoured.
+.\tests\Feature\ProviderSyncTest.php:98: * A product is `DISCOVERED` and `TEMPORARILY_UNAVAILABLE` by default, so
+.\tests\Feature\ProviderSyncTest.php:548: * `rate × whatever the customer chooses`. Storing the documented
+.\tests\Feature\ProviderSyncTest.php:549: * `variation_amount` of 0.00 would record a free product and price it as one.
+.\tests\Feature\ProviderSyncTest.php:634: * `code` is a gift card number to Sogo and a country code to VTpass, so a
+.\tests\Feature\ProviderSyncTest.php:635: * redacted payload has `[redacted]` where a country code should be.
+.\tests\Feature\ProviderSyncTest.php:645: * return a delivery token by reaching for `raw`.
+.\tests\Feature\ReconcilePaystackPaymentsTest.php:294: // uses `created_at < now - lookback`, so pass a lookback below the age.
+.\tests\Feature\RetentionTest.php:61: * `payAgainInputs()` deliberately re-reads the product and refuses when it is
+.\tests\Feature\RetentionTest.php:523: * Tested on the model rather than through `createReminder`, because the
+.\tests\Feature\RetentionTest.php:528: * PHP's plain `addMonth()` on 31 January produces 2 March, which would
+.\tests\Feature\SecurityHardeningTest.php:62: // Real JPEG bytes, hostile *name*. `.html` is not on Laravel's
+.\tests\Feature\SecurityHardeningTest.php:63: // php-blocklist and `mimes:` only inspects the content-derived
+.\tests\Feature\SecurityHardeningTest.php:65: // stored verbatim as `profiles/profile-<id>-<time>.html` on the public
+.\tests\Feature\SecurityHardeningTest.php:113: // `image` accepts SVG; the explicit mimetypes allowlist is what refuses
+.\tests\Feature\SecurityHardeningTest.php:185: // The public disk is untouched, so `storage:link` exposes nothing.
+.\tests\Feature\SecurityHardeningTest.php:329: // which `connect-src 'self'` already allows.
+.\tests\Feature\SecurityHardeningTest.php:332: // Alpine evaluates expressions with `new Function`, and layouts use
+.\tests\Feature\SecurityHardeningTest.php:356: // Both URLs are captured up front: a later `route()` call would return
+.\tests\Feature\SecurityHardeningTest.php:409: * `form-action 'self'` is measured against the *page* origin, and a browser
+.\tests\Feature\SecurityHardeningTest.php:411: * `route('wallet.process-funding')` — which Laravel 8 renders as an
+.\tests\Feature\SecurityHardeningTest.php:419: * action to be origin-relative (`route($name, $parameters, false)`), which
+.\tests\Feature\SecurityHardeningTest.php:465: * every Blade template so a newly added `<form>` cannot quietly
+.\tests\Feature\SecurityHardeningTest.php:486: // `<form` and `>` are what matters.
+.\tests\Feature\SecurityHardeningTest.php:519: "These form actions are absolute; add a trailing `, false` to the route() call " .
+.\tests\Feature\SecurityHardeningTest.php:659: * The `image`/`mimes` rules reject the name before the content is looked at
+.\tests\Feature\SecurityHardeningTest.php:670: * `directive($csp, 'connect-src')` -> `" 'self' https://..."`. Empty when
+.\tests\Feature\SecurityHardeningTest.php:688: * Every `action="..."` value rendered by a page's forms.
+.\tests\Feature\ServiceCatalogueTest.php:323: * is the only place `unavailable_reason` is populated — no customer-facing
+.\tests\Feature\TransactionServiceTypeTest.php:10: * `transactions.service_type` is an ENUM, so the value written has to be one the
+.\tests\Feature\TransactionServiceTypeTest.php:12: * key (`cable_tv`, `waec`, `jamb`) while the rest of the application reads
+.\tests\Feature\TransactionServiceTypeTest.php:13: * `cable-tv` and `exam`, and `refund` / `manual_adjustment` were not in the ENUM
+.\tests\Feature\UiCopyTest.php:25: * against `config('copy')`. A test that reads the config proves the config is right;
+.\tests\Feature\UiCopyTest.php:126: * customer — which is why `UiCopy::get()` returns the key rather than an empty
+.\tests\Feature\UiCopyTest.php:251: // The first word of the name stands in for `{first_name}` — the `users` table
+.\tests\Feature\UiCopyTest.php:252: // has a single `name` column.
+.\tests\Feature\WalletLedgerTest.php:21: * These tests assert on **database state** — the `wallets` row, the
+.\tests\Feature\WalletLedgerTest.php:22: * `wallet_ledger` rows and their before/after chain — not on response codes.
+.\tests\Feature\WalletLedgerTest.php:40: // The `created` hook on User creates the wallet row.
+.\tests\Feature\WalletLedgerTest.php:174: * connections inside `RefreshDatabase` (which holds every test in a single
+.\tests\Feature\WalletLedgerTest.php:181: * `SELECT ... FOR UPDATE` row lock taken by `WalletService::lockForUser()`.
+.\tests\Feature\WalletLedgerTest.php:184: * `test_the_movement_takes_a_row_lock`, so a future refactor that drops the
+.\tests\Feature\WalletLedgerTest.php:250: * On MySQL, a `SELECT ... FOR UPDATE` issued outside a transaction locks
+.\tests\Feature\WalletLedgerTest.php:257: * phpunit.xml — so this is not expected to skip), because `FOR UPDATE`
+.\tests\Feature\WalletLedgerTest.php:508: // `wallets.user_id` is unique, so a duplicate would be a hard error
+.\tests\Feature\WalletVerificationCommandTest.php:15: * `wallet:verify` is the tool somebody reaches for when a customer says their
+.\tests\Feature\WalletVerificationCommandTest.php:20: * Note on style: Laravel 8's `PendingCommand` has `expectsOutput()` (exact
+.\tests\Feature\WalletVerificationCommandTest.php:21: * match) but not `expectsOutputToContain()` (Laravel 9), and `Artisan::output()`
+.\tests\Feature\WalletVerificationCommandTest.php:75: // The exit code is the whole contract: `wallet:verify || alert` only
+.\tests\Feature\WalletVerificationCommandTest.php:148: * `service_type` is `refund`, and counting it as income would
+.\tests\Feature\WalletVerificationCommandTest.php:189: * `tools/preflight-financial-integrity.php` is deliberately NOT executed
+.\tests\Feature\WalletVerificationCommandTest.php:190: * here. It reads whatever `DB_*` points at, so running it from the test
+.\tests\Unit\MoneyTest.php:10: * `Money` is the foundation of every financial calculation in the application,
+.\tests\Unit\MoneyTest.php:51: * representation, so `(int) (1500.50 * 100)` is 150049 on some
+.\tests\Unit\MoneyTest.php:211: * computed as `(int) round($amount * 100)` — correct only because of the
+.\tests\Unit\MoneyTest.php:212: * `round()`, and wrong by a kobo in the one place the `round()` was
+.\tools\check-assets.php:7: * because the `@vite` directive was never compiled. So this asserts on the
+.\tools\check-assets.php:96: * resources/js/bootstrap.js used CommonJS `require()`. Vite does not polyfill
+.\tools\check-assets.php:97: * `require` — it emits the call verbatim into the browser bundle, so the entry
+.\tools\check-assets.php:99: * Alpine never started, every `x-cloak` element stayed hidden and every
+.\tools\check-assets.php:100: * `x-text` binding rendered empty. Nothing about the response looked wrong:
+.\tools\check-assets.php:118: // `require(` / `module.exports` only appear in a CJS bundle; browser ESM
+.\tools\preflight-financial-integrity.php:6: * The migrations that add UNIQUE indexes to `transactions.api_reference`,
+.\tools\preflight-financial-integrity.php:7: * `transactions.payment_reference` and `wallets.user_id` will FAIL on a database
+
+== 3. OBFUSCATION / ENCODED PAYLOAD MARKERS ==
+.\public\build\assets\app-C4gXe0H4.js:3: `)}getSetCookie(){const t=this.get("set-cookie");return u.isArray(t)?t:t==null||t===!1?[]:[t]}get[Symbol.toStringTag](){return"AxiosHeaders"}static from(t){retu
+.\tools\security_scan.ps1:53: Select-String -Pattern 'eval\s*\(\s*(base64_decode|gzinflate|str_rot13|urldecode)|fromCharCode|atob\s*\(|String\.fromCharCode|\\x[0-9a-f]{2}\\x[0-9a-f]{2}\\x[0-
+
+== 4. SUSPICIOUS REMOTE URLS / IPs IN PROJECT CODE ==
+.\app\Http\Middleware\SecurityHeaders.php:54: * outright ("Sending form data to 'http://127.0.0.1:8000/wallet/fund'
+.\app\Support\Vite.php:128: $socket = @fsockopen($host, $port, $errno, $errstr, self::PROBE_TIMEOUT);
+.\resources\views\wallet\fund.blade.php:125: http://localhost vs http://127.0.0.1:8000). --}}
+.\tests\Feature\PaystackSettlementTest.php:156: $this->forceOrigin('https://192.168.1.10');
+.\tests\Feature\SecurityHardeningTest.php:415: *   Sending form data to 'http://127.0.0.1:8000/wallet/fund' violates the
+.\tools\browser-audit.js:99: const r = await fetch(`http://127.0.0.1:${PORT}/json/version`);
+
+== 5. 25 MOST RECENTLY MODIFIED PROJECT FILES ==
+2026-10-09 07:54          0 .\tools\scan-results.txt
+2026-10-09 07:54       4658 .\tools\security_scan.ps1
+2026-10-09 07:43   11822015 .\storage\logs\laravel.log
+2026-10-09 07:17       5805 .\public\robots.txt
+2026-10-08 17:25        282 .\storage\framework\sessions\sK4ZXZFMeLhqljBVktd7Slemqu8UXWZgShGu6iJv
+2026-10-08 17:25      63053 .\storage\framework\views\c659e4ce8a80def4e80aa09d4da555ec58027720.php
+2026-10-08 17:25         94 .\storage\framework\cache\data\27\3e\273ee8f368d0c6f08437e1a597357a2221fe4f9b
+2026-10-08 17:25         14 .\storage\framework\cache\data\9c\7b\9c7b966d1b39106eb1348464360de3055b3bceb9
+2026-10-08 17:25         16 .\storage\framework\cache\data\10\40\1040a4a854bf5e8838929c477e8171edb523044b
+2026-10-08 16:52      74722 .\.phpunit.result.cache
+2026-10-08 16:52        180 .\storage\framework\sessions\ywJVyJuZNoaPdDN30MDbBkLQluCSX76RZ61DvYFe
+2026-10-08 16:52         55 .\storage\framework\views\872b5742264941b5d1a353ce83c078f21c294713.blade.php
+2026-10-08 16:52        224 .\storage\framework\views\a2f6b1c9fb7b0ff4af7864df57cf4409bd6842aa.php
+2026-10-08 16:51      29123 .\docs\RUNNING.md
+2026-10-08 16:51      16131 .\docs\UI_RUNBOOK.md
+2026-10-08 16:51        286 .\storage\framework\sessions\uASl4leJDmHq4WXp2Ttgg1VRFc74KgC7u62MRQBI
+2026-10-08 16:51       6335 .\storage\framework\views\dfe54afce2a505796265d811967bcfd341ffa9c0.php
+2026-10-08 16:51      40767 .\storage\framework\views\b6c27a3945c7040fd34f9240f7e4b7931b630920.php
+2026-10-08 16:51         14 .\storage\framework\cache\data\08\32\08328b94808b527a0182f8f94bf863379fc16aaf
+2026-10-08 16:51         23 .\storage\framework\cache\data\44\d1\44d142505dd1a3b497197e2f459d2aec779e9ed6
+2026-10-08 16:51         14 .\storage\framework\cache\data\c2\4f\c24f92750673b2169c8cb7bfbc999cfa8457dc7c
+2026-10-08 16:51        331 .\public\build\manifest.json
+2026-10-08 16:51      82921 .\public\build\assets\app-BvNcXust.css
+2026-10-08 16:51     105325 .\public\build\assets\app-C4gXe0H4.js
+2026-10-08 16:50       8722 .\storage\framework\views\4f174429ffe0a1c08ca32adeb36de0152eacd851.php
+
+== 6. HIDDEN OR ANOMALOUSLY-NAMED FILES ==
+       423 2026-10-07 .\.babelrc
+       276 2026-10-07 .\.editorconfig
+     15198 2026-10-08 .\.env
+     12186 2026-10-08 .\.env.example
+       162 2026-10-07 .\.gitattributes
+       255 2026-10-08 .\.gitignore
+     74722 2026-10-08 .\.phpunit.result.cache
+       208 2026-10-07 .\.styleci.yml
+        16 2026-10-07 .\bootstrap\cache\.gitignore
+        11 2026-10-07 .\database\.gitignore
+       624 2026-10-07 .\dist\.htaccess
+       624 2026-10-07 .\public\.htaccess
+       277 2026-10-07 .\reup\.gitignore
+        26 2026-10-07 .\storage\app\.gitignore
+        16 2026-10-07 .\storage\app\public\.gitignore
+       128 2026-10-07 .\storage\framework\.gitignore
+        24 2026-10-07 .\storage\framework\cache\.gitignore
+        16 2026-10-07 .\storage\framework\cache\data\.gitignore
+        16 2026-10-07 .\storage\framework\sessions\.gitignore
+        16 2026-10-07 .\storage\framework\testing\.gitignore
+        16 2026-10-07 .\storage\framework\views\.gitignore
+        16 2026-10-07 .\storage\logs\.gitignore
+
+== SCAN COMPLETE ==
