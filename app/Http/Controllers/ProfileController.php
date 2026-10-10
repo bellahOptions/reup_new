@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Services\OtpLoginService;
+use App\Services\PaystackService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
@@ -155,6 +156,24 @@ class ProfileController extends Controller
         // Update user
         $user->update($validated);
 
+        /*
+         * Push a newly-added phone number to the payment provider, if we already
+         * hold a customer record for this account.
+         *
+         * Paystack will not create a dedicated virtual account for a customer
+         * with no phone number, and a customer record created during an earlier
+         * card payment has that gap frozen in it — `ensureCustomer()` returns the
+         * stored code and never revisits the record. Without this, a customer who
+         * follows the prompt on the virtual-account page, adds their number and
+         * comes back would be told the very same thing again, which reads as the
+         * form not saving.
+         *
+         * Best-effort on purpose: a gateway outage must not fail a profile save.
+         * The virtual-account path re-sends the number on every attempt, so a
+         * failure here is recovered the next time it actually matters.
+         */
+        $this->syncPhoneToPaymentProvider($user);
+
         // Check if profile is now completed
         if (!$user->profile_completed && $user->profile_completion_percentage >= 80) {
             $user->profile_completed = true;
@@ -164,6 +183,35 @@ class ProfileController extends Controller
         return redirect()->route('profile.index')
             ->with('success', 'Profile updated successfully!')
             ->with('phone_alert', empty($user->phone));
+    }
+
+    /**
+     * Attach the account's phone number to its Paystack customer, when there is
+     * one to attach to.
+     *
+     * A no-op in the common case: almost every profile save happens before any
+     * card payment, so there is no customer code and nothing to do. That is why
+     * this is written as an early return rather than being deferred to a job —
+     * the cost is a null check, and a job would need its own retry story for a
+     * call that the virtual-account path already repeats for free.
+     */
+    private function syncPhoneToPaymentProvider(User $user): void
+    {
+        $customerCode = (string) $user->paystack_customer_code;
+        $phone = preg_replace('/\D/', '', (string) $user->formatted_phone);
+
+        if ($customerCode === '' || $phone === '') {
+            return;
+        }
+
+        try {
+            app(PaystackService::class)->updateCustomerPhone($customerCode, $phone);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Could not sync a profile phone number to Paystack', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

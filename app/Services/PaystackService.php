@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\PhoneNumberRequiredException;
 use App\Models\Transactions;
 use App\Models\User;
 use App\Models\WalletLedger;
@@ -26,6 +27,16 @@ use Throwable;
  */
 class PaystackService
 {
+    /**
+     * The user whose phone number has already been pushed to Paystack in this
+     * request, so the dedicated-account path does not send it twice.
+     *
+     * An instance property rather than a model column on purpose: this is a
+     * "have I already done this network call" flag, not durable state, and
+     * storing it would mean a stale value could suppress a genuine sync.
+     */
+    private ?int $phoneSyncedFor = null;
+
     public function __construct(
         private readonly WalletService $wallets,
         private readonly AffiliateService $affiliates,
@@ -565,11 +576,23 @@ class PaystackService
 
         [$first, $last] = $this->splitName((string) $user->name);
 
+        /*
+         * `formatted_phone`, not the raw column: it converts a local Nigerian
+         * number (`08031234567`) to the `234…` form Paystack stores. Sending the
+         * local form is accepted by customer creation but leaves a record the
+         * dedicated-account endpoint then rejects as a missing phone, which is a
+         * confusing failure much later in the flow.
+         *
+         * `array_filter` drops a null phone, so a customer created here without
+         * one has *no* phone on the Paystack side. That is fine for a card, and
+         * is exactly why `dedicatedAccount()` re-checks and pushes one before it
+         * asks for an account.
+         */
         $created = $this->client()->post('https://api.paystack.co/customer', array_filter([
             'email' => $user->email,
             'first_name' => $first,
             'last_name' => $last,
-            'phone' => $user->phone,
+            'phone' => $this->internationalPhone($user),
         ]));
 
         $body = $created->json() ?? [];
@@ -598,6 +621,25 @@ class PaystackService
      * so the stored details are returned when present and the API is only
      * consulted when they are missing or a refresh is explicitly requested.
      *
+     * ## The phone number
+     *
+     * Paystack attaches the account to a *customer record* and refuses to create
+     * one for a customer with no phone — "Customer phone number is required".
+     * Two things follow, and getting either wrong is how a customer ends up
+     * staring at an unexplainable message:
+     *
+     *   * We check for the phone **ourselves, first**, and raise
+     *     {@see PhoneNumberRequiredException} before spending a request. The
+     *     customer then gets a prompt they can act on instead of the gateway's
+     *     internal wording relayed back to them.
+     *   * We push the phone to the **existing** customer record when we have one.
+     *     A customer created earlier without a phone keeps that gap forever
+     *     otherwise: the record already exists, so `ensureCustomer()` returns the
+     *     stored code and never touches it again. That is the actual shape of the
+     *     bug this fixes — card funding does not need a phone, so the customer was
+     *     created silently without one, and the failure only surfaced on the
+     *     virtual-account page, much later, as a provider error.
+     *
      * @return array{account_number:string,bank_name:string,account_name:string}
      */
     public function dedicatedAccount(User $user, bool $refresh = false): array
@@ -611,6 +653,8 @@ class PaystackService
         }
 
         $customerCode = $this->ensureCustomer($user);
+
+        $this->ensureCustomerHasPhone($user, $customerCode);
 
         $response = $this->client()->post('https://api.paystack.co/dedicated_account', [
             'customer' => $customerCode,
@@ -635,6 +679,98 @@ class PaystackService
         }
 
         return $this->storeDedicatedAccount($user, $body['data'] ?? []);
+    }
+
+    /**
+     * Does this account have a phone number a virtual account can be built on?
+     *
+     * Exposed so the controller can report the *condition* rather than catch the
+     * exception: the caller needs to know this is an actionable gap in the
+     * customer's own data, and asking the question is a clearer way to say that
+     * than raising and catching an error for a state we can see coming.
+     *
+     * Deliberately the same accessor {@see internationalPhone()} uses, so the
+     * answer and the value sent to the gateway cannot disagree — which is the
+     * failure mode of spelling the rule out in the controller as well.
+     */
+    public function hasPhoneForDedicatedAccount(User $user): bool
+    {
+        return $this->internationalPhone($user) !== null;
+    }
+
+    /**
+     * Guarantee both we and the gateway hold this customer's phone number.
+     *
+     * Synchronous and deliberately before the assignment call: doing it lazily
+     * would mean the first attempt fails, the customer retries, and the failure
+     * and the fix are separated by an unexplained error.
+     *
+     * @throws PhoneNumberRequiredException when there is no phone to send
+     */
+    private function ensureCustomerHasPhone(User $user, string $customerCode): void
+    {
+        $phone = $this->internationalPhone($user);
+
+        if ($phone === null) {
+            throw new PhoneNumberRequiredException();
+        }
+
+        // Already pushed in this request — `dedicatedAccount()` is called once per
+        // page load, but a retry loop or a future caller should not re-send it.
+        if ($this->phoneSyncedFor === $user->getKey()) {
+            return;
+        }
+
+        $this->updateCustomerPhone($customerCode, $phone);
+        $this->phoneSyncedFor = $user->getKey();
+    }
+
+    /**
+     * E.164 without the `+`, which is what Paystack stores.
+     *
+     * The `formatted_phone` accessor already does this conversion for the
+     * customer-creation path; using it here rather than repeating the rule is
+     * what stops the two disagreeing about what "0803…" means. A number that
+     * does not look Nigerian is sent as digits, because guessing a country code
+     * for a foreign number is worse than sending it and letting the gateway
+     * reject it.
+     */
+    private function internationalPhone(User $user): ?string
+    {
+        $formatted = preg_replace('/\D/', '', (string) ($user->formatted_phone ?? ''));
+
+        return $formatted === '' ? null : $formatted;
+    }
+
+    /**
+     * Attach a phone number to an existing Paystack customer.
+     *
+     * `PUT /customer/{code}` merges, so this sends only the phone. It is
+     * idempotent — re-sending the same number is a no-op on their side — which is
+     * what makes it safe to call on every attempt rather than tracking whether
+     * the record already has one (a `GET /customer/{code}` per attempt to find
+     * out would be a second round trip for no benefit).
+     */
+    public function updateCustomerPhone(string $customerCode, string $phone): void
+    {
+        $response = $this->client()->put(
+            'https://api.paystack.co/customer/' . rawurlencode($customerCode),
+            ['phone' => $phone]
+        );
+
+        $body = $response->json() ?? [];
+
+        if (! $response->successful() || ! ($body['status'] ?? false)) {
+            // Logged, not thrown as a provider error: the assignment call below
+            // is what decides the outcome, and it will fail with the gateway's
+            // own wording if the phone really is the blocker. Throwing here would
+            // replace a specific, gateable failure with a generic one.
+            Log::warning('Could not attach a phone number to the Paystack customer', [
+                'customer_code' => $customerCode,
+                'http_status' => $response->status(),
+                'message' => $body['message'] ?? null,
+            ]);
+        }
     }
 
     /**

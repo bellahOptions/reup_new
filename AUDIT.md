@@ -631,5 +631,48 @@ page offers card funding and the shared account instead.
 `VirtualAccountTest` (13 cases) covers issue-once, the failure path, and that one customer is never
 shown another's account.
 
+### S4b — "Customer phone number is required" reached the customer as a dead end
+
+Paystack will not attach a dedicated virtual account to a customer record with no phone number.
+`users.phone` is nullable and registration does not ask for one, so this was a routine state — but
+nothing about the flow accounted for it, and the failure surfaced as:
+
+```
+production.ERROR: Dedicated virtual account could not be issued
+  {"user_id":2,"error":"Could not generate a bank account: Customer phone number is required"}
+```
+
+…and, for the customer, **"We could not issue your personal account number"** — a dead end for a
+problem they could fix in ten seconds.
+
+Three separate defects, and fixing only the visible one would have left the others:
+
+| # | Defect | Effect |
+| --- | --- | --- |
+| 1 | No phone check before the call | The gateway's internal wording was relayed as a generic failure, with no route to fixing it |
+| 2 | The phone was never attached to an **existing** customer record | `ensureCustomer()` only sends a phone when *creating* a customer. A record created during an earlier card payment — which does not need a phone — kept that gap permanently, because the stored code short-circuits the function forever after. This is the actual shape of the reported bug. |
+| 3 | Saving a phone number did not reach the provider | A customer who followed the prompt, saved, and returned would be told the same thing again — reading as the profile form not saving |
+
+**Fix:** `PhoneNumberRequiredException` plus `PaystackService::hasPhoneForDedicatedAccount()`, asked
+before any request is spent; the phone is attached to the existing customer record before the
+assignment is requested; and `ProfileController::update()` pushes a saved number to the provider.
+
+Both phone paths send the number in international form (`2348031234567`). The local form
+(`08031234567`) is accepted when creating a customer but leaves a record the assignment endpoint
+rejects, which is the kind of failure that is very hard to trace back to its cause.
+
+The page now branches on a **code**, not on the message text — matching a sentence to decide whether
+to offer the profile form would break the first time somebody reworded the copy.
+
+One further defect was found while fixing the above, in the code that had just been written: the
+warning and its code were returned as a bare string and a separate argument, so
+`renderVirtualAccount($this->issueVirtualAccount())` left the second parameter at its default and the
+prompt never rendered — the page said "add a phone number" in the body and "we could not issue your
+account" in the heading. `issueVirtualAccount()` now returns one value carrying both.
+
+`VirtualAccountTest` gained nine cases covering each of the three defects, that no request is made
+when the phone is missing, and that the provider's wording never reaches the page.
+
+
 
 

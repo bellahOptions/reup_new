@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\PhoneNumberRequiredException;
 use App\Models\Transactions;
 use App\Models\User;
 use App\Services\BachsService;
@@ -19,6 +20,32 @@ use Throwable;
 
 class WalletController extends Controller
 {
+    /**
+     * The message shown when a personal account cannot be issued because the
+     * customer has not given us a phone number.
+     *
+     * A constant, not an inline string, because it is compared against — the
+     * POST handler and the view both need to recognise this outcome and offer
+     * the profile form, and matching on a copy of the prose would break the
+     * first time somebody reworded it. The sentence is deliberately about what
+     * the customer must do, not about what the gateway refused.
+     */
+    private const WARNING_PHONE_REQUIRED =
+        'We need a phone number on your account before we can create your personal account number. '
+        . 'Paystack requires one for every account holder. Add yours and the account is created straight away.';
+
+    /**
+     * Machine-readable codes for the two kinds of "could not issue".
+     *
+     * The view branches on these, not on the prose. Matching a sentence to decide
+     * whether to offer the profile form would break the first time somebody
+     * reworded it, and rewording customer-facing copy is a thing that happens.
+     */
+    private const WARNING_CODE_PHONE_REQUIRED = 'phone_required';
+
+    /** Anything else: a gateway outage, or our own configuration. */
+    private const WARNING_CODE_UNAVAILABLE = 'unavailable';
+
     public function __construct(
         private readonly WalletService $wallets,
         private readonly PaystackService $paystack,
@@ -667,17 +694,29 @@ class WalletController extends Controller
      */
     public function virtualAccount()
     {
-        return $this->renderVirtualAccount($this->issueVirtualAccount());
+        $outcome = $this->issueVirtualAccount();
+
+        return $this->renderVirtualAccount($outcome['message'] ?? null, $outcome['code'] ?? null);
     }
 
     /**
      * Issue and display the customer's dedicated account, or explain why not.
      *
+     * The outcome is returned as a small shape rather than parallel values, and
+     * that is not ceremony: the first version returned a bare message and the
+     * caller passed it to `renderVirtualAccount(?string $warning)`, so the
+     * `$phoneMissing` argument beside it silently took its default and the view's
+     * phone prompt never rendered — the message said "add a phone number" while
+     * the heading above it said "we could not issue your account". Returning one
+     * value that carries both makes that class of mistake impossible to write.
+     *
      * `with('warning')` rather than `with('error')`: nothing failed from the
      * customer's side, and an error toast on a page that is working correctly is
      * how a customer is taught to distrust the wallet.
+     *
+     * @return array{message:?string,code:?string}|null
      */
-    private function issueVirtualAccount()
+    private function issueVirtualAccount(): ?array
     {
         $user = Auth::user();
 
@@ -692,8 +731,30 @@ class WalletController extends Controller
                 'user_id' => $user->id,
             ]);
 
-            return 'Personal account numbers are not available on this deployment yet. '
-                . 'You can still fund with a card, or by transfer to the account on the funding page.';
+            return [
+                'message' => 'Personal account numbers are not available on this deployment yet. '
+                    . 'You can still fund with a card, or by transfer to the account on the funding page.',
+                'code' => self::WARNING_CODE_UNAVAILABLE,
+            ];
+        }
+
+        /*
+         * Paystack will not attach a virtual account to a customer record with no
+         * phone number, and our own phone column is optional — so this is asked
+         * *before* anything is spent on the gateway, and reported as the
+         * actionable condition it is rather than as a provider error.
+         *
+         * The rule is asked of the service that enforces it (`hasPhoneFor…`)
+         * rather than re-tested here against the raw column: the accessor that
+         * decides is the same one that builds the value sent upstream, so the
+         * pre-check and the API call cannot drift apart.
+         */
+        if (! $this->paystack->hasPhoneForDedicatedAccount($user)) {
+            Log::info('Dedicated virtual account deferred until a phone number is on file', [
+                'user_id' => $user->id,
+            ]);
+
+            return ['message' => self::WARNING_PHONE_REQUIRED, 'code' => self::WARNING_CODE_PHONE_REQUIRED];
         }
 
         try {
@@ -734,6 +795,27 @@ class WalletController extends Controller
             return null;
         } catch (Throwable $e) {
             /*
+             * The pre-check above means this branch is not the normal way a
+             * missing phone number is reported — it is the backstop for the
+             * cases the check cannot see: a number that is present but
+             * unusable, or a customer record left without one by an earlier
+             * release that created it before the check existed.
+             *
+             * It is kept, rather than removed with the check, precisely because
+             * those cases would otherwise fall through to the sanitiser below and
+             * be reported as "we could not issue your personal account number" —
+             * a dead end the customer cannot act on.
+             */
+            if ($e instanceof PhoneNumberRequiredException) {
+                Log::info('Dedicated virtual account deferred until a phone number is on file', [
+                    'user_id' => $user->id,
+                    'stage' => 'provider',
+                ]);
+
+                return ['message' => self::WARNING_PHONE_REQUIRED, 'code' => self::WARNING_CODE_PHONE_REQUIRED];
+            }
+
+            /*
              * The raw provider message describes our configuration ("wema-bank
              * is not available in test mode", "invalid key") and is never shown
              * verbatim. `$dvaFallbackMessage()` is the same sanitiser the funding
@@ -746,11 +828,11 @@ class WalletController extends Controller
                 'error' => $e->getMessage(),
             ]);
 
-            return $this->dvaFallbackMessage($e->getMessage());
+            return ['message' => $this->dvaFallbackMessage($e->getMessage()), 'code' => self::WARNING_CODE_UNAVAILABLE];
         }
     }
 
-    private function renderVirtualAccount(?string $warning = null)
+    private function renderVirtualAccount(?string $warning = null, ?string $warningCode = null)
     {
         $user = Auth::user()->fresh();
 
@@ -762,6 +844,16 @@ class WalletController extends Controller
             'bank_details' => config('wallet.bank'),
             'paystack_enabled' => $this->paystack->isConfigured(),
             'dva_warning' => $warning ?? session('warning'),
+            /*
+             * A missing phone number is the one failure the customer can fix
+             * themselves, so the page offers a form rather than an apology. The
+             * flag is passed separately from the message because the view needs
+             * to change the *action*, not just the wording — and because a
+             * flashed message from a redirect loses any structured data.
+             */
+            'phone_missing' => $warningCode === self::WARNING_CODE_PHONE_REQUIRED
+                || (session('warning_code') === self::WARNING_CODE_PHONE_REQUIRED),
+            'profile_url' => route('profile.index'),
             /*
              * Recent transfers to the account, so the customer can see the credit
              * land without leaving the page. Matched on `payment_method`, which
@@ -781,11 +873,22 @@ class WalletController extends Controller
 
     public function storeVirtualAccount()
     {
-        $warning = $this->issueVirtualAccount();
+        $outcome = $this->issueVirtualAccount();
 
+        if ($outcome === null) {
+            return redirect()
+                ->route('wallet.virtual-account')
+                ->with('success', 'Your account is ready.');
+        }
+
+        /*
+         * Both the message and its code are flashed, so the page after the
+         * redirect can offer the right action — not just the right sentence.
+         */
         return redirect()
             ->route('wallet.virtual-account')
-            ->with($warning ? 'warning' : 'success', $warning ?: 'Your account is ready.');
+            ->with('warning', $outcome['message'])
+            ->with('warning_code', $outcome['code']);
     }
 
     /* =====================================================================

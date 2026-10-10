@@ -773,6 +773,27 @@ configuration rather than anything the customer did — it is logged, sanitised
 through `WalletController::dvaFallbackMessage()`, and the page offers card
 funding and the shared account instead.
 
+#### A phone number is required, and the page asks for it
+
+Paystack will not attach a dedicated account to a customer record with no phone
+number. Our own `users.phone` is nullable, so this is a normal state rather than
+an error — and it needs handling in three places, because handling it in fewer
+produces a bug that looks like something else:
+
+| Place | Why |
+| --- | --- |
+| `PaystackService::hasPhoneForDedicatedAccount()`, checked before the API call | Turns the gateway's internal wording into an actionable prompt, and avoids spending a request on a condition we can already see |
+| `PaystackService::dedicatedAccount()` — attach the phone to the **existing** customer first | A record created during an earlier card payment has no phone (card funding does not need one) and `ensureCustomer()` returns the stored code without revisiting it, so the gap was permanent |
+| `ProfileController::update()` — push a saved phone to the provider | Otherwise the customer follows the prompt, saves, returns, and is told the same thing again |
+
+The number is sent in international form (`2348031234567`). The local form
+(`08031234567`) is accepted when *creating* a customer but leaves a record the
+assignment endpoint rejects, which is a confusing failure a long way from its
+cause; `User::formatted_phone` is the one conversion rule, used by both paths.
+
+`VirtualAccountTest` covers each of the three, plus that no request is made when
+the phone is missing and that the provider's wording never reaches the page.
+
 ```
 PAYSTACK_SECRET_KEY=sk_...        # required; without it the page explains itself
 PAYSTACK_DVA_BANK=wema-bank       # the partner bank Paystack assigns from

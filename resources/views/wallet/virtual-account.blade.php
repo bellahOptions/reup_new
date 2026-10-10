@@ -94,24 +94,48 @@
         </header>
 
         @if($dva_warning)
-            {{-- The account could not be issued. Not an error page: card funding
-                 and the shared account still work, so the customer is told what
-                 happened and pointed at what they can do instead. --}}
+            {{--
+                The account could not be issued.
+
+                Two shapes, and the difference is the whole point. Most failures
+                are ours or the gateway's — nothing the customer can act on — so
+                they get an explanation and a retry. A missing phone number is the
+                customer's own data, and only they can supply it, so that one gets
+                a primary action pointing at the profile form. Reporting it as
+                "we could not issue your personal account number" (which is what
+                happened) hands them a dead end for a ten-second fix.
+            --}}
             <div class="mb-6 flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
                  role="status">
                 <x-icon name="exclamation-triangle" class="mt-0.5 h-5 w-5 shrink-0" />
                 <div class="min-w-0">
-                    <p class="font-medium">We could not issue your personal account number</p>
+                    <p class="font-medium">
+                        {{ $phone_missing
+                            ? 'Add your phone number to get your account number'
+                            : 'We could not issue your personal account number' }}
+                    </p>
                     <p class="mt-1 text-amber-800">{{ $dva_warning }}</p>
-                    @if($paystack_enabled)
-                        <form method="POST" action="{{ route('wallet.virtual-account.store', [], false) }}" class="mt-3">
-                            @csrf
-                            <button type="submit" class="btn btn-outline btn-sm">
-                                <x-icon name="arrow-path" class="h-4 w-4" />
-                                Try again
-                            </button>
-                        </form>
-                    @endif
+
+                    <div class="mt-3 flex flex-wrap items-center gap-2">
+                        @if($phone_missing)
+                            <a href="{{ $profile_url }}" class="btn btn-primary btn-sm">
+                                <x-icon name="user" class="h-4 w-4" />
+                                Add phone number
+                            </a>
+                            <a href="{{ route('wallet.fund') }}" class="btn btn-outline btn-sm">
+                                <x-icon name="credit-card" class="h-4 w-4" />
+                                Fund with a card instead
+                            </a>
+                        @elseif($paystack_enabled)
+                            <form method="POST" action="{{ route('wallet.virtual-account.store', [], false) }}">
+                                @csrf
+                                <button type="submit" class="btn btn-outline btn-sm">
+                                    <x-icon name="arrow-path" class="h-4 w-4" />
+                                    Try again
+                                </button>
+                            </form>
+                        @endif
+                    </div>
                 </div>
             </div>
         @endif
@@ -197,9 +221,14 @@
                             <span class="flex h-14 w-14 items-center justify-center rounded-full bg-ink-100 text-ink-500">
                                 <x-icon name="building-library" class="h-6 w-6" />
                             </span>
-                            <h2 class="mt-4 text-base font-semibold">No personal account yet</h2>
+                            <h2 class="mt-4 text-base font-semibold">
+                                {{ $phone_missing ? 'Add your phone number first' : 'No personal account yet' }}
+                            </h2>
                             <p class="mt-1 max-w-sm text-sm text-muted-foreground">
-                                @if($paystack_enabled)
+                                @if($phone_missing)
+                                    Your account holder record needs a phone number before an account number can
+                                    be created. Add one to your profile and come back — it takes a moment.
+                                @elseif($paystack_enabled)
                                     We could not issue one when you arrived. Try again, and if it still does not
                                     work, fund with a card or contact support.
                                 @else
@@ -208,7 +237,12 @@
                                 @endif
                             </p>
                             <div class="mt-5 flex flex-wrap items-center justify-center gap-2">
-                                @if($paystack_enabled)
+                                @if($phone_missing)
+                                    <a href="{{ $profile_url }}" class="btn btn-primary btn-sm">
+                                        <x-icon name="user" class="h-4 w-4" />
+                                        Add phone number
+                                    </a>
+                                @elseif($paystack_enabled)
                                     <form method="POST" action="{{ route('wallet.virtual-account.store', [], false) }}">
                                         @csrf
                                         <button type="submit" class="btn btn-primary btn-sm">

@@ -50,13 +50,38 @@ class VirtualAccountTest extends TestCase
             // Present so `ensureCustomer()` does not have to create a Paystack
             // customer first; that path is covered by PaystackSettlementTest.
             'paystack_customer_code' => 'CUS_test_1',
+            /*
+             * A phone number is mandatory for a virtual account — Paystack will
+             * not attach one to a customer record without it — so every test
+             * about the happy path needs an account that has one. The tests that
+             * care about its absence pass `phone => null` explicitly.
+             */
+            'phone' => '08031234567',
         ], $attributes));
+    }
+
+    /** `PUT /customer/{code}` — the phone sync. */
+    private function fakePhoneSync(): void
+    {
+        Http::fake([
+            'api.paystack.co/customer/*' => Http::response([
+                'status' => true,
+                'message' => 'Customer updated',
+                'data' => ['customer_code' => 'CUS_test_1'],
+            ], 200),
+        ]);
     }
 
     /** The shape Paystack returns for `POST /dedicated_account`. */
     private function fakeAssignment(string $number = '9876543210'): void
     {
         Http::fake([
+            // The phone sync that precedes the assignment, matched first.
+            'api.paystack.co/customer/*' => Http::response([
+                'status' => true,
+                'message' => 'Customer updated',
+                'data' => ['customer_code' => 'CUS_test_1'],
+            ], 200),
             'api.paystack.co/dedicated_account*' => Http::response([
                 'status' => true,
                 'message' => 'Assign dedicated account in progress',
@@ -91,8 +116,14 @@ class VirtualAccountTest extends TestCase
         $this->assertSame('Wema Bank', $customer->fresh()->dva_bank_name);
         $this->assertNotNull($customer->fresh()->dva_created_at);
 
-        // Exactly one assignment was requested.
-        Http::assertSentCount(1);
+        /*
+         * Two requests, not one: the phone number is attached to the customer
+         * record before the assignment is asked for, because a record created by
+         * an earlier card payment has no phone and the assignment would be
+         * refused. Asserted by count rather than by "no error" so a future change
+         * that drops the sync is caught here.
+         */
+        Http::assertSentCount(2);
     }
 
     public function test_a_second_visit_does_not_ask_paystack_again(): void
@@ -109,7 +140,14 @@ class VirtualAccountTest extends TestCase
         $this->actingAs($customer)->get(route('wallet.virtual-account'))->assertOk();
         $this->actingAs($customer)->get(route('wallet.virtual-account'))->assertOk();
 
-        Http::assertSentCount(1);
+        /*
+         * Still exactly two — the phone sync plus the one assignment — across
+         * three visits. The account exists after the first, so the second and
+         * third return it from the stored row without touching the gateway at
+         * all. A count that grew with the visits would mean the assignment (or
+         * the sync) had become per-page-load.
+         */
+        Http::assertSentCount(2);
     }
 
     public function test_a_customer_who_already_has_an_account_never_calls_paystack(): void
@@ -204,8 +242,227 @@ class VirtualAccountTest extends TestCase
     }
 
     /* =====================================================================
+     | A phone number is required, and it is the customer's to supply
+     ==================================================================== */
+
+    public function test_an_account_without_a_phone_is_told_to_add_one_and_no_request_is_made(): void
+    {
+        /*
+         * The bug this covers: Paystack refuses to attach a virtual account to a
+         * customer record with no phone — "Customer phone number is required" —
+         * and the raw message surfaced as "we could not issue your personal
+         * account number". A dead end, for something the customer fixes in ten
+         * seconds.
+         *
+         * Nothing is spent on the gateway either: the condition is visible before
+         * the call, so asking is pointless.
+         */
+        $customer = $this->customer(['phone' => null]);
+
+        Http::fake(['*' => Http::response(['status' => true], 200)]);
+
+        $this->actingAs($customer)
+            ->get(route('wallet.virtual-account'))
+            ->assertOk()
+            /*
+             * Matched on the call to action, not the heading: the heading is
+             * chosen by a Blade conditional, so it is not present verbatim in the
+             * compiled view and `assertSee` on it would pass or fail for reasons
+             * unrelated to what the customer sees.
+             */
+            ->assertSee('Add your phone number', false)
+            ->assertSee(route('profile.index'), false);
+
+        // Never reaches the provider, and never shows its wording.
+        Http::assertNothingSent();
+        $this->assertNull($customer->fresh()->dva_account_number);
+    }
+
+    public function test_the_phone_prompt_does_not_leak_the_provider_message(): void
+    {
+        $customer = $this->customer(['phone' => null]);
+
+        Http::fake(['*' => Http::response(['status' => true], 200)]);
+
+        $response = $this->actingAs($customer)->get(route('wallet.virtual-account'))->assertOk();
+
+        $response->assertDontSee('Customer phone number is required', false);
+        $response->assertDontSee('Could not generate a bank account', false);
+    }
+
+    public function test_the_form_post_also_reports_the_phone_requirement(): void
+    {
+        // The retry button must not turn an actionable state into a generic one.
+        $customer = $this->customer(['phone' => null]);
+
+        Http::fake(['*' => Http::response(['status' => true], 200)]);
+
+        $this->actingAs($customer)
+            ->post(route('wallet.virtual-account.store'))
+            ->assertRedirect(route('wallet.virtual-account'))
+            ->assertSessionHas('warning_code');
+
+        $this->actingAs($customer)
+            ->get(route('wallet.virtual-account'))
+            ->assertOk()
+            ->assertSee('Add your phone number', false);
+
+        Http::assertNothingSent();
+    }
+
+    public function test_a_customer_with_a_phone_gets_an_account_as_before(): void
+    {
+        $customer = $this->customer();
+        $this->fakeAssignment();
+
+        $this->actingAs($customer)
+            ->get(route('wallet.virtual-account'))
+            ->assertOk()
+            ->assertSee('9876543210', false)
+            ->assertDontSee('Add your phone number to get your account number', false);
+    }
+
+    /* =====================================================================
+     | The phone is pushed to an existing customer record
+     =================================================================== */
+
+    public function test_the_phone_is_attached_to_the_existing_provider_customer_first(): void
+    {
+        /*
+         * The real shape of the bug. A customer record created during an earlier
+         * card payment has no phone — card funding does not need one — and
+         * `ensureCustomer()` returns the stored code without ever revisiting the
+         * record, so the gap was permanent and the failure surfaced much later,
+         * on a different page, as a provider error.
+         *
+         * The number must therefore be sent *before* the assignment is requested.
+         */
+        $customer = $this->customer(['phone' => '08031234567']);
+
+        $this->fakeAssignment();
+
+        $this->actingAs($customer)->get(route('wallet.virtual-account'))->assertOk();
+
+        $sent = [];
+        Http::assertSent(function ($request) use (&$sent) {
+            $sent[] = $request->method() . ' ' . $request->url();
+
+            return true;
+        });
+
+        $this->assertStringContainsString(
+            'PUT https://api.paystack.co/customer/CUS_test_1',
+            $sent[0] ?? '',
+            'The phone must be attached to the customer record before the assignment is requested.'
+        );
+        $this->assertStringContainsString('POST https://api.paystack.co/dedicated_account', $sent[1] ?? '');
+    }
+
+    public function test_the_phone_is_sent_in_international_form(): void
+    {
+        /*
+         * The local form (`0803…`) is accepted when creating a customer but
+         * leaves a record the assignment endpoint rejects, which is a confusing
+         * failure a long way from its cause. `formatted_phone` is the one
+         * conversion rule, so both paths agree.
+         */
+        $customer = $this->customer(['phone' => '08031234567']);
+
+        $this->fakeAssignment();
+
+        $this->actingAs($customer)->get(route('wallet.virtual-account'))->assertOk();
+
+        Http::assertSent(function ($request) {
+            return $request->method() === 'PUT'
+                && str_contains($request->url(), '/customer/CUS_test_1')
+                && ($request['phone'] ?? null) === '2348031234567';
+        });
+    }
+
+    public function test_a_failed_phone_sync_does_not_break_the_page(): void
+    {
+        // A gateway that refuses the update must not turn a working page into an
+        // error: the assignment call is what decides the outcome.
+        $customer = $this->customer();
+
+        Http::fake([
+            'api.paystack.co/customer/*' => Http::response(['status' => false, 'message' => 'nope'], 400),
+            'api.paystack.co/dedicated_account*' => Http::response([
+                'status' => true,
+                'data' => [
+                    'account_number' => '9876543210',
+                    'account_name' => 'REUP / TEST CUSTOMER',
+                    'bank' => ['name' => 'Wema Bank'],
+                    'active' => true,
+                    'currency' => 'NGN',
+                ],
+            ], 200),
+        ]);
+
+        $this->actingAs($customer)
+            ->get(route('wallet.virtual-account'))
+            ->assertOk()
+            ->assertSee('9876543210', false);
+    }
+
+    /* =====================================================================
+     | Saving a phone number is what makes the retry work
+     ==================================================================== */
+
+    public function test_saving_a_phone_number_syncs_it_to_the_provider(): void
+    {
+        /*
+         * Without this, the customer follows the prompt, saves their number,
+         * comes back — and is told the same thing again, because the provider's
+         * copy of the record still has no phone. That reads as the profile form
+         * not saving.
+         */
+        $customer = $this->customer(['phone' => '08031234567']);
+
+        Http::fake([
+            'api.paystack.co/customer/*' => Http::response(['status' => true, 'data' => []], 200),
+        ]);
+
+        $this->actingAs($customer)
+            ->put(route('profile.update'), [
+                'name' => $customer->name,
+                'email' => $customer->email,
+                'phone' => '08031234567',
+            ])
+            ->assertSessionHasNoErrors();
+
+        Http::assertSent(function ($request) {
+            return $request->method() === 'PUT'
+                && str_contains($request->url(), '/customer/CUS_test_1')
+                && ($request['phone'] ?? null) === '2348031234567';
+        });
+    }
+
+    public function test_a_profile_save_without_a_provider_customer_makes_no_request(): void
+    {
+        // The common case: most saves happen before any card payment, so there is
+        // no customer code and nothing to sync.
+        $customer = User::factory()->create([
+            'phone' => '08031234567',
+            'paystack_customer_code' => null,
+        ]);
+
+        Http::fake(['*' => Http::response(['status' => true], 200)]);
+
+        $this->actingAs($customer)
+            ->put(route('profile.update'), [
+                'name' => $customer->name,
+                'email' => $customer->email,
+                'phone' => '08031234567',
+            ])
+            ->assertSessionHasNoErrors();
+
+        Http::assertNothingSent();
+    }
+
+    /* =====================================================================
      | The account belongs to one customer
-     | =================================================================== */
+     =================================================================== */
 
     public function test_an_administrator_cannot_reach_the_page(): void
     {
