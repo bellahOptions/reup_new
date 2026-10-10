@@ -260,7 +260,68 @@ class ClubKonnectService
     public function checkBalance(int $timeout = 60): ?array
     {
         $endpoint = 'https://www.nellobytesystems.com/APIWalletBalanceV1.asp';
-        return $this->get($endpoint, [], $timeout);
+
+        $response = $this->get($endpoint, [], $timeout);
+
+        return is_array($response) ? $this->normaliseBalance($response) : $response;
+    }
+
+    /**
+     * Turn the upstream balance into a number, and keep the original beside it.
+     *
+     * ## Why this exists
+     *
+     * NelloBytes formats the balance for **display**, not for arithmetic:
+     *
+     *     {"date":"10th-Oct-2026","id":"…","phoneno":"…","balance":"4,985.28"}
+     *
+     * It is a JSON *string*, and it carries a thousands separator. Every
+     * consumer in this codebase — the health probe, the balance the console
+     * shows, the float check that decides whether a sale can be afforded — asks
+     * the obvious question, `is_numeric($response['balance'])`, and the obvious
+     * question is answered `false` for `"4,985.28"`.
+     *
+     * The consequence was not a wrong number: it was that ClubKonnect looked
+     * **completely dead** while holding ₦4,985 and answering every request with
+     * `HTTP 200`. The health probe failed, so `ProviderManager` skipped it for
+     * every purchase and failed over to the second provider or refused the sale
+     * outright — and the admin dashboard reported "Unable to fetch balance". One
+     * comma, and the primary upstream was removed from service.
+     *
+     * Normalising here rather than at each of the four call sites is the point:
+     * this is where the provider's payload becomes *our* data, and a rule
+     * applied in three places is a rule that will disagree with itself. The raw
+     * string is kept as `balance_formatted` so nothing that wants to display
+     * what the provider actually said has to re-derive it.
+     *
+     * @param  array<string,mixed>  $response
+     * @return array<string,mixed>
+     */
+    private function normaliseBalance(array $response): array
+    {
+        if (! array_key_exists('balance', $response)) {
+            return $response;
+        }
+
+        $raw = $response['balance'];
+
+        if (is_int($raw) || is_float($raw)) {
+            return $response;
+        }
+
+        $cleaned = preg_replace('/[^0-9.\-]/', '', (string) $raw);
+
+        if ($cleaned === null || $cleaned === '' || ! is_numeric($cleaned)) {
+            // Unparseable: leave it exactly as it arrived so the caller's
+            // `is_numeric` check still fails and it can report the real payload
+            // rather than a zero that looks like an empty wallet.
+            return $response;
+        }
+
+        $response['balance_formatted'] = (string) $raw;
+        $response['balance'] = (float) $cleaned;
+
+        return $response;
     }
 
     /* =====================================================================

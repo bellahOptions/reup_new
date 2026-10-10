@@ -217,6 +217,46 @@ order. A provider with no credentials is skipped, so leaving `PAIRGATE_API_KEY`
 blank means ClubKonnect serves everything — that is a valid configuration, just
 without a second route when ClubKonnect is down or short of float.
 
+### When a provider is not working
+
+```
+php artisan bills:diagnose                       # ClubKonnect by default
+php artisan bills:diagnose --provider=pairgate
+php artisan bills:diagnose --raw                 # show the upstream body, redacted
+```
+
+It walks the four layers that can each fail while producing the same one-word
+"Attention" on the dashboard: configuration, the balance enquiry, the health
+probe's verdict, and whether routing would actually try the provider. It prints
+credential *lengths* and never a credential.
+
+#### ClubKonnect sends its balance as a formatted string
+
+```
+{"date":"10th-Oct-2026","id":"…","phoneno":"…","balance":"4,985.28"}
+```
+
+A JSON **string**, with a thousands separator — so `is_numeric($balance)` is
+`false`, and three separate consumers asked exactly that question:
+
+| Consumer | Consequence of `false` |
+| --- | --- |
+| `ClubKonnectProvider::ping()` | the provider is reported down, so `ProviderManager` skips it for every sale |
+| `ClubKonnectProvider::balance()` | "Unable to fetch balance" on the dashboard |
+| the float check | every purchase refused as unaffordable |
+
+A funded, reachable, correctly configured upstream was therefore **out of service
+because of one comma** — and it stayed out of service silently, because the
+provider was answering `HTTP 200` the whole time.
+
+`ClubKonnectService::normaliseBalance()` parses it once, at the boundary where the
+provider's payload becomes our data, and keeps the original as
+`balance_formatted`. It deliberately does *not* zero an unparseable value: a zero
+reads as an empty wallet, so a caller would refuse sales for a reason that is not
+real. `ClubKonnectBalanceTest` pins all of it, including that the raw string is one
+`is_numeric` rejects — so if the provider ever changes format, the failure says so
+instead of looking like a mystery.
+
 ### Availability, and why a purchase can be refused
 
 Each candidate is probed on its cheapest authenticated endpoint (a wallet

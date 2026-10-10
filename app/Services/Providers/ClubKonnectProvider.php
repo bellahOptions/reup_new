@@ -49,6 +49,13 @@ class ClubKonnectProvider implements BillProvider
      * credentials, and it is the same endpoint the float check uses. It is
      * deliberately not cached here: the caller decides how fresh an answer it
      * needs (see ProviderHealthService).
+     *
+     * `checkBalance()` guarantees a numeric balance: the upstream sends
+     * `"4,985.28"` — a display string with a thousands separator — and this
+     * probe previously rejected it with `is_numeric`, which marked ClubKonnect
+     * down while it was answering `HTTP 200` with a funded wallet. The
+     * normalisation lives in the service so every caller sees a number; see
+     * `ClubKonnectService::normaliseBalance()`.
      */
     public function ping(): bool
     {

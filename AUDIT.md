@@ -752,6 +752,65 @@ useless:
 `SourceEncodingTest` asserts its own detector against a known-bad string, because a guard that cannot
 fail is worse than no guard — and this one was written twice in a form that could not.
 
+---
+
+## 10. ClubKonnect was out of service because of a comma (2026-03-01)
+
+The dashboard reported ClubKonnect as unable to fetch its balance. Credentials were present, both
+hosts answered, and the upstream returned `HTTP 200`:
+
+```
+{"date":"10th-Oct-2026","id":"…","phoneno":"…","balance":"4,985.28"}
+```
+
+The balance is a JSON **string** with a thousands separator. `is_numeric("4,985.28")` is `false`, and
+three separate places asked exactly that question:
+
+| Consumer | What `false` did |
+| --- | --- |
+| `ClubKonnectProvider::ping()` | `ProviderManager` treated the provider as down and skipped it for **every** purchase, so no airtime or data sale could route to it |
+| `ClubKonnectProvider::balance()` | "Unable to fetch balance", and a zero on the dashboard |
+| `ProviderBalanceService` float check | every purchase refused as unaffordable |
+
+A funded, reachable, correctly configured primary upstream was therefore out of service — silently,
+because nothing errored. It answered `HTTP 200` the whole time.
+
+**Fix:** `ClubKonnectService::normaliseBalance()` parses the value once, where the provider's payload
+becomes our data, and keeps the original string alongside as `balance_formatted`. An unparseable value
+is left exactly as it arrived rather than zeroed, because a zero reads as an empty wallet and would
+make the float check refuse sales for a reason that is not real.
+
+Normalising at the boundary rather than at each of the four call sites *is* the fix: a rule applied in
+three places is a rule that will eventually disagree with itself.
+
+`ClubKonnectBalanceTest` (10 cases) covers the normalisation, the three consumers and routing — plus an
+assertion that the provider's raw string is one `is_numeric` rejects, so a future format change fails
+loudly instead of looking like a mystery.
+
+### `bills:diagnose`
+
+The dashboard's "Attention" is one word covering four independent failures. `php artisan bills:diagnose`
+walks them in order — configuration, the balance enquiry, the health verdict, and what routing would
+actually try — and prints credential lengths, never credentials.
+
+Writing it produced two instructive failures of its own, both recorded because a diagnostic that
+misreports is worse than none:
+
+* it called the balance endpoint directly and so contradicted the application, reporting an error for
+  the very response the service handles correctly. It now goes through `checkBalance()` and reports the
+  normalised value, keeping a raw fetch only to display what the provider actually sent;
+* its first reachability check probed the host with a bare request, which failed on a transient DNS
+  miss while the real API call succeeded. Removed — the balance enquiry *is* the reachability test.
+
+Two notes on trusting a check rather than a claim, both from this pass:
+
+* **MySQL had stopped.** It was killed abruptly at 09:41:17 along with the session and never restarted,
+  so ten tests failed with `SQLSTATE[HY000] [2002]` — an environment fault, not a code one. The data
+  directory was intact; restarting `mysqld` from the Laragon configuration brought the suite green.
+* **The mojibake guard caught a file my own `Set-Content` had damaged minutes earlier.** A guard that
+  fails within the hour of being written is the argument for having written it.
+
+
 
 
 
