@@ -53,7 +53,7 @@
                     @if($user->email_verified_at)
                         <p class="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                             <x-icon name="check-circle" variant="solid" class="h-3.5 w-3.5 text-success-soft-foreground" />
-                            Verified {{ $user->email_verified_at->format('M j, Y') }} â€” changing the address resets this.
+                            Verified {{ $user->email_verified_at->format('M j, Y') }} — changing the address resets this.
                         </p>
                     @else
                         <p class="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -106,7 +106,7 @@
                 </div>
                 <div class="flex items-center justify-between gap-3">
                     <dt class="text-muted-foreground">Joined</dt>
-                    <dd class="font-medium">{{ $user->created_at?->format('M j, Y') ?? 'â€”' }}</dd>
+                    <dd class="font-medium">{{ $user->created_at?->format('M j, Y') ?? '—' }}</dd>
                 </div>
                 <div class="flex items-center justify-between gap-3">
                     <dt class="text-muted-foreground">Last sign-in</dt>

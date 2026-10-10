@@ -41,6 +41,14 @@ class VirtualAccountTest extends TestCase
         config([
             'services.paystack.secret_key' => 'sk_test_dva',
             'services.paystack.dva_bank' => 'wema-bank',
+            /*
+             * A real `sk_test_` key cannot issue a personal account at all —
+             * every partner bank answers "not available in test mode" — and the
+             * controller reports that instead of calling the gateway. The flag
+             * lets these tests exercise the assignment path with a test key
+             * without weakening the production check.
+             */
+            'services.paystack.assume_live_dva' => true,
         ]);
     }
 
@@ -458,6 +466,54 @@ class VirtualAccountTest extends TestCase
             ->assertSessionHasNoErrors();
 
         Http::assertNothingSent();
+    }
+
+    public function test_a_test_key_reports_itself_instead_of_blaming_a_bank(): void
+    {
+        /*
+         * Paystack refuses every partner bank in test mode with
+         * `"<bank> is not available in test mode"` — proven for all five by
+         * `paystack:diagnose-dva`. Relaying that sends whoever investigates it
+         * looking for a bank misconfiguration that does not exist, and the
+         * customer gets the same "we could not issue your account" they get for
+         * every other cause.
+         *
+         * So the deployment says what is actually wrong, and says it without
+         * spending a gateway request on a question whose answer is known.
+         */
+        config(['services.paystack.assume_live_dva' => false]);
+
+        $customer = $this->customer();
+
+        Http::fake(['*' => Http::response(['status' => true], 200)]);
+
+        $this->actingAs($customer)
+            ->get(route('wallet.virtual-account'))
+            ->assertOk()
+            ->assertSee('need a live Paystack key', false);
+
+        Http::assertNothingSent();
+        $this->assertNull($customer->fresh()->dva_account_number);
+    }
+
+    public function test_the_customers_own_phone_gap_is_reported_before_a_deployment_one(): void
+    {
+        /*
+         * With a test key *and* no phone, the customer is asked for the phone.
+         * "This deployment has no live key" is true and useless to them: it is
+         * the one cause of the two they cannot do anything about.
+         */
+        config(['services.paystack.assume_live_dva' => false]);
+
+        $customer = $this->customer(['phone' => null]);
+
+        Http::fake(['*' => Http::response(['status' => true], 200)]);
+
+        $this->actingAs($customer)
+            ->get(route('wallet.virtual-account'))
+            ->assertOk()
+            ->assertSee('Add your phone number', false)
+            ->assertDontSee('need a live Paystack key', false);
     }
 
     /* =====================================================================

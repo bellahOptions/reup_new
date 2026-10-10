@@ -48,6 +48,43 @@ class PaystackService
         return ! empty(config('services.paystack.secret_key'));
     }
 
+    /**
+     * Is the configured key a test-mode key?
+     *
+     * Worth knowing rather than guessing, because the two Paystack objects are
+     * genuinely different businesses: a **test key cannot issue a dedicated
+     * virtual account at all**. Every partner bank answers
+     * `"<bank> is not available in test mode"`, which reads like a bank problem
+     * and is not one — `paystack:diagnose-dva` demonstrates that by trying all
+     * of them.
+     *
+     * Nothing branches on this to *enable* a feature. It is used to tell the
+     * truth about why an account cannot be issued, so an operator reading a
+     * customer's report does not go looking for a bank misconfiguration that
+     * does not exist.
+     *
+     * ## The override
+     *
+     * `services.paystack.assume_live_dva` makes this report `false` regardless.
+     * It exists for the test suite, which needs to exercise the assignment path
+     * with a test key, and for the rare operator who has been told by Paystack
+     * that their test account *can* issue accounts.
+     *
+     * It is a config value rather than an environment check because
+     * `app()->environment('testing')` inside a service is how a production
+     * guard quietly stops guarding: the same code path then behaves differently
+     * under test than in production, which is the opposite of what a test is
+     * for.
+     */
+    public function isTestMode(): bool
+    {
+        if (config('services.paystack.assume_live_dva')) {
+            return false;
+        }
+
+        return str_starts_with((string) config('services.paystack.secret_key'), 'sk_test_');
+    }
+
     private function secretKey(): string
     {
         $key = config('services.paystack.secret_key');

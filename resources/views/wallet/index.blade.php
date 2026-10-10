@@ -22,7 +22,7 @@
     $transactionCount = (int) ($monthlyStats['transactions'] ?? 0);
 
     // Average daily spend across the days elapsed this month, not across the
-    // month's full length â€” dividing by 30 on the 2nd would understate it.
+    // month's full length — dividing by 30 on the 2nd would understate it.
     $daysElapsed = max(1, now()->day);
     $averageDaily = $spentThisMonth / $daysElapsed;
 

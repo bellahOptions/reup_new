@@ -673,6 +673,86 @@ account" in the heading. `issueVirtualAccount()` now returns one value carrying 
 `VirtualAccountTest` gained nine cases covering each of the three defects, that no request is made
 when the phone is missing, and that the provider's wording never reaches the page.
 
+### S4c — Personal account numbers cannot work on a test key, and said so as "wema-bank"
+
+A second pass on the same page, after the phone fix.
+
+**The report was "account generation is not working".** `paystack:diagnose-dva` — written for this —
+asked Paystack directly and got the answer in one run: the deployment holds a `sk_test_` key, and
+Paystack's dedicated virtual accounts are a **live-mode product**. Every partner bank refuses with the
+same sentence:
+
+```
+wema-bank        HTTP 400 — wema-bank is not available in test mode
+titan-paystack   HTTP 400 — titan-paystack is not available in test mode
+first-bank       HTTP 400 — first-bank is not available in test mode
+sterling-bank    HTTP 400 — sterling-bank is not available in test mode
+gtbank           HTTP 400 — gtbank is not available in test mode
+```
+
+Nothing is misconfigured. The code was already honest with the customer — the raw message is
+sanitised into "not available on this account yet" — but *not* honest enough to be actionable, and it
+named a **bank** at log level, which sends whoever investigates looking for a bank setting that does
+not exist.
+
+**Fix:** `PaystackService::isTestMode()` plus a check before the call, so a test deployment says so in
+one line and spends no request proving it. `paystack:diagnose-dva` exists for the general case, where
+"it is the bank" and "it is everything" have to be told apart.
+
+`PAYSTACK_ASSUME_LIVE_DVA` overrides the detection for the test suite. It is config rather than an
+`app()->environment()` check inside the service, deliberately: a production guard that silently
+behaves differently under test is the opposite of what a test is for.
+
+### S5 — ClubKonnect was presented as a payment gateway
+
+The admin dashboard had one card headed **"Gateway status"** listing Paystack *and* ClubKonnect, both
+balances rendered identically, and the same ClubKonnect figure was *also* on the "Vending providers"
+card below.
+
+ClubKonnect is not a payment gateway. It is the upstream that **vends** airtime, data, cable and PINs.
+Money never arrives through it — it is spent with it. A card that presents a vending float alongside a
+gateway balance, under a heading that says gateway, invites exactly one reading: that the figure is
+platform revenue.
+
+**Fix:** the card is now "Payment gateways — where customer money arrives" and holds Paystack (and
+Bachs, when the fallback is enabled, reporting configured-ness rather than a figure because it has no
+balance endpoint). ClubKonnect stays on the vending card, whose description now says plainly that
+these are not payment gateways.
+
+The distinction the two cards draw: **a gateway takes money in, a vending provider pays money out.**
+They fail differently, are topped up differently, and only one is revenue.
+
+### S6 — Every non-ASCII character in eleven views was doubled
+
+The dashboard showed `â‚¦240.0` where `₦240.00` belonged. This was not a font problem: files had been
+rewritten through a tool that read UTF-8 as Windows-1252 and wrote it back as UTF-8, doubling every
+non-ASCII character. Eleven views were affected, and the damage included `Loading…`, `—`, `•` and the
+`₦` in every figure:
+
+| File | Examples |
+| --- | --- |
+| `admin/dashboard/index.blade.php` | the `$money` closure and its JS twin — every figure on the page |
+| `admin/transactions/show.blade.php` | five money fields |
+| `home.blade.php` | the hero mock's amounts, the meta description |
+| `betting`, `wallet/index`, `admin/users/edit`, and six more | assorted copy |
+
+**Fix:** the damage is systematic and therefore reversible exactly — UTF-8 decoded as cp1252 can be
+re-encoded to the bytes it came from — so `tools/find-mojibake.php` reports and repairs it, and
+`SourceEncodingTest` keeps it from returning.
+
+Two traps were hit while writing the detector, both recorded because either makes it silently
+useless:
+
+* the lead byte is not `\x{0080}-\x{00BF}`; the mangling decoded with **cp1252**, whose 0x80–0x9F band
+  differs from latin-1 — byte 0x9A is `‚` (U+201A), not U+009A. A latin-1 range matched nothing and
+  the detector called every file clean;
+* a test that asserts on a literal damaged string contains the very thing it scans for. The sequence
+  is built from codepoints at runtime instead, so the file stays under the guard's coverage.
+
+`SourceEncodingTest` asserts its own detector against a known-bad string, because a guard that cannot
+fail is worse than no guard — and this one was written twice in a form that could not.
+
+
 
 
 

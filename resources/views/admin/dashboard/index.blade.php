@@ -1,4 +1,4 @@
-﻿@extends('admin.layouts.app')
+@extends('admin.layouts.app')
 
 @section('title', 'Dashboard')
 @section('page-title', 'Dashboard')
@@ -22,7 +22,7 @@
 
 @section('content')
 @php
-    $money = fn ($value) => 'â‚¦' . number_format((float) $value, 2);
+    $money = fn ($value) => '₦' . number_format((float) $value, 2);
 
     $totalTx = (int) ($stats['total_transactions'] ?? 0);
     $successTx = (int) ($stats['successful_transactions'] ?? 0);
@@ -32,7 +32,24 @@
         ? 'bg-green-50 text-success-soft-foreground'
         : ($successRate >= 85 ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-red-600');
 
-    // Gateway health as one honest status each, rather than a wall of figures.
+    /*
+     * Payment gateways only.
+     *
+     * ClubKonnect used to be listed here, and it is not a payment gateway: it is
+     * the upstream that *vends* airtime, data, cable and PINs. Money never
+     * arrives through it — it is spent with it — so a "Gateway status" card
+     * showing its float invited exactly the wrong reading, that its balance was
+     * platform revenue. It already has its own card below, under the heading
+     * that describes what it actually is.
+     *
+     * The distinction this card exists to draw: a gateway takes money *in*, a
+     * vending provider pays money *out*. They fail differently, they are topped
+     * up differently, and only one of them is revenue.
+     *
+     * Bachs has no balance endpoint (see BachsService), so it reports
+     * configured-ness rather than a figure. Inventing a zero for it would be
+     * worse than saying what is actually known.
+     */
     $gateways = [
         [
             'label' => 'Paystack',
@@ -42,15 +59,23 @@
             'detail' => number_format((int) ($stats['paystack_stats']['total_transactions'] ?? 0)) . ' transactions today',
             'error' => $stats['paystack_error'] ?? null,
         ],
-        [
-            'label' => 'ClubKonnect',
-            'icon' => 'server-stack',
-            'ok' => (bool) ($stats['clubkonnect_success'] ?? false),
-            'value' => $money($stats['clubkonnect_balance'] ?? 0),
-            'detail' => $stats['clubkonnect_date'] ?? 'Balance as reported upstream',
-            'error' => $stats['clubkonnect_error'] ?? null,
-        ],
     ];
+
+    if (config('services.bachs.enabled')) {
+        $gateways[] = [
+            'label' => 'Bachs',
+            'icon' => 'credit-card',
+            /*
+             * "Ok" here means "switched on and holding a key", not "reachable":
+             * there is no balance call to prove reachability with. Reporting it
+             * as Connected would be a claim this card cannot support.
+             */
+            'ok' => true,
+            'value' => 'Card fallback',
+            'detail' => 'Used only when Paystack will not start a checkout',
+            'error' => null,
+        ];
+    }
 
     $queue = [
         ['Bank transfers', (int) ($pendingTransfers ?? 0), route('admin.bank-transfers.index'), 'building-library'],
@@ -74,7 +99,7 @@
                 </span>
             </div>
             <p class="mt-3 text-xs text-muted-foreground">
-                {{ number_format((int) ($stats['today_transactions'] ?? 0)) }} transactions Â·
+                {{ number_format((int) ($stats['today_transactions'] ?? 0)) }} transactions ·
                 {{ $money($stats['monthly_volume'] ?? 0) }} this month
             </p>
         </div>
@@ -109,7 +134,7 @@
                 </span>
             </div>
             <p class="mt-3 text-xs text-muted-foreground">
-                {{ number_format((int) ($stats['new_users_today'] ?? 0)) }} new today Â·
+                {{ number_format((int) ($stats['new_users_today'] ?? 0)) }} new today ·
                 {{ number_format((int) ($userStats['online_now'] ?? 0)) }} online now
             </p>
         </div>
@@ -127,7 +152,7 @@
                 </span>
             </div>
             <p class="mt-3 text-xs text-muted-foreground">
-                {{ number_format((int) ($stats['failed_transactions'] ?? 0)) }} failed Â·
+                {{ number_format((int) ($stats['failed_transactions'] ?? 0)) }} failed ·
                 {{ number_format((int) ($stats['pending_transactions'] ?? 0)) }} pending
             </p>
         </div>
@@ -170,8 +195,8 @@
 
     <div class="card lg:col-span-2">
         <div class="card-header">
-            <h2 class="card-title">Gateway status</h2>
-            <p class="card-description">Balances reported by upstream providers</p>
+            <h2 class="card-title">Payment gateways</h2>
+            <p class="card-description">Where customer money arrives</p>
         </div>
         <div class="divide-y divide-border">
             @foreach($gateways as $gateway)
@@ -235,14 +260,18 @@
     </div>
 </div>
 
-    {{-- Upstream floats. A provider short of float is the most common cause of a
-         failed vend, so it is surfaced here rather than only in logs. --}}
+    {{-- Float held with the upstreams that *vend* — the opposite direction of
+         travel from the gateways above. A provider short of float is the most
+         common cause of a failed vend, so it is surfaced here rather than only
+         in logs. --}}
     @if(!empty($providerBalances))
         <div class="mt-6 card">
             <div class="card-header flex-row items-center justify-between">
                 <div>
                     <h2 class="card-title">Vending providers</h2>
-                    <p class="card-description">Float available for airtime, bills and PINs</p>
+                    <p class="card-description">
+                        Float we pay out from, for airtime, bills and PINs &mdash; these are not payment gateways
+                    </p>
                 </div>
                 <span class="badge badge-neutral">{{ count($providerBalances) }} configured</span>
             </div>
@@ -427,7 +456,7 @@
         const volume = @json($chartData['revenue'] ?? ['labels' => [], 'data' => []]);
         const types = @json($chartData['types'] ?? ['labels' => [], 'data' => []]);
 
-        const money = (v) => 'â‚¦' + Number(v).toLocaleString('en-NG', { maximumFractionDigits: 0 });
+        const money = (v) => '₦' + Number(v).toLocaleString('en-NG', { maximumFractionDigits: 0 });
 
         const volumeEl = document.getElementById('revenueChart');
         if (volumeEl && volume.labels && volume.labels.length) {

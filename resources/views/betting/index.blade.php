@@ -101,7 +101,7 @@
                             <button type="button" class="btn btn-outline shrink-0"
                                     @click="verify()" :disabled="verifying || !canVerify">
                                 <span x-show="!verifying">Verify</span>
-                                <span x-show="verifying" x-cloak>Checkingâ€¦</span>
+                                <span x-show="verifying" x-cloak>Checking…</span>
                             </button>
                         </div>
                         @error('customer_id')<p class="field-error">{{ $message }}</p>@enderror
@@ -129,7 +129,7 @@
                             <template x-for="preset in [500, 1000, 2000, 5000, 10000]" :key="preset">
                                 <button type="button" class="btn btn-outline btn-sm"
                                         @click="amount = preset"
-                                        x-text="'â‚¦' + preset.toLocaleString()"></button>
+                                        x-text="'₦' + preset.toLocaleString()"></button>
                             </template>
                         </div>
                     </div>
@@ -241,10 +241,10 @@
                 <div class="card-content">
                     <ul class="space-y-3 text-sm">
                         @foreach([
-                            ['Verify the account first â€” a mistyped ID cannot be recovered once funded.', 'shield-check'],
+                            ['Verify the account first — a mistyped ID cannot be recovered once funded.', 'shield-check'],
                             ['The account number is the one shown in your bookmaker profile, not your phone number.', 'identification'],
                             ['Top-ups are instant; if one fails your wallet is refunded automatically.', 'arrow-path'],
-                            ['Limits apply per transaction and per day â€” see profile settings.', 'scale'],
+                            ['Limits apply per transaction and per day — see profile settings.', 'scale'],
                         ] as [$tip, $icon])
                             <li class="flex items-start gap-2.5">
                                 <x-icon :name="$icon" class="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
@@ -333,8 +333,8 @@
 
                     const name = data.data && data.data.customer_name;
                     this.verifiedName = name
-                        ? name + ' â€” ' + (config.labels[this.provider] || '')
-                        : 'Account verified â€” ' + (config.labels[this.provider] || '');
+                        ? name + ' — ' + (config.labels[this.provider] || '')
+                        : 'Account verified — ' + (config.labels[this.provider] || '');
                 } catch (e) {
                     this.verifyError = e.message || 'Verification failed.';
                 } finally {

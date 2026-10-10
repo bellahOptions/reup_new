@@ -74,6 +74,23 @@ return [
 
         /*
         |------------------------------------------------------------------
+        | Dedicated virtual accounts
+        |------------------------------------------------------------------
+        | Paystack issues personal account numbers only in live mode: with a
+        | `sk_test_` key, every partner bank answers "not available in test
+        | mode" — verified for all five of them by `paystack:diagnose-dva`.
+        | `WalletController` reports that plainly rather than spending a
+        | request on it. See `PaystackService::isTestMode()`.
+        |
+        | `PAYSTACK_ASSUME_LIVE_DVA` overrides the detection. It exists so the
+        | test suite can exercise the assignment path with a test key, and for
+        | an operator Paystack has told can issue accounts in test mode. Leave
+        | it unset in production.
+        */
+        'assume_live_dva' => env('PAYSTACK_ASSUME_LIVE_DVA', false),
+
+        /*
+        |------------------------------------------------------------------
         | Transaction split
         |------------------------------------------------------------------
         | The split that every card checkout is initialised with, as a

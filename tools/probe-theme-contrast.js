@@ -5,7 +5,7 @@
  * elements that matter plus their contrast ratio against the page behind them.
  *
  * This exists because the failure it checks for is invisible to every other
- * check: the markup is correct, the CSS is correct, the status is 200 Ã¢â‚¬â€ and the
+ * check: the markup is correct, the CSS is correct, the status is 200 — and the
  * text is the same colour as the background. Reading `getComputedStyle` is the
  * only way to see it without an eye.
  *

@@ -4,9 +4,9 @@
     @include('partials.head')
 
     @hasSection('title')
-        <title>@yield('title') â€” Admin Â· {{ config('app.name', 'ReUp') }}</title>
+        <title>@yield('title') — Admin · {{ config('app.name', 'ReUp') }}</title>
     @else
-        <title>Admin Â· {{ config('app.name', 'ReUp') }}</title>
+        <title>Admin · {{ config('app.name', 'ReUp') }}</title>
     @endif
 
     {{-- Admin console is never indexable. --}}
@@ -417,7 +417,7 @@
                     const data = await res.json();
                     render(data.notifications || []);
                     updateCounts(data);
-                } catch (e) { /* transient network failure â€” retry on next tick */ }
+                } catch (e) { /* transient network failure — retry on next tick */ }
             }
 
             window.markAsRead = async function (type, id) {

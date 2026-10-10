@@ -205,7 +205,7 @@
                     <div class="flex items-center justify-between gap-3 border-b border-border pb-3">
                         <span class="stat-label">Modified by</span>
                         <span class="font-medium" id="modifiedBy">
-                            {{ $terms?->updatedBy?->name ?? 'â€”' }}
+                            {{ $terms?->updatedBy?->name ?? '—' }}
                         </span>
                     </div>
                     <div class="flex items-center justify-between gap-3">
@@ -269,7 +269,7 @@
      system does not provide.
 
      The version is pinned deliberately. To remove the dependency entirely,
-     vendor this file into public/vendor/quill/ and point the href at it â€”
+     vendor this file into public/vendor/quill/ and point the href at it —
      an SRI hash cannot be added safely until it is self-hosted, since a
      mismatch would silently break the editor. --}}
 <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">

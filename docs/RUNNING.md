@@ -773,8 +773,31 @@ configuration rather than anything the customer did — it is logged, sanitised
 through `WalletController::dvaFallbackMessage()`, and the page offers card
 funding and the shared account instead.
 
-#### A phone number is required, and the page asks for it
+#### Personal account numbers need a **live** Paystack key
 
+Dedicated virtual accounts are a live-mode product. With a `sk_test_` key
+Paystack refuses **every** partner bank, each with the same sentence —
+`"<bank> is not available in test mode"` — which reads like a bank problem and
+is not one.
+
+```
+php artisan paystack:diagnose-dva            # ask Paystack, one question at a time
+php artisan paystack:diagnose-dva --user=42  # test against a specific customer
+```
+
+`paystack:diagnose-dva` reports the key mode, which partner banks the account
+offers, whether the customer record has the phone number Paystack requires, and
+then attempts a real assignment — trying the other partner banks when the
+configured one is refused, so "it is the bank" and "it is everything" are
+distinguishable. It never prints the secret key, only its prefix.
+
+The application does **not** need this command to behave correctly: with a test
+key it says so plainly instead of relaying the bank name, and spends no request
+doing it. `PAYSTACK_ASSUME_LIVE_DVA=true` overrides that detection — it exists for
+the test suite and for an operator Paystack has told can issue accounts in test
+mode. Leave it unset in production.
+
+#### A phone number is required, and the page asks for it
 Paystack will not attach a dedicated account to a customer record with no phone
 number. Our own `users.phone` is nullable, so this is a normal state rather than
 an error — and it needs handling in three places, because handling it in fewer

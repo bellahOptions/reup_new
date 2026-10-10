@@ -24,7 +24,7 @@
     | The previous version ran its own Eloquent queries inside the view
     | (AdminLog::with('user')->latest()->limit(10)->get()) and derived the
     | metrics with `$admins->where(...)`, which only ever counted the current
-    | page â€” the header showed "Online now: 0" whenever the online admins all
+    | page — the header showed "Online now: 0" whenever the online admins all
     | sat on page two. It also threw
     | `Attempt to read property "name" on int` because the activity feed used
     | `$log->user_id->name` instead of `$log->user->name`.
@@ -287,7 +287,7 @@
                                 </td>
 
                                 <td class="whitespace-nowrap text-sm text-muted-foreground">
-                                    <span class="tabular-nums">{{ $admin->created_at?->format('M j, Y') ?? 'â€”' }}</span>
+                                    <span class="tabular-nums">{{ $admin->created_at?->format('M j, Y') ?? '—' }}</span>
                                 </td>
 
                                 <td class="text-right">
@@ -389,7 +389,7 @@
                                     $value = json_encode($value);
                                 }
 
-                                $detailParts[] = ucfirst(str_replace('_', ' ', (string) $key)) . ': ' . ($value ?? 'â€”');
+                                $detailParts[] = ucfirst(str_replace('_', ' ', (string) $key)) . ': ' . ($value ?? '—');
                             }
                         } elseif (is_string($details) && $details !== '') {
                             $detailParts[] = $details;

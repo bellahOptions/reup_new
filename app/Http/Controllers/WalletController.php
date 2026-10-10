@@ -744,6 +744,11 @@ class WalletController extends Controller
          * *before* anything is spent on the gateway, and reported as the
          * actionable condition it is rather than as a provider error.
          *
+         * Asked before the deployment-level checks below, deliberately: this is
+         * the one cause the *customer* can fix, so it is the one worth surfacing
+         * first. Telling somebody "this deployment has no live key" when they
+         * also have no phone number would be true and useless.
+         *
          * The rule is asked of the service that enforces it (`hasPhoneFor…`)
          * rather than re-tested here against the raw column: the accessor that
          * decides is the same one that builds the value sent upstream, so the
@@ -755,6 +760,27 @@ class WalletController extends Controller
             ]);
 
             return ['message' => self::WARNING_PHONE_REQUIRED, 'code' => self::WARNING_CODE_PHONE_REQUIRED];
+        }
+
+        /*
+         * A test-mode key cannot issue a personal account at all — Paystack
+         * refuses every partner bank with `"<bank> is not available in test
+         * mode"`, verified for all five of them by `paystack:diagnose-dva`.
+         *
+         * Asking anyway costs a gateway round trip and produces an error that
+         * names a *bank*, which sends whoever investigates it looking for a bank
+         * misconfiguration that does not exist.
+         */
+        if ($this->paystack->isTestMode()) {
+            Log::info('Dedicated virtual account requested under a Paystack test key', [
+                'user_id' => $user->id,
+            ]);
+
+            return [
+                'message' => 'Personal account numbers need a live Paystack key, and this deployment is '
+                    . 'configured with a test key. Card funding and the shared account both still work.',
+                'code' => self::WARNING_CODE_UNAVAILABLE,
+            ];
         }
 
         try {
