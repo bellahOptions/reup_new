@@ -1,6 +1,6 @@
-
+﻿
 {{-- `data-transaction-reference` is read by viewTransactionDetails() to fill the
-     shell's subtitle. Without it the header stayed on "Loading…" forever,
+     shell's subtitle. Without it the header stayed on "Loadingâ€¦" forever,
      because nothing replaced it once the content arrived. --}}
 <div class="space-y-6" data-transaction-reference="{{ $transaction->reference }}">
     <!-- Header -->
@@ -120,35 +120,35 @@
             <div class="space-y-4">
                 <div class="flex items-start justify-between gap-3">
                     <span class="text-sm font-medium text-gray-600">Amount</span>
-                    <span class="text-xl font-bold text-gray-900">₦{{ number_format($transaction->amount, 2) }}</span>
+                    <span class="text-xl font-bold text-gray-900">â‚¦{{ number_format($transaction->amount, 2) }}</span>
                 </div>
                 @if($transaction->service_fee > 0)
                 <div class="flex items-start justify-between gap-3">
                     <span class="text-sm font-medium text-gray-600">Service Fee</span>
-                    <span class="text-sm font-bold text-gray-900">₦{{ number_format($transaction->service_fee, 2) }}</span>
+                    <span class="text-sm font-bold text-gray-900">â‚¦{{ number_format($transaction->service_fee, 2) }}</span>
                 </div>
                 @endif
                 <div class="flex items-start justify-between gap-3">
                     <span class="text-sm font-medium text-gray-600">Total Amount</span>
-                    <span class="text-lg font-bold text-gray-900">₦{{ number_format($transaction->total_amount, 2) }}</span>
+                    <span class="text-lg font-bold text-gray-900">â‚¦{{ number_format($transaction->total_amount, 2) }}</span>
                 </div>
                 @if($transaction->balance_before)
                 <div class="flex items-start justify-between gap-3">
                     <span class="text-sm font-medium text-gray-600">Balance Before</span>
-                    <span class="text-sm font-bold text-gray-900">₦{{ number_format($transaction->balance_before, 2) }}</span>
+                    <span class="text-sm font-bold text-gray-900">â‚¦{{ number_format($transaction->balance_before, 2) }}</span>
                 </div>
                 @endif
                 @if($transaction->balance_after)
                 <div class="flex items-start justify-between gap-3">
                     <span class="text-sm font-medium text-gray-600">Balance After</span>
-                    <span class="text-sm font-bold text-gray-900">₦{{ number_format($transaction->balance_after, 2) }}</span>
+                    <span class="text-sm font-bold text-gray-900">â‚¦{{ number_format($transaction->balance_after, 2) }}</span>
                 </div>
                 @endif
                 <div class="pt-4 border-t border-gray-200">
                     <h4 class="text-sm font-medium text-gray-900 mb-2">Payment Status</h4>
                     <div class="flex items-start justify-between gap-3">
                         <span class="text-sm text-gray-600">Status</span>
-                        <span class="text-sm font-bold {{ $transaction->payment_status === 'success' ? 'text-green-600' : 'text-red-600' }}">
+                        <span class="text-sm font-bold {{ $transaction->payment_status === 'success' ? 'text-success-soft-foreground' : 'text-red-600' }}">
                             {{ ucfirst($transaction->payment_status) }}
                         </span>
                     </div>
@@ -228,7 +228,7 @@
                     <div class="bg-gray-50 rounded-lg p-4 max-h-40 overflow-y-auto">
                         {{-- `api_response` is cast to 'array'. Echoing it directly made
                              Blade call htmlspecialchars() on an array, which threw a
-                             TypeError — and only for transactions that actually had a
+                             TypeError â€” and only for transactions that actually had a
                              gateway response, so it looked intermittent. --}}
                         <pre class="text-xs text-gray-700 whitespace-pre-wrap">{{ json_encode($transaction->api_response, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) }}</pre>
                     </div>

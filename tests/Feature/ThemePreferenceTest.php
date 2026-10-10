@@ -485,6 +485,315 @@ class ThemePreferenceTest extends TestCase
         }
     }
 
+    public function test_the_light_page_plane_is_true_white(): void
+    {
+        /*
+         * The light theme is drawn on a genuine white canvas, not an off-white
+         * tint. This is a product decision rather than an aesthetic one: with a
+         * near-white page the surfaces above it (`.bg-surface-muted` on a table
+         * head, `.bg-surface-strong` on a control) read as the same colour, so
+         * the whole page looks washed rather than layered.
+         *
+         * Asserted on the compiled stylesheet because the failure is silent: a
+         * near-white page renders fine and simply looks slightly wrong, which no
+         * status-code test can see.
+         */
+        $css = $this->compiledStylesheet();
+
+        /*
+         * Anchored on the font stack rather than `/:root\{/`, which now matches
+         * the ink-ramp block (`:root:root`) first — that block is emitted before
+         * the semantic one, so the naive pattern silently asserted against the
+         * ramp instead of the theme.
+         */
+        preg_match('/:root\{--font-sans:(.*?)\}/s', $css, $matches);
+        $this->assertNotEmpty($matches, 'The light theme block is missing.');
+
+        $light = $matches[1];
+
+        // `#fff` / `#ffffff` — Tailwind minifies the literal.
+        $this->assertMatchesRegularExpression(
+            '/--color-surface-page:\s*#fff(?:fff)?\b/i',
+            $light,
+            'The light page plane is no longer a true white.'
+        );
+
+        $this->assertMatchesRegularExpression(
+            '/--color-background:\s*var\(--color-surface-page\)/',
+            $light,
+            'The page background must follow the surface plane token.'
+        );
+
+        // The page and the surface are the same plane here — there is no outer
+        // canvas — so `.bg-surface`, which every customer page opens with, has
+        // to resolve to it too. A tinted surface under a white page is the
+        // off-white the design decision was meant to remove.
+        $this->assertMatchesRegularExpression(
+            '/--color-surface:\s*var\(--color-surface-page\)/',
+            $light,
+            'The card surface must sit on the same white plane as the page.'
+        );
+
+        // And the value the browser paints its own chrome with agrees.
+        $this->assertSame('#ffffff', config('theme.theme_color.light'));
+    }
+
+    public function test_the_dark_block_defines_a_dark_page_plane(): void
+    {
+        // The inverse of the above: whatever light mode does, dark mode must not
+        // inherit a white canvas.
+        $css = $this->compiledStylesheet();
+
+        preg_match('/html\[data-theme=dark\]\{(.*?)\}/s', $css, $matches);
+        $this->assertNotEmpty($matches, 'The dark theme block is missing.');
+
+        $this->assertMatchesRegularExpression(
+            '/--color-surface-page:\s*#0e100e/i',
+            $matches[1],
+            'The dark page plane must stay dark.'
+        );
+    }
+
+    public function test_the_dark_block_re_points_the_ink_ramp(): void
+    {
+        /*
+         * This is the bug that made the dark home page render its headline in
+         * near-black on near-black.
+         *
+         * The *semantic* layer inverted correctly, but the views also reach for
+         * the **primitives** about 250 times — `text-ink-950` on the hero,
+         * `bg-ink-100 text-ink-500` on every empty-state circle, `text-ink-600`
+         * on menu items. A primitive reads no token, so re-pointing the
+         * semantic layer moved none of them: `text-ink-950` stayed `#0d100d` in
+         * both themes, which is invisible on `#0e100e`.
+         *
+         * No status code, markup assertion or contrast check on the *semantic*
+         * tokens would catch it, so the ramp's presence in the dark block is
+         * asserted directly.
+         */
+        $css = $this->compiledStylesheet();
+
+        preg_match('/html\[data-theme=dark\]\{(.*?)\}/s', $css, $matches);
+        $this->assertNotEmpty($matches, 'The dark theme block is missing.');
+
+        $dark = $matches[1];
+
+        foreach ([50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950] as $step) {
+            $this->assertMatchesRegularExpression(
+                '/--color-ink-' . $step . ':\s*#[0-9a-f]{6}/i',
+                $dark,
+                "ink-{$step} has no dark value, so every text-ink-{$step} in the views is frozen at its light-mode colour."
+            );
+        }
+
+        // The extremes are the ones that carry text, and they must have actually
+        // swapped ends of the ramp rather than merely being present. Matched
+        // inside the dark block: `--color-ink-950` is also declared in the
+        // `@theme` block above it, and that is the *light* value.
+        preg_match('/--color-ink-950:\s*(#[0-9a-f]{6})/i', $dark, $top);
+        preg_match('/--color-ink-900:\s*(#[0-9a-f]{6})/i', $dark, $next);
+        preg_match('/--color-ink-50:\s*(#[0-9a-f]{6})/i', $dark, $lightestStep);
+
+        $this->assertNotSame('#0d100d', strtolower($top[1]), 'ink-950 is still the light-mode near-black.');
+        $this->assertGreaterThan(
+            0.8,
+            $this->relativeLuminance($next[1]),
+            'ink-900 must be light in dark mode; it is the highest-contrast text step.'
+        );
+        $this->assertLessThan(
+            0.1,
+            $this->relativeLuminance($lightestStep[1]),
+            'ink-50 must be the darkest step in dark mode, mirroring its role in light mode.'
+        );
+    }
+
+    public function test_the_footer_stays_readable_on_its_dark_panel(): void
+    {
+        /*
+         * The footer keeps a dark panel in *both* themes, so it is the one place
+         * the ink ramp's inversion must not reach. `--color-footer-faint` is the
+         * only semantic token still pointing at an ink step, so left to the
+         * mirror it would resolve to `#6f7a6f` — 3.6:1 on `#0b0e0b`.
+         */
+        $css = $this->compiledStylesheet();
+
+        preg_match('/html\[data-theme=dark\]\{(.*?)\}/s', $css, $matches);
+        $dark = $matches[1];
+
+        preg_match('/--color-footer-faint:\s*(#[0-9a-f]{6})/i', $dark, $faint);
+        $this->assertNotEmpty($faint, '--color-footer-faint has no dark value and would follow the mirrored ramp.');
+
+        $this->assertGreaterThan(
+            4.5,
+            $this->contrastRatio($faint[1], '#0b0e0b'),
+            'The faintest footer text must clear AA against the footer panel.'
+        );
+    }
+
+    public function test_the_scrim_is_dark_in_both_themes(): void
+    {
+        /*
+         * A modal overlay dims what is behind it, so it is dark by intent rather
+         * than by theme. Before this token existed the views wrote
+         * `bg-ink-950/50` — which, once the ink ramp inverts, becomes a
+         * near-white wash over a dark page: the opposite of dimming.
+         */
+        $css = $this->compiledStylesheet();
+
+        // Same anchoring as the page-plane test: `/:root\{/` matches the ink
+        // ramp's `:root:root` block first and would assert against that.
+        $this->assertMatchesRegularExpression(
+            '/:root\{--font-sans:[^}]*--color-scrim:\s*(#[0-9a-f]{6})/i',
+            $css,
+            'The scrim token is missing from the light block.'
+        );
+
+        preg_match('/:root\{--font-sans:[^}]*--color-scrim:\s*(#[0-9a-f]{6})/i', $css, $scrim);
+        $this->assertNotEmpty($scrim, 'The scrim token is missing from the light block.');
+
+        $this->assertGreaterThan(
+            0.9,
+            $this->contrastRatio(trim($scrim[1]), '#ffffff'),
+            'The scrim must be dark against a light page.'
+        );
+
+        // And no view goes back to the primitive, which is what inverts.
+        $offenders = [];
+
+        $files = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator(resource_path('views'), \FilesystemIterator::SKIP_DOTS)
+        );
+
+        foreach ($files as $file) {
+            if ($file->getExtension() !== 'php') {
+                continue;
+            }
+
+            if (str_contains((string) file_get_contents($file->getPathname()), 'bg-ink-950')) {
+                $offenders[] = $file->getFilename();
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $offenders,
+            'These views use bg-ink-950 as an overlay. Use bg-scrim instead: ink-950 inverts for dark mode, '
+            . 'so the overlay would become a bright wash over a dark page.'
+        );
+    }
+
+    public function test_the_ink_ramp_is_declared_once_per_theme_and_outranks_tailwinds_copy(): void
+    {
+        /*
+         * The cascade here is genuinely load-bearing, and each of the three
+         * attempts at it failed in a way that looked correct:
+         *
+         *   1. values in `@theme` — Tailwind emits that as `:root, :host` in its
+         *      own layer *and* re-emits the plain properties it saw in this file
+         *      as an unlayered `:root` near the bottom, so the light ramp became
+         *      the value for every theme;
+         *   2. `html:root` for the light ramp — outranked the dark block's
+         *      element+attribute selector's *specificity budget* and pinned both
+         *      themes to light;
+         *   3. `:root:root` alone — tied with Tailwind's generated copy and lost
+         *      on source order, because that copy is emitted after the dark
+         *      block.
+         *
+         * What works: `:root:root` for the light values, and the dark values in
+         * the theme block marked `!important` so they cannot be outranked by a
+         * rule Tailwind writes later.
+         *
+         * The observable symptom of all three failures was identical and silent:
+         * `text-ink-950` — the home hero's headline — resolved to a near-black on
+         * a near-black page. The primitive is not readable from the semantic
+         * tokens, so nothing else caught it.
+         */
+        $css = $this->compiledStylesheet();
+
+        // The light ramp, in a rule that can outrank Tailwind's generated copy.
+        $this->assertMatchesRegularExpression(
+            '/:root:root\{[^}]*--color-ink-50:\s*#f7f8f7/',
+            $css,
+            'The light ink ramp must be declared under `:root:root` so it outranks the generated `:root` copy.'
+        );
+
+        // And the dark ramp must be able to outrank *that*.
+        $this->assertMatchesRegularExpression(
+            '/html\[data-theme=dark\]\{[^}]*--color-ink-950:\s*#f7f8f7\s*!important/',
+            $css,
+            'The dark ink ramp must be `!important`, or Tailwind\'s later `:root` copy wins and the page stays light.'
+        );
+
+        // No ink *values* may sit in the theme layer, where they would apply to
+        // every theme regardless of invertibility.
+        preg_match('/@layer theme\{:root,:host\{(.*?)\}\}/s', $css, $themeLayer);
+        $this->assertNotEmpty($themeLayer, 'The Tailwind theme layer is missing.');
+
+        preg_match_all('/--color-ink-\d+:\s*([^;]+);/', $themeLayer[1], $inLayer);
+        foreach ($inLayer[1] as $value) {
+            $this->assertStringContainsString(
+                'var(--color-ink-',
+                $value,
+                'An ink value is declared in @theme, which becomes the :root value for every theme.'
+            );
+        }
+    }
+
+    public function test_the_brand_fill_label_inverts_with_the_fill(): void
+    {
+        /*
+         * `white on brand-500` is 2.67:1 and `white on brand-400` is 1.79:1 —
+         * the dark theme runs the ramp from its 400 step, so a white label on a
+         * primary button is unreadable there while looking correct in light mode.
+         * The label has to invert with the fill.
+         */
+        $css = $this->compiledStylesheet();
+
+        preg_match('/html\[data-theme=dark\]\{(.*?)\}/s', $css, $matches);
+        $dark = $matches[1];
+
+        $this->assertMatchesRegularExpression(
+            '/--color-primary-foreground:\s*#0d100d/',
+            $dark,
+            'The primary label must be dark in dark mode: the brand fill is a light green there.'
+        );
+
+        // And it must be a literal, not a var() chain — see the note in the CSS.
+        $this->assertDoesNotMatchRegularExpression(
+            '/--color-primary-foreground:\s*var\(/',
+            $dark,
+            'A var() here resolves against the value in scope at declaration time and picks up the light ink-950.'
+        );
+    }
+
+    /**
+     * WCAG relative luminance, for the two contrast assertions above.
+     */
+    private function relativeLuminance(string $hex): float
+    {
+        $hex = ltrim($hex, '#');
+
+        $channels = [];
+
+        foreach ([0, 2, 4] as $offset) {
+            $value = hexdec(substr($hex, $offset, 2)) / 255;
+
+            $channels[] = $value <= 0.03928
+                ? $value / 12.92
+                : (($value + 0.055) / 1.055) ** 2.4;
+        }
+
+        return 0.2126 * $channels[0] + 0.7152 * $channels[1] + 0.0722 * $channels[2];
+    }
+
+    private function contrastRatio(string $a, string $b): float
+    {
+        $la = $this->relativeLuminance($a);
+        $lb = $this->relativeLuminance($b);
+
+        return (max($la, $lb) + 0.05) / (min($la, $lb) + 0.05);
+    }
+
     /**
      * The compiled stylesheet, located through the build manifest.
      */

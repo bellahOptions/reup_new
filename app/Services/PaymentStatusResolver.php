@@ -156,6 +156,267 @@ class PaymentStatusResolver
             : $this->refreshWithPaystack($transaction);
     }
 
+    /**
+     * Answer the same question as {@see refresh()} and write nothing.
+     *
+     * ## Why this exists
+     *
+     * The scheduled sweep runs unattended and can move money — it credits a
+     * settled payment and refunds a failed purchase. An operator therefore needs
+     * to be able to ask "what would this run actually do?" *before* letting it
+     * loose, and the only trustworthy answer is the one produced by the same
+     * question-asking: the same gateways, the same provider status queries, the
+     * same eligibility rules.
+     *
+     * ## Why it duplicates the decision tree instead of sharing it
+     *
+     * The two differ in one dimension that cannot be parameterised away:
+     * `refresh()` reads the row fresh, locks it, and writes through the single
+     * settlement path. Threading a `$dryRun` flag through all of that would put
+     * a write-vs-not branch inside every arrow of the tree — and the failure mode
+     * of getting one wrong is money moved during a supposed dry run, which is
+     * unrecoverable and silent.
+     *
+     * So the *network* and *decision* halves are shared and only the *writes* are
+     * absent: `isFinal()`, `isCardFunding()`, `isBankTransferFunding()`,
+     * `reachedGateway()` and `gateway()` are the same methods both use, so
+     * eligibility cannot drift; the gateway clients are the same ones, so the
+     * question asked upstream is identical; `BillPaymentService::resolveUnknown`
+     * takes its own `$dryRun` and stops before it settles or refunds anything.
+     *
+     * ## What it does not do
+     *
+     * It never reports `settled` or `failed` as *done*. A settlement the gateway
+     * confirms comes back as `OUTCOME_SETTLED` — the same outcome the real run
+     * would produce — because the caller needs to count it; the difference is
+     * that this transaction is still `pending` in the database afterwards. The
+     * messages say so.
+     *
+     * @param  bool  $allowPending  for a bill purchase, also consider a row that
+     *                              is still `pending`/`processing`. Passed
+     *                              through to `resolveUnknown` and off by
+     *                              default, so an unattended sweep and an
+     *                              operator asking about one row can differ —
+     *                              which they must. See `previewBillPurchase`.
+     */
+    public function preview(Transactions $transaction, int $actorId = 0, bool $allowPending = false): RefreshStatusResult
+    {
+        $transaction = $transaction->fresh() ?? $transaction;
+
+        if ($this->isFinal($transaction)) {
+            return RefreshStatusResult::final_($transaction, sprintf(
+                'Already %s; the sweep would skip it.',
+                $transaction->status
+            ));
+        }
+
+        /*
+         * Bill purchases first, exactly as `refresh()` orders it: they are
+         * answered by the vending provider, so they must never be sent to a
+         * payment gateway that has never heard of them.
+         */
+        if (! $this->isCardFunding($transaction)) {
+            if ($this->isBankTransferFunding($transaction)) {
+                return RefreshStatusResult::final_(
+                    $transaction,
+                    'A bank transfer is confirmed by the gateway\'s own notification, so there is nothing to query. '
+                    . 'The sweep would leave it alone.'
+                );
+            }
+
+            return $this->previewBillPurchase($transaction, $actorId, $allowPending);
+        }
+
+        if (! $this->reachedGateway($transaction)) {
+            $stillPending = $transaction->status === 'pending' || $transaction->status === 'processing';
+
+            return RefreshStatusResult::failed(
+                $transaction,
+                $stillPending
+                    ? 'No access code is recorded, so this attempt never reached a payment page. '
+                        . 'The sweep would mark it failed without asking the gateway — nothing was charged.'
+                    : 'This attempt never reached a payment page, so the sweep would mark it failed.'
+            );
+        }
+
+        return $this->gateway($transaction) === BachsService::GATEWAY
+            ? $this->previewWithBachs($transaction)
+            : $this->previewWithPaystack($transaction);
+    }
+
+    private function previewWithPaystack(Transactions $transaction): RefreshStatusResult
+    {
+        if (! $this->paystack->isConfigured()) {
+            return RefreshStatusResult::configError(
+                $transaction,
+                'Paystack is not configured on this environment, so the sweep could not check this row.'
+            );
+        }
+
+        $reference = $transaction->gatewayReference();
+
+        try {
+            $gatewayData = $this->paystack->verify($reference);
+        } catch (Throwable $e) {
+            Log::warning('Sweep preview could not reach Paystack', [
+                'transaction_id' => $transaction->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return RefreshStatusResult::unreachable(
+                $transaction,
+                'Paystack could not be reached just now, so the sweep would leave this row alone.'
+            );
+        }
+
+        if ($gatewayData === null) {
+            return RefreshStatusResult::unreachable(
+                $transaction,
+                'Paystack does not recognise reference ' . $reference . ', so the sweep would change nothing.'
+            );
+        }
+
+        $status = strtolower((string) ($gatewayData['status'] ?? 'unknown'));
+
+        if ($status === 'success') {
+            return RefreshStatusResult::settled(
+                $transaction,
+                'Paystack confirms payment. The sweep would credit '
+                . Money::fromDatabase($transaction->amount)->format()
+                . ' to the customer and mark the row successful.'
+            );
+        }
+
+        if (in_array($status, ['failed', 'reversed', 'abandoned'], true)) {
+            return RefreshStatusResult::failed(
+                $transaction,
+                'Paystack reports this payment as ' . $status . '. The sweep would mark the row failed.'
+            );
+        }
+
+        return RefreshStatusResult::stillPending(
+            $transaction,
+            'Paystack still reports this payment as ' . $status . ', so the sweep would leave it pending.'
+        );
+    }
+
+    private function previewWithBachs(Transactions $transaction): RefreshStatusResult
+    {
+        if (! $this->bachs->isConfigured()) {
+            return RefreshStatusResult::configError(
+                $transaction,
+                'Bachs is not configured on this environment, so the sweep could not check this row.'
+            );
+        }
+
+        $checkoutId = (string) (((is_array($transaction->meta) ? $transaction->meta : [])['bachs_checkout_id']) ?? '');
+
+        if ($checkoutId === '') {
+            return RefreshStatusResult::configError(
+                $transaction,
+                'This transaction has no Bachs checkout id recorded, so the sweep could not check it.'
+            );
+        }
+
+        try {
+            $charge = $this->bachs->verify($checkoutId);
+        } catch (Throwable $e) {
+            Log::warning('Sweep preview could not reach Bachs', [
+                'transaction_id' => $transaction->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return RefreshStatusResult::unreachable(
+                $transaction,
+                'Bachs could not be reached just now, so the sweep would leave this row alone.'
+            );
+        }
+
+        if ($charge === null) {
+            return RefreshStatusResult::stillPending(
+                $transaction,
+                'Bachs has no payment recorded for this checkout yet, so the sweep would leave it pending.'
+            );
+        }
+
+        $status = strtolower((string) ($charge['status'] ?? 'unknown'));
+
+        if (in_array($status, ['succeeded', 'accepted'], true)) {
+            return RefreshStatusResult::settled(
+                $transaction,
+                'Bachs confirms payment. The sweep would credit the customer and mark the row successful.'
+            );
+        }
+
+        if (in_array($status, ['failed', 'refunded', 'partially_refunded', 'auto_refunded'], true)) {
+            return RefreshStatusResult::failed(
+                $transaction,
+                'Bachs reports this payment as ' . $status . '. The sweep would mark the row failed.'
+            );
+        }
+
+        return RefreshStatusResult::stillPending(
+            $transaction,
+            'Bachs still reports this payment as ' . $status . ', so the sweep would leave it pending.'
+        );
+    }
+
+    /**
+     * A provider-backed purchase, asked without a write.
+     *
+     * ## `$allowPending` is passed straight through, and the default is narrow
+     *
+     * The scheduled sweep keeps the narrow default — only a row whose outcome is
+     * genuinely `unknown` is queried. Widening it to `pending`/`processing` is
+     * right for an operator looking at one row they have reason to doubt, and
+     * wrong for an unattended sweep: a purchase the provider is still working on
+     * can legitimately answer "received/pending" one minute and "failed" the
+     * next, and a sweep that has decided to query it will act on whichever
+     * answer it happens to catch. Refunding a vend that then completes is the
+     * failure mode, and it is not recoverable.
+     *
+     * A provider that cannot answer is reported as unreachable — never as a
+     * failure — because a refund on a non-answer is how a vended order is given
+     * away.
+     */
+    private function previewBillPurchase(Transactions $transaction, int $actorId, bool $allowPending = false): RefreshStatusResult
+    {
+        $result = $this->bills->resolveUnknown(
+            $transaction,
+            $actorId,
+            allowPending: $allowPending,
+            dryRun: true,
+        );
+
+        return match ($result['verdict']) {
+            'success' => RefreshStatusResult::settled(
+                $transaction,
+                'The provider confirms this purchase succeeded. The sweep would settle it and send the receipt.'
+            ),
+            'failed' => RefreshStatusResult::failed(
+                $transaction,
+                'The provider reports this purchase failed. The sweep would refund the customer.'
+            ),
+            'refund_failed' => RefreshStatusResult::unreachable(
+                $transaction,
+                'The provider reports this purchase failed. The sweep would attempt a refund — '
+                . 'check the wallet before trusting that it lands.'
+            ),
+            'pending' => RefreshStatusResult::stillPending(
+                $transaction,
+                'The provider reports this purchase as still pending, so the sweep would leave it alone.'
+            ),
+            'not_unknown' => RefreshStatusResult::stillPending(
+                $transaction,
+                'This purchase has no provider verdict yet, so the sweep would leave it to the provider and its webhook.'
+            ),
+            default => RefreshStatusResult::unreachable(
+                $transaction,
+                'The provider could not confirm the outcome, so the sweep would change nothing.'
+            ),
+        };
+    }
+
     private function refreshWithPaystack(Transactions $transaction): RefreshStatusResult
     {
         if (! $this->paystack->isConfigured()) {

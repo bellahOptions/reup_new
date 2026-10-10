@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Providers\RouteServiceProvider;
+use App\Support\HomeRoute;
 use App\Support\LoginThrottle;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -74,6 +75,16 @@ class AuthenticatedSessionController extends Controller
 
         // A successful sign-in clears this account's counter.
         LoginThrottle::clear((string) $credentials['email']);
+
+        /*
+         * `intended` is dropped for administrators. It holds the customer URL
+         * they were refused on the way in — which, for an admin, is a page they
+         * are not allowed to reach anyway, so honouring it would bounce them
+         * straight back out to the console and make the sign-in look broken.
+         */
+        if ($user->isAdmin()) {
+            return redirect()->route(HomeRoute::for($user));
+        }
 
         return redirect()->intended(RouteServiceProvider::HOME);
     }

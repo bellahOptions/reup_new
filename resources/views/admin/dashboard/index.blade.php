@@ -1,4 +1,4 @@
-@extends('admin.layouts.app')
+﻿@extends('admin.layouts.app')
 
 @section('title', 'Dashboard')
 @section('page-title', 'Dashboard')
@@ -22,14 +22,14 @@
 
 @section('content')
 @php
-    $money = fn ($value) => '₦' . number_format((float) $value, 2);
+    $money = fn ($value) => 'â‚¦' . number_format((float) $value, 2);
 
     $totalTx = (int) ($stats['total_transactions'] ?? 0);
     $successTx = (int) ($stats['successful_transactions'] ?? 0);
     $successRate = $totalTx > 0 ? round(($successTx / $totalTx) * 100, 1) : 0.0;
 
     $rateTone = $successRate >= 95
-        ? 'bg-green-50 text-green-600'
+        ? 'bg-green-50 text-success-soft-foreground'
         : ($successRate >= 85 ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-red-600');
 
     // Gateway health as one honest status each, rather than a wall of figures.
@@ -74,7 +74,7 @@
                 </span>
             </div>
             <p class="mt-3 text-xs text-muted-foreground">
-                {{ number_format((int) ($stats['today_transactions'] ?? 0)) }} transactions ·
+                {{ number_format((int) ($stats['today_transactions'] ?? 0)) }} transactions Â·
                 {{ $money($stats['monthly_volume'] ?? 0) }} this month
             </p>
         </div>
@@ -109,7 +109,7 @@
                 </span>
             </div>
             <p class="mt-3 text-xs text-muted-foreground">
-                {{ number_format((int) ($stats['new_users_today'] ?? 0)) }} new today ·
+                {{ number_format((int) ($stats['new_users_today'] ?? 0)) }} new today Â·
                 {{ number_format((int) ($userStats['online_now'] ?? 0)) }} online now
             </p>
         </div>
@@ -127,7 +127,7 @@
                 </span>
             </div>
             <p class="mt-3 text-xs text-muted-foreground">
-                {{ number_format((int) ($stats['failed_transactions'] ?? 0)) }} failed ·
+                {{ number_format((int) ($stats['failed_transactions'] ?? 0)) }} failed Â·
                 {{ number_format((int) ($stats['pending_transactions'] ?? 0)) }} pending
             </p>
         </div>
@@ -176,7 +176,7 @@
         <div class="divide-y divide-border">
             @foreach($gateways as $gateway)
                 <div class="flex items-center gap-3 px-5 py-4">
-                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg {{ $gateway['ok'] ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600' }}">
+                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg {{ $gateway['ok'] ? 'bg-green-50 text-success-soft-foreground' : 'bg-red-50 text-red-600' }}">
                         <x-icon :name="$gateway['icon']" class="h-4 w-4" />
                     </span>
 
@@ -249,7 +249,7 @@
             <div class="divide-y divide-border">
                 @foreach($providerBalances as $provider)
                     <div class="flex items-center gap-3 px-5 py-4">
-                        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg {{ ($provider['success'] ?? false) ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600' }}">
+                        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg {{ ($provider['success'] ?? false) ? 'bg-green-50 text-success-soft-foreground' : 'bg-red-50 text-red-600' }}">
                             <x-icon name="server-stack" class="h-4 w-4" />
                         </span>
 
@@ -427,7 +427,7 @@
         const volume = @json($chartData['revenue'] ?? ['labels' => [], 'data' => []]);
         const types = @json($chartData['types'] ?? ['labels' => [], 'data' => []]);
 
-        const money = (v) => '₦' + Number(v).toLocaleString('en-NG', { maximumFractionDigits: 0 });
+        const money = (v) => 'â‚¦' + Number(v).toLocaleString('en-NG', { maximumFractionDigits: 0 });
 
         const volumeEl = document.getElementById('revenueChart');
         if (volumeEl && volume.labels && volume.labels.length) {

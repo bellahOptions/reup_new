@@ -271,6 +271,21 @@
                                         Card payment is not configured on this environment — bank transfer still works.
                                     </p>
                                 @endif
+                                {{--
+                                    This form fixes the amount before the transfer can be
+                                    made, which is the right shape for "top up ₦5,000 now"
+                                    and the wrong shape for "send whatever I have". The
+                                    personal account exists for the second case, so it is
+                                    offered here rather than only from the wallet page.
+                                --}}
+                                <p class="mt-3 flex items-start gap-2 rounded-lg border border-border px-3 py-2.5 text-xs text-muted-foreground">
+                                    <x-icon name="information-circle" class="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
+                                    <span>
+                                        Prefer to transfer without picking an amount first?
+                                        <a href="{{ route('wallet.virtual-account') }}" class="link font-medium">Use your personal account number</a>
+                                        — any amount, credited automatically.
+                                    </span>
+                                </p>
                             </fieldset>
 
                             {{-- Summary --}}

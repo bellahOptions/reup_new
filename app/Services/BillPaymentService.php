@@ -724,13 +724,19 @@ class BillPaymentService
      *                              clear `unknown` rows, and widening it would
      *                              have it second-guessing purchases that are
      *                              still legitimately in flight.
+     * @param  bool  $dryRun  ask the provider and report the verdict, but write
+     *                        nothing at all: no settlement, no receipt, no
+     *                        refund. The sweep's `--dry-run` uses this, and it
+     *                        is the only honest way to promise "changes
+     *                        nothing" for a path that can move money.
      * @return array{resolved:bool,verdict:string}
      */
     public function resolveUnknown(
         Transactions $transaction,
         int $actorId,
         bool $confirmSuccess = false,
-        bool $allowPending = false
+        bool $allowPending = false,
+        bool $dryRun = false
     ): array {
         $acceptable = $allowPending ? ['unknown', 'pending', 'processing'] : ['unknown'];
 
@@ -745,6 +751,20 @@ class BillPaymentService
             $verdict = $this->verifyWithProvider($provider, $transaction);
         } else {
             $verdict = 'unknown';
+        }
+
+        /*
+         * The dry run stops here, having asked the provider exactly as the real
+         * path would. `refund_failed` is reported for a verdict of `failed`
+         * because that is what the real run would attempt; the caller only ever
+         * prints it, and saying "would refund" would be a promise this method
+         * has not tested.
+         */
+        if ($dryRun) {
+            return [
+                'resolved' => false,
+                'verdict' => $verdict === 'failed' ? 'refund_failed' : $verdict,
+            ];
         }
 
         if ($verdict === 'success') {

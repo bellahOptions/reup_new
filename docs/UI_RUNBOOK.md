@@ -43,16 +43,66 @@ Anchor colour is `#2AB70D` (from `public/images/reup-03.svg`). The full ramp is
 
 | Utility | Meaning |
 | --- | --- |
-| `bg-background` / `bg-surface` | page canvas / recessed panel |
+| `bg-background` | page canvas |
+| `bg-surface` | the surface plane — in light mode this is the same true white as the canvas, because this application has no outer chrome; layering is carried by the hairline and the shadow, not by a tint |
+| `bg-surface-page` | the literal canvas colour, for a panel that must sit flush on the page rather than a step above it |
+| `bg-surface-subtle` `bg-surface-muted` `bg-surface-strong` | the three recessed steps — hover wash, table head / badge fill, heavier control |
 | `text-foreground` / `text-muted-foreground` | primary / secondary text |
 | `border-border` | hairline separator |
 | `bg-primary` `text-primary` `border-primary` | brand (`brand-500`) |
 | `bg-accent` `text-accent-foreground` | brand tint (`brand-50` on `brand-700`) |
 | `text-destructive` | errors |
-| `bg-ink-50 … ink-950` | neutral scale (green-leaning) |
+| `bg-ink-50 … ink-950` | neutral scale (green-leaning) — **primitives**, not surfaces. `ink-50` is still `#f7f8f7`, so `bg-ink-50` is an off-white fill; reach for `bg-surface-*` for a plane |
 
-Prefer `border-border` + `bg-white` + `shadow-subtle` over heavy shadows. Elevation
-(`shadow-overlay`) is reserved for popovers, dropdowns and modals.
+Light mode is drawn on **true white**, not an off-white tint. Do not reintroduce
+a near-white page colour: with `background: #f7f8f7` the recessed steps above it
+read as the same colour and the whole page looks washed rather than layered.
+
+### The neutral ramp inverts, and the cascade that makes it do so
+
+`ink-50 … ink-950` are the one part of the palette that is a **primitive** rather
+than a semantic token, and the views use them ~250 times. They must mirror in dark
+mode (`ink-950` is the darkest *text* in light mode and the lightest in dark), or
+`text-ink-950` is near-black on a near-black page.
+
+Getting that to actually take effect needs three things in `app.css`, each of
+which failed on its own first:
+
+1. **No ink values in `@theme`.** Tailwind emits that block as `:root, :host` and
+   includes what it finds, so a value there is the value for every theme. The
+   block declares inert self-references (`--color-ink-950: var(--color-ink-950)`)
+   purely so Tailwind still emits `.text-ink-950` — a custom property cannot be
+   its own value, so the browser discards the declaration.
+2. **The light ramp sits under `:root:root`.** Tailwind re-emits the plain custom
+   properties from this file as an *unlayered* `:root` near the bottom of the
+   output, which outranks a plain `:root`. The repeated pseudo-class is (0,2,0)
+   and beats it. It must not be `html:root` (0,1,1) — that also outranks the dark
+   block and pins every theme to light.
+3. **The dark ramp is `!important`.** `:root:root` ties with Tailwind's generated
+   copy on specificity and loses on source order, because that copy is emitted
+   *after* the dark block. `!important` on the eleven declarations is the only
+   thing that settles it.
+
+`ThemePreferenceTest` asserts all three. If you touch the ramp, run that test and
+then `node tools/probe-theme-contrast.js "http://127.0.0.1:8000/" dark`. The test
+proves the CSS is shaped correctly; the probe proves the *utilities* actually
+resolve per theme, which is the part that silently came apart here.
+
+### A fixed brand fill needs a fixed label
+
+`#25D366` (WhatsApp) and `#2AB70D` are fixed, light, saturated fills — they do not
+change with the theme. A themeable token on top of one is a trap: `text-white` is
+1.98:1 on WhatsApp green, and `text-ink-950` *looks* right but inverts to
+near-white in dark mode for the same 1.98:1. Use a literal (`text-[#0d100d]`) or
+the fill's own foreground token. The same problem is why dark mode sets
+`--color-primary-foreground` to a literal dark value.
+
+Prefer `card` (which is `border` + `bg-surface` + `shadow-subtle`) or
+`border-border` + `bg-surface` over `bg-white` and heavy shadows. Elevation
+(`shadow-overlay`) is reserved for popovers, dropdowns and modals. `bg-white`
+still exists as a literal (`--color-white` is deliberately *not* re-pointed at
+the surface token, because the same utility carries white text on coloured
+fills) — but it is not theme-aware, so it is the wrong choice for a panel.
 
 ## Component classes
 
@@ -220,8 +270,9 @@ The admin shell already provides the sidebar, header, breadcrumbs slot
 and flash toasts. Inside `@section('content')`:
 
 - **Do not** add a second page heading; the header renders it.
-- Page background is `bg-surface`; content sits on `bg-white` cards with
-  `border-border` hairlines.
+- Page background is `bg-surface`; content sits on `bg-surface` cards with
+  `border-border` hairlines (light mode is true white, so the hairline and the
+  `shadow-subtle` are what separate a card from the page).
 - Data density matters: `table` class, `text-sm`, `tabular-nums` for numbers.
 - Toolbars: put filters in a `card` with `p-4` and a `flex flex-wrap gap-3`.
 - Empty states use `empty-state` with a muted icon.
@@ -355,8 +406,52 @@ node tools/browser-audit.js "http://127.0.0.1:8001/wallet/fund" cookie.txt shots
 An optional third argument writes a screenshot per page (useful for eyeballing
 layout and confirming logos/icons render).
 
+A fourth argument forces an appearance, `light` or `dark`, after the page loads
+and before the screenshot:
+
+```
+node tools/browser-audit.js "http://127.0.0.1:8001/" - shots/ dark
+```
+
+Headless Chromium reports `prefers-color-scheme: light`, so the page's own boot
+script resolves `system` to light — dark mode is otherwise impossible to capture
+here, and a dark-only defect would go unseen.
+
 It reuses the Chromium that Playwright has already cached on the machine, so
 there is no Playwright dependency in `package.json`.
+
+### Measuring contrast, not eyeballing it
+
+```
+node tools/probe-theme-contrast.js "http://127.0.0.1:8000/" dark
+```
+
+Forces the theme, then reports the **computed** colour of every visible text
+element paired with the background it is painted on, and the WCAG contrast ratio
+of each pair — flagging anything under 4.5:1.
+
+This exists because the worst dark-mode bug in this project was invisible to
+every other check: the markup was right, the CSS was valid, the status was 200,
+and the text was the same colour as the background. Two things it caught that
+nothing else did:
+
+* the ink ramp never inverting, so `text-ink-950` — the home hero's headline —
+  was near-black on a near-black page;
+* `white` labels on the brand fill, which is a *light* green in dark mode and
+  therefore only 1.8:1.
+
+Two traps when using it, both of which cost real time here:
+
+* **It must set the theme and then measure in a separate evaluation.** Doing both
+  in one `Runtime.evaluate` reads the pre-recalculation computed styles and
+  reports the old theme's colours under the new theme's name.
+* **Never trust it against a stylesheet you are still editing.** A probe that
+  reports values inconsistent with the CSS you just built is usually reading a
+  cached page, not finding a cascade bug. Re-run it before changing the CSS.
+
+`probe-theme-contrast.js` is deliberately standalone — it duplicates the small
+amount of CDP plumbing in `browser-audit.js` rather than growing that tool into
+two jobs.
 
 ### Environment gotchas
 

@@ -126,8 +126,13 @@ Route::post('/pairgate/webhook', [PairgateWebhookController::class, 'handle'])
 |--------------------------------------------------------------------------
 | Authenticated customer routes
 |--------------------------------------------------------------------------
+| `customer` is the inverse of the admin console's `admin` guard: an
+| administrator account reaching any route in this group is redirected to the
+| console, because an administrator is not a customer and must not be able to
+| fund a wallet, buy airtime or hold a virtual account through the customer
+| application. See App\Http\Middleware\CustomerOnly.
 */
-Route::middleware(['auth', 'verified'])->group(function () {
+Route::middleware(['auth', 'verified', 'customer'])->group(function () {
 
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/transactions', [WalletController::class, 'history'])->name('transactions.index');
@@ -291,6 +296,24 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/payment/check-status', [WalletController::class, 'checkPaymentStatus'])
             ->middleware('throttle:60,1')->name('payment.check-status');
 
+        /*
+        |----------------------------------------------------------------------
+        | Dedicated virtual account
+        |----------------------------------------------------------------------
+        | The customer's own NUBAN, issued once by Paystack. Funding it is
+        | automatic: the gateway's webhook credits the wallet, so the customer
+        | never has to state an amount or upload a proof.
+        |
+        | The GET issues the account on first visit (idempotent, no charge) and
+        | renders it on every visit after that. The POST exists so the page has a
+        | form-based retry that works with JavaScript disabled — the GET already
+        | did the work, so it is a convenience, not the only way in.
+        */
+        Route::get('/virtual-account', [WalletController::class, 'virtualAccount'])
+            ->name('virtual-account');
+        Route::post('/virtual-account', [WalletController::class, 'storeVirtualAccount'])
+            ->middleware('throttle:5,1')->name('virtual-account.store');
+
         Route::get('/balance', [WalletController::class, 'balance'])->name('balance');
     });
 
@@ -339,6 +362,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
 // through this authenticated route rather than a public URL. Registered
 // outside the `verified` group so a signed-in-but-unverified account still
 // sees its own picture in the navbar. Ownership is asserted in the controller.
+//
+// Deliberately NOT behind `customer`: the admin console renders these avatars
+// too (an operator viewing a customer, the administrators list, live chat), so
+// an administrator reading one is a normal part of the console rather than a
+// boundary crossing. `SecurityHardeningTest` asserts that an administrator may
+// read one and that a different customer may not.
 Route::get('/profile/avatar/{user}/{file}', [ProfileController::class, 'avatar'])
     ->middleware('auth')
     ->where('file', '[A-Za-z0-9]+\.(?:jpg|jpeg|png|gif)')

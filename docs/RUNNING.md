@@ -52,11 +52,12 @@ everything under Composer.
 
 ## The scheduler must be running
 
-`app/Console/Kernel.php` schedules three entries:
+`app/Console/Kernel.php` schedules these entries:
 
 | Schedule | Command | Why |
 | --- | --- | --- |
-| every minute | `payments:reconcile` | Resolves card payments a webhook never confirmed, and fails payments that were abandoned or never reached a gateway |
+| every minute | `payments:reconcile` | Resolves **Paystack** payments a webhook never confirmed, and fails payments that were abandoned or never reached a gateway |
+| every two minutes | `payments:auto-resolve` | Resolves **everything else still pending** — card funding through either gateway, and provider-backed purchases whose outcome is `unknown` |
 | hourly | `payments:review-unconfirmed` | Asks providers about purchases whose outcome is unknown, and reports the ones that still are |
 | every minute | *(heartbeat)* | Writes `scheduler:last_run`, which `schedule:health` reads |
 
@@ -98,6 +99,8 @@ To run the sweeps by hand:
 ```
 php artisan payments:reconcile --dry-run                # report only, changes nothing
 php artisan payments:reconcile                          # poll and resolve
+php artisan payments:auto-resolve --dry-run             # what the two-minute sweep would do
+php artisan payments:auto-resolve                       # do it
 php artisan payments:review-unconfirmed --list           # what is still unconfirmed
 php artisan payments:review-unconfirmed                  # ask the providers
 ```
@@ -107,6 +110,40 @@ authority (card, bank transfer, USSD funding). Bill purchases are resolved by
 ClubKonnect/Pairgate and are deliberately excluded — Paystack has never heard of
 them, so polling one would return "not found" and could wrongly close a delivered
 order.
+
+#### `payments:auto-resolve` — the sweep that covers the whole set
+
+`payments:reconcile` being Paystack-only left a gap: an airtime or electricity
+row whose provider call timed out sat at `pending`/`processing`/`unknown` until
+somebody pressed **Refresh status** on it in the console. This command applies
+that same decision — `App\Services\PaymentStatusResolver`, one implementation,
+asked by a human about one row or by the schedule about all of them — to every
+open row, every two minutes.
+
+```
+php artisan payments:auto-resolve                        # all open rows
+php artisan payments:auto-resolve --dry-run              # ask everything, write nothing
+php artisan payments:auto-resolve --limit=25             # bound one run's API traffic
+php artisan payments:auto-resolve --grace=5              # ignore rows younger than 5 minutes
+php artisan payments:auto-resolve --type=funding         # narrow to a service type (repeatable)
+```
+
+What it will not do, and why each refusal is load-bearing:
+
+| Refusal | Why |
+| --- | --- |
+| Writes nothing when a gateway is unreachable | A provider that cannot be reached has said nothing. Writing a live payment off on that basis is how a customer pays and receives nothing. |
+| Refunds a bill purchase only on the provider's word | A purchase the provider is still working on can answer "received" one minute and "failed" the next. Refunding a vend that then completes gives away goods. |
+| Never queries a `pending`/`processing` bill purchase | The narrow default. `unknown` is the state that needs resolving; the others belong to the provider and its webhook. An operator looking at one row they doubt gets the wider appetite through the console's **Refresh status**. |
+| Never touches a bank transfer | A dedicated virtual account has no per-transaction lookup, so the inbound transfer is matched by the gateway's webhook. |
+| Skips rows younger than `--grace` (default 1 minute) | The webhook gets its chance first. This is the fallback, not the primary path. |
+
+`--dry-run` asks every question the real run would ask — the same gateways, the
+same provider status queries — and writes nothing. It re-reads each row
+afterwards and logs at `critical` if anything moved, so the guarantee is checked
+rather than asserted. Exit code is non-zero only when a row could not be
+processed at all; "nothing to resolve" and "a provider was unreachable" are both
+success, because neither is a fault in the command.
 
 #### A funding attempt that never reached Paystack fails itself
 
@@ -360,7 +397,6 @@ php artisan migrate
 
 There are no seeded admins by default. To create one — needed for anything
 under `/admin`, since bootstrap registration closes the moment any admin exists:
-
 ```
 php artisan db:seed --class=AdminSeeder
 ```
@@ -393,6 +429,46 @@ The seeder is idempotent — it matches on email, so re-running updates the one 
 instead of failing on the unique index or creating duplicates. It is deliberately
 **not** wired into `DatabaseSeeder`, so a bare `migrate --seed` never silently
 creates an administrator.
+
+### An administrator is not a customer
+
+Administrators and customers are rows in the same `users` table behind the same
+`web` guard — `is_admin` / `is_super_admin` are flags on a customer account, not
+a separate identity. Nothing used to check them in the customer area, so an
+administrator who signed in and opened `/dashboard` landed on the **customer**
+dashboard: a wallet, a fund button, a purchase flow.
+
+That is a segregation-of-duties failure, not a cosmetic one: the customer area
+*credits* the account, while the same account is trusted in the console to
+approve refunds and move wallets.
+
+`App\Http\Middleware\CustomerOnly` (alias `customer`, registered in
+`app/Http/Kernel.php`) is the guard. It is applied to:
+
+* the customer `auth`+`verified` group in `routes/web.php` — every customer page;
+* the `auth`-only tail in `routes/auth.php` — e-mail verification, password
+  confirmation;
+* the customer registration form.
+
+An administrator reaching any of them is redirected to `/admin/dashboard`
+(HTTP 403 with a `redirect` field for JSON callers, since the console polls with
+`fetch()`). Sign-in itself is admin-aware — `App\Support\HomeRoute::for($user)` —
+so an administrator lands on the console in **one** hop rather than being sent to
+`/dashboard` and bounced.
+
+Three things are deliberately **outside** the boundary:
+
+| Route | Why |
+| --- | --- |
+| `/profile/avatar/{user}/{file}` | The console renders these too (customer view, administrators list, live chat). Ownership is asserted in the controller and by `SecurityHardeningTest`. |
+| The public pages — `/`, `/pricelist`, terms, privacy, contact | The boundary is the authenticated customer application, not the public web. |
+| `/admin/*` | Already guarded by `admin:<permission>`. A customer is refused with 403. |
+
+`AdminCustomerBoundaryTest` asserts each direction, including that tightening one
+has not loosened the other. Because the guard sits on the route group, a new
+customer route added **outside** that group would not be covered — hence the test
+walks one route from each area rather than a single route.
+
 
 ---
 
@@ -660,6 +736,51 @@ credited at most once. Bill purchases are answered by the vending provider
 instead (`BillPaymentService::resolveUnknown`), and bank transfers are reported
 as not queryable — a dedicated virtual account has no per-transaction lookup,
 so the inbound transfer is matched by the webhook.
+
+### Funding by bank transfer without fixing an amount first
+
+`/wallet/virtual-account` shows the customer their own Paystack dedicated virtual
+account (DVA) — one permanent NUBAN per customer. It exists because the funding
+form's "Bank transfer" option requires an amount up front, which is the wrong
+shape for "save my account number in my banking app and send whatever I have".
+
+Nothing per-transfer is arranged. The customer transfers any amount to the
+number; Paystack sends `charge.success` with `channel = dedicated_nuban`;
+`PaystackController::webhook()` recognises it before the reference guard (a DVA
+payload carries no reference at all) and hands it to
+`PaystackService::creditDedicatedAccountTransfer()`, which writes the funding row
+and the ledger entry, idempotently, on the provider's reference.
+
+The controller issues the account on the **first GET** and renders it on every
+visit after that. Issuing on a GET is deliberate:
+
+* it is **idempotent** — `dedicatedAccount()` returns the stored account with no
+  network call once it exists, so a second visit costs nothing;
+* it is **not a financial action** — no charge, no transaction row, no balance
+  change;
+* the alternative is a page whose only content is a button, which asks the
+  customer to make a decision they have no information to make.
+
+Concurrency is handled with a row lock: two open tabs would otherwise race, the
+loser getting Paystack's "customer already has a dedicated account" error shown
+to a customer who did nothing wrong. The row is re-read *inside* the lock, since
+the instance loaded before it may be stale.
+
+A failure to issue is **not** an error page. The realistic cause is that personal
+accounts are not enabled on the Paystack account being used (in test mode
+`wema-bank` is refused outright), and the raw provider message describes our
+configuration rather than anything the customer did — it is logged, sanitised
+through `WalletController::dvaFallbackMessage()`, and the page offers card
+funding and the shared account instead.
+
+```
+PAYSTACK_SECRET_KEY=sk_...        # required; without it the page explains itself
+PAYSTACK_DVA_BANK=wema-bank       # the partner bank Paystack assigns from
+```
+
+`VirtualAccountTest` covers the three claims that matter: the account is issued
+exactly once, a failure is explained rather than fatal, and one customer is never
+shown another's account.
 
 ### `@vite` is provided by this application, not the framework
 

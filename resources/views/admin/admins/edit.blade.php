@@ -1,4 +1,4 @@
-@extends('admin.layouts.app')
+﻿@extends('admin.layouts.app')
 
 @section('title', 'Edit Admin - ' . $admin->name)
 @section('page-title', 'Edit Administrator Account')
@@ -119,7 +119,7 @@
                                 <input type="checkbox" 
                                        name="permissions[]" 
                                        value="{{ $permission }}"
-                                       class="text-green-600 focus:ring-green-500 rounded border-gray-300"
+                                       class="text-success-soft-foreground focus:ring-green-500 rounded border-gray-300"
                                        {{ in_array($permission, old('permissions', $currentPermissions)) || in_array('*', $currentPermissions) ? 'checked' : '' }}>
                                 <span class="text-sm text-gray-700">{{ $label }}</span>
                             </label>
@@ -132,7 +132,7 @@
                             <input type="checkbox" 
                                    name="is_active" 
                                    value="1"
-                                   class="text-green-600 focus:ring-green-500 rounded border-gray-300"
+                                   class="text-success-soft-foreground focus:ring-green-500 rounded border-gray-300"
                                    {{ old('is_active', $admin->is_online) ? 'checked' : '' }}>
                             <span class="text-sm text-gray-700">Set as active (online status)</span>
                         </label>

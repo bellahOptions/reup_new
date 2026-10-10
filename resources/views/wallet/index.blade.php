@@ -1,4 +1,4 @@
-@extends('layouts.app')
+﻿@extends('layouts.app')
 @section('title', 'Wallet')
 @section('content')
 @php
@@ -22,7 +22,7 @@
     $transactionCount = (int) ($monthlyStats['transactions'] ?? 0);
 
     // Average daily spend across the days elapsed this month, not across the
-    // month's full length — dividing by 30 on the 2nd would understate it.
+    // month's full length â€” dividing by 30 on the 2nd would understate it.
     $daysElapsed = max(1, now()->day);
     $averageDaily = $spentThisMonth / $daysElapsed;
 
@@ -67,6 +67,16 @@
             'icon' => 'credit-card',
             'href' => route('wallet.fund'),
             'tint' => 'border-brand-200 bg-brand-50 text-brand-700',
+        ],
+        [
+            // The pay-in account. Its own entry rather than a link buried in the
+            // funding page, because "where do I send a bank transfer?" is a
+            // different question from "how do I pay by card".
+            'label' => 'My account number',
+            'description' => 'Fund by transfer',
+            'icon' => 'building-library',
+            'href' => route('wallet.virtual-account'),
+            'tint' => 'border-emerald-200 bg-emerald-50 text-emerald-700',
         ],
         [
             'label' => 'Buy airtime',
@@ -307,10 +317,16 @@
                                         <span class="block text-xs text-muted-foreground">{!! $method['detail'] !!}</span>
                                     </span>
                                 </span>
-                                <x-icon name="check" variant="solid" class="h-4 w-4 shrink-0 text-green-600" />
+                                <x-icon name="check" variant="solid" class="h-4 w-4 shrink-0 text-success-soft-foreground" />
                             </li>
                         @endforeach
                     </ul>
+                    <div class="card-footer">
+                        <a href="{{ route('wallet.virtual-account') }}" class="btn btn-outline btn-sm w-full">
+                            <x-icon name="building-library" class="h-4 w-4" />
+                            Get my account number
+                        </a>
+                    </div>
                 </section>
 
                 {{-- Tips --}}

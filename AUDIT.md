@@ -495,4 +495,141 @@ non-zero on any of them, so it is usable as a deployment check. It prints the sp
 and never the secret key; `PaystackSplitTest` asserts the credential travels as a bearer header and
 never in the URL.
 
+---
+
+## 9. Administrator/customer separation, white light mode, the pending sweep, and pay-in accounts (2026-03-01)
+
+Four changes, each of which fixes something that was wrong rather than adding something new.
+
+### S1 — An administrator could use the customer application
+
+`is_admin` / `is_super_admin` are flags on an ordinary `users` row behind the ordinary `web` guard,
+and nothing in the customer area read them. An administrator who signed in and opened `/dashboard`
+landed on the **customer** dashboard — wallet, fund button, purchase flow — while the same account is
+trusted in the console to approve refunds and move wallets.
+
+That is a segregation-of-duties failure, not a cosmetic one: `WalletService::credit()` and the
+purchase pipeline both *write* to that account.
+
+**Fix:** `App\Http\Middleware\CustomerOnly` (alias `customer`) redirects an administrator to
+`/admin/dashboard` from every customer route — the `auth`+`verified` group, the `auth`-only
+authentication tail, and the customer registration form. JSON callers get a 403 with a `redirect`
+field rather than a 302 to an HTML page, because the console polls with `fetch()`. Sign-in is
+admin-aware via `App\Support\HomeRoute::for()`, so an administrator reaches the console in one hop
+instead of being sent to `/dashboard` and bounced.
+
+Three things are deliberately outside the boundary: `/profile/avatar/*` (the console renders these
+too, and `SecurityHardeningTest` already asserted an administrator may read one), the public pages,
+and `/admin/*` itself.
+
+`AdminCustomerBoundaryTest` asserts both directions — including that a customer is still refused by
+the console — and walks one route per customer area rather than a single route, because the guard
+lives on the route group and a future route added outside it would not be covered.
+
+### S2 — Light mode was an off-white page
+
+`--color-background` and `--color-surface` resolved to `ink-50` (`#f7f8f7`) and `ink-100`
+(`#eef0ee`). Both are near-white, so a card and the page it sat on were two barely-distinguishable
+tints and the application read as washed out rather than layered.
+
+**Fix:** light mode is drawn on true white. `--color-surface-page` is `#ffffff`;
+`--color-background` and `--color-surface` both resolve to it, because this application has no outer
+canvas — the page plane *is* the surface, and every customer page opens with `bg-surface`. Layering
+is carried by the hairline border and the `shadow-subtle` the card already had. The three recessed
+steps (`surface-subtle`, `surface-muted`, `surface-strong`) moved one step down the neutral ramp so
+they remain visible against white, and `theme.theme_color.light` moved with the token.
+
+### S2b — Dark mode rendered the headline in near-black on near-black
+
+Moving the page to white exposed it, but the defect was older: **the ink ramp never inverted**.
+
+`ink-50 … ink-950` are the palette's one set of *primitives* rather than semantic tokens, and the
+views use them about 250 times — `text-ink-950` on the home hero, `bg-ink-100 text-ink-500` on every
+empty-state circle, `text-ink-600`/`text-ink-700` on menu items and list labels. A primitive reads no
+token, so re-pointing the semantic layer moved none of them. `text-ink-950` stayed `#0d100d` in both
+themes. That was survivable only while the light page was itself an off-white tint; on a white page
+the heading is invisible to anyone whose device prefers dark.
+
+**Fix:** the ramp mirrors in dark mode — the same treatment Tailwind's own palette steps already get
+in that block, for the same reason.
+
+Getting it to *take effect* took three attempts, and each failure was silent. Recorded because the
+next person will otherwise repeat them:
+
+| Attempt | Why it failed |
+| --- | --- |
+| Values in `@theme` | Tailwind emits that block as `:root, :host`, and also re-emits the plain custom properties it found in the file as an **unlayered** `:root` near the bottom — so the light ramp became the value for every theme |
+| Light ramp under `html:root` | (0,1,1) outranks the dark block's `html[data-theme="dark"]` (0,2,1) on the element count, pinning every theme to light |
+| Light ramp under `:root:root` alone | (0,2,0) ties with Tailwind's generated copy and loses on source order, because that copy is emitted *after* the dark block |
+
+What works: no ink values in `@theme` (inert self-references keep the utilities emitting), the light
+ramp under `:root:root`, and the dark ramp marked `!important` so it cannot be outranked by a rule
+Tailwind writes later.
+
+Alongside it, three genuine contrast defects the probe surfaced:
+
+| Defect | Measured | Fix |
+| --- | --- | --- |
+| `--color-inverse-foreground` pointed at `ink-900` — the hero card's balance on a near-black panel | 1.15:1 in **light** mode | Literal `#eef0ee`; the inverse panel's foreground has to name the opposite end of the ramp |
+| `--color-inverse-subtle` resolved to `#6f7a6f` on the white panel dark mode flips to | 4.48:1, under AA | Literal tuned to clear AA on **both** panels, since the same token is read against `#0d100d` in one theme and `#ffffff` in the other |
+| `white` label on the brand fill, which is a *light* green (`brand-400`) in dark mode | 1.79:1 | `--color-primary-foreground` becomes a literal dark value in dark mode; the label inverts with the fill |
+
+Two supporting changes: modal scrims moved from `bg-ink-950/50` to a `--color-scrim` token (a
+mirrored `ink-950` is near-white, which would turn every dimming overlay into a bright wash), and the
+WhatsApp button's label moved to a fixed literal — it sits on a fixed brand fill, so a themeable
+token is wrong there in both directions.
+
+`tools/probe-theme-contrast.js` now measures computed colour against computed background for every
+visible text element, because this class of failure is invisible to status codes, markup assertions
+and the compiled-CSS checks the suite already had.
+
+### S3 — Nothing swept the transactions `payments:reconcile` cannot see
+
+`payments:reconcile` may only poll where Paystack is the authority, because asking Paystack about a
+bill purchase returns "not found" and treating that as a verdict would close out a delivered order.
+Correct — and it left a gap: an airtime or electricity row whose provider call timed out sat at
+`pending`/`processing`/`unknown` until somebody pressed **Refresh status** on it in the console,
+one row at a time. An hourly command cleared `unknown` rows; the rest had no path at all.
+
+**Fix:** `payments:auto-resolve`, scheduled every two minutes, applies the *same* decision the
+console's refresh button uses (`App\Services\PaymentStatusResolver`) to every open row. One
+implementation, asked by a human about one row or by the schedule about all of them.
+
+The refusals are the design, and each is enforced in the resolver rather than in the command:
+
+| Refusal | Why |
+| --- | --- |
+| Writes nothing when a gateway is unreachable | A provider that cannot be reached has said nothing |
+| Refunds a bill purchase only on the provider's word | Refunding a vend that then completes gives away goods |
+| Never queries a `pending`/`processing` bill purchase | The provider may still be working; an operator asking about one row gets the wider appetite through the console instead |
+| Never touches a bank transfer | A DVA has no per-transaction lookup |
+| Skips rows younger than `--grace` | The webhook gets its chance first |
+
+`PaymentStatusResolver::preview()` is the dry-run half: the same gateways and the same provider
+status queries, with no writes. `BillPaymentService::resolveUnknown()` gained an explicit `$dryRun`
+that stops before it settles or refunds. The command re-reads every row after a dry run and logs at
+`critical` if anything moved, so the "changes nothing" guarantee is checked rather than asserted.
+
+`AutoResolvePendingTransactionsTest` (24 cases) covers the refusals, double-run idempotency, the
+limits, and each dry-run claim.
+
+### S4 — The pay-in account had no customer-facing surface
+
+`PaystackService::dedicatedAccount()` and the DVA branch of the webhook already existed: one
+permanent NUBAN per customer, credited automatically. But the account was only ever rendered as a
+step inside "fund a specific amount by transfer", so a customer who wanted an account number to save
+in their banking app had no way to get one — the feature existed and was unreachable.
+
+**Fix:** `/wallet/virtual-account`. The controller issues on the first GET (idempotent — a second
+call is served from the stored row with no network call — and not a financial action) and renders on
+every visit after that. Concurrency is handled with a row lock and a re-read *inside* the lock, so
+two open tabs cannot produce Paystack's "already has a dedicated account" error for a customer who
+did nothing wrong. A failure is explained rather than fatal: the raw provider message describes our
+configuration, so it is logged and sanitised through the existing `dvaFallbackMessage()`, and the
+page offers card funding and the shared account instead.
+
+`VirtualAccountTest` (13 cases) covers issue-once, the failure path, and that one customer is never
+shown another's account.
+
+
 

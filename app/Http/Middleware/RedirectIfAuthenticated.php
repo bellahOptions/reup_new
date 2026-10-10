@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Providers\RouteServiceProvider;
+use App\Support\HomeRoute;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -23,7 +24,16 @@ class RedirectIfAuthenticated
 
         foreach ($guards as $guard) {
             if (Auth::guard($guard)->check()) {
-                return redirect(RouteServiceProvider::HOME);
+                $user = Auth::guard($guard)->user();
+
+                /*
+                 * An authenticated administrator opening /login is sent to the
+                 * console, not to the customer dashboard. `RouteServiceProvider
+                 * ::HOME` is the customer home, and using it here would land the
+                 * administrator on a page `customer` immediately redirects away
+                 * from — a second hop, and a flash of the wrong application.
+                 */
+                return redirect()->route(HomeRoute::for($user));
             }
         }
 

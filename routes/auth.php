@@ -20,9 +20,20 @@ use Illuminate\Support\Facades\Route;
 | key, which includes the client IP.
 */
 Route::middleware('guest')->group(function () {
-    Route::get('register', [RegisteredUserController::class, 'create'])->name('register');
+    /*
+    | Customer registration.
+    |
+    | `customer` on top of `guest` is what stops an administrator opening a
+    | second, customer account with the same address: `guest` is skipped for an
+    | authenticated visitor, so on its own it redirects an admin to the customer
+    | dashboard rather than refusing the form. With both, an administrator
+    | reaches neither the form nor the POST and is sent to the console instead.
+    */
+    Route::get('register', [RegisteredUserController::class, 'create'])
+        ->middleware('customer')
+        ->name('register');
     Route::post('register', [RegisteredUserController::class, 'store'])
-        ->middleware('throttle:5,1');
+        ->middleware(['customer', 'throttle:5,1']);
 
     Route::get('login', [AuthenticatedSessionController::class, 'create'])->name('login');
     Route::post('login', [AuthenticatedSessionController::class, 'store'])
@@ -75,22 +86,33 @@ Route::middleware('guest')->group(function () {
 });
 
 Route::middleware('auth')->group(function () {
+    /*
+    | The `auth`-only tail of the authentication flow.
+    |
+    | `customer` is applied here as well as to the main customer group in
+    | web.php: these routes sit outside that group but are still part of the
+    | customer application, so an administrator who reached one — from a stale
+    | tab, a bookmarked verification link, a browser autocomplete — must be sent
+    | to the console rather than shown a customer screen.
+    */
     Route::get('verify-email', [EmailVerificationPromptController::class, '__invoke'])
+        ->middleware('customer')
         ->name('verification.notice');
 
     Route::get('verify-email/{id}/{hash}', [VerifyEmailController::class, '__invoke'])
-        ->middleware(['signed', 'throttle:6,1'])
+        ->middleware(['customer', 'signed', 'throttle:6,1'])
         ->name('verification.verify');
 
     Route::post('email/verification-notification', [EmailVerificationNotificationController::class, 'store'])
-        ->middleware('throttle:6,1')
+        ->middleware(['customer', 'throttle:6,1'])
         ->name('verification.send');
 
     Route::get('confirm-password', [ConfirmablePasswordController::class, 'show'])
+        ->middleware('customer')
         ->name('password.confirm');
 
     Route::post('confirm-password', [ConfirmablePasswordController::class, 'store'])
-        ->middleware('throttle:6,1');
+        ->middleware(['customer', 'throttle:6,1']);
 
     // POST only. The verify-email view previously linked to this route with a
     // GET <a href>, which threw MethodNotAllowedHttpException.

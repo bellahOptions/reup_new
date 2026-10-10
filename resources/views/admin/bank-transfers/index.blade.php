@@ -1,4 +1,4 @@
-@extends('admin.layouts.app')
+﻿@extends('admin.layouts.app')
 
 @section('title', 'Bank Transfers')
 @section('page-title', 'Bank transfers')
@@ -236,7 +236,7 @@
                     closeProof() { this.proofOpen = false; this.proofUrl = ''; }
                  }"
                  x-show="proofOpen" x-cloak
-                 class="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/70 p-4"
+                 class="fixed inset-0 z-50 flex items-center justify-center bg-scrim/70 p-4"
                  @keydown.escape.window="closeProof()"
                  @click.self="closeProof()">
                 <div class="w-full max-w-4xl overflow-hidden rounded-xl border border-border bg-surface shadow-overlay"
@@ -282,7 +282,7 @@
 
 {{-- ========================= Review transfer modal ==================== --}}
 <div id="reviewModal" x-data="{ open: false }" x-show="open" x-cloak
-     class="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/50 p-4"
+     class="fixed inset-0 z-50 flex items-center justify-center bg-scrim/50 p-4"
      @keydown.escape.window="closeReviewModal()"
      @click.self="closeReviewModal()">
     <div class="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-overlay"

@@ -39,6 +39,48 @@ class Kernel extends ConsoleKernel
             ->runInBackground();
 
         /*
+         * Resolve every other pending transaction.
+         *
+         * `payments:reconcile` above is Paystack's sweep, and it is deliberately
+         * narrow: it may only touch rows where Paystack is the authority, because
+         * asking Paystack about a bill purchase returns "not found" and reading
+         * that as a verdict would close out a delivered order. So nothing swept
+         * the whole set — an airtime or electricity row could sit at `pending`
+         * or `unknown` indefinitely, and the customer sees a charge with no
+         * answer.
+         *
+         * This command uses the same decision the console's "Refresh status"
+         * button uses (`App\Services\PaymentStatusResolver`), applied to every
+         * open row: Paystack and Bachs funding, and provider-backed purchases
+         * whose outcome is `unknown`.
+         *
+         * ## Why every two minutes, and not every minute
+         *
+         * Every row here costs a request to a third party, and a bill purchase
+         * costs one to the vending provider, whose rate limit is shared with
+         * real sales. Two minutes is frequent enough that a customer waiting on a
+         * pending purchase sees it resolve while they are still on the page, and
+         * half the traffic of a per-minute sweep.
+         *
+         * The command's `--grace` (default one minute) is what keeps this from
+         * racing the webhook: a row younger than that is skipped entirely, so the
+         * primary settlement path gets its chance first. This is still the
+         * fallback, not the path a payment is expected to take.
+         *
+         * `withoutOverlapping` matters more here than anywhere else in this
+         * schedule — two concurrent sweeps would both query every provider, and
+         * a provider that hangs would be probed twice as hard exactly when it is
+         * least able to answer.
+         *
+         * Runs in the background so a slow provider cannot make the scheduler
+         * tick late and delay everything after it.
+         */
+        $schedule->command('payments:auto-resolve')
+            ->everyTwoMinutes()
+            ->withoutOverlapping()
+            ->runInBackground();
+
+        /*
          * Flag purchases whose provider outcome is still unknown.
          *
          * A purchase whose provider call timed out is deliberately left in the

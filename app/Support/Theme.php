@@ -120,6 +120,6 @@ class Theme
      */
     public static function colorFor(string $resolved): string
     {
-        return config('theme.theme_color.' . $resolved, '#f7f8f7');
+        return config('theme.theme_color.' . $resolved, '#ffffff');
     }
 }

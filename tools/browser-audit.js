@@ -18,17 +18,25 @@
  * Requires an authenticated session cookie for pages behind auth.
  *
  * Usage:
- *   node tools/browser-audit.js <url[,url...]> [cookieFile] [screenshotDir]
+ *   node tools/browser-audit.js <url[,url...]> [cookieFile] [screenshotDir] [theme]
  *
  * The cookie file holds one line, "reup_session=<value>", taken from a
  * logged-in browser. See docs/UI_RUNBOOK.md.
+ *
+ * The optional fourth argument forces an appearance (`light` or `dark`) after
+ * each page loads, before the screenshot. The page's own boot script resolves
+ * `system` from the *device* preference, which a headless browser reports as
+ * light — so dark mode is otherwise impossible to capture here, and a
+ * dark-only contrast failure would go unseen.
  */
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const [, , urlArg, cookieFile, outDir] = process.argv;
+const [, , urlArg, cookieFile, outDir, themeArg] = process.argv;
+
+const forcedTheme = ['light', 'dark'].includes(themeArg) ? themeArg : null;
 
 if (!urlArg) {
     console.error('usage: node tools/browser-audit.js <url[,url...]> [cookieFile] [screenshotDir]');
@@ -143,6 +151,16 @@ const PROBE = `(() => {
         await send('Page.navigate', { url }, sid);
         await sleep(3000);
 
+        if (forcedTheme) {
+            await send('Runtime.evaluate', {
+                expression: `(() => {
+                    document.documentElement.setAttribute('data-theme', '${forcedTheme}');
+                    document.documentElement.style.colorScheme = '${forcedTheme}';
+                })()`,
+            }, sid);
+            await sleep(300);
+        }
+
         const { result } = await send('Runtime.evaluate', { expression: PROBE, returnByValue: true }, sid);
         const info = JSON.parse(result.result.value);
 
@@ -171,7 +189,8 @@ const PROBE = `(() => {
             fs.mkdirSync(outDir, { recursive: true });
             const shot = await send('Page.captureScreenshot', { format: 'png' }, sid);
             const slug = url.replace(/^https?:\/\/[^/]+/, '').replace(/\W+/g, '_') || 'root';
-            if (shot.result) fs.writeFileSync(path.join(outDir, `${slug}.png`), Buffer.from(shot.result.data, 'base64'));
+            const suffix = forcedTheme ? '-' + forcedTheme : '';
+            if (shot.result) fs.writeFileSync(path.join(outDir, `${slug}${suffix}.png`), Buffer.from(shot.result.data, 'base64'));
         }
     }
 

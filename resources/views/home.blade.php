@@ -1,7 +1,7 @@
-@extends('layouts.main')
+﻿@extends('layouts.main')
 
 @section('title', 'One wallet for everything digital')
-@section('meta_description', 'Pay bills, buy data, get gift cards, top up international numbers, activate eSIMs and grow your social presence — all from one simple ReUp wallet.')
+@section('meta_description', 'Pay bills, buy data, get gift cards, top up international numbers, activate eSIMs and grow your social presence â€” all from one simple ReUp wallet.')
 
 @section('main')
 @php
@@ -64,7 +64,7 @@
 
             <div class="lg:col-span-6">
 
-                {{-- §51.1 approved copy. The headline and supporting text come from
+                {{-- Â§51.1 approved copy. The headline and supporting text come from
                      config/copy.php so the approved deck has exactly one source, and the
                      CTAs use the approved labels ("Get Started" / "Sign In") rather than
                      a variant invented here. --}}
@@ -106,7 +106,7 @@
             <div class="lg:col-span-6">
                 <div class="relative mx-auto max-w-md">
                     <div class="card overflow-hidden shadow-overlay">
-                        {{-- Inverse panel — flips with the theme. --}}
+                        {{-- Inverse panel â€” flips with the theme. --}}
                         <div class="bg-inverse-surface px-6 py-7">
                             <div class="flex items-center justify-between">
                                 <p class="text-xs font-medium uppercase tracking-[0.14em] text-inverse-subtle">Wallet balance</p>
@@ -127,9 +127,9 @@
 
                         <ul class="divide-y divide-border">
                             @foreach([
-                                ['Airtime — MTN', '0803 ••• 4471', '− ₦2,000.00', 'bolt'],
-                                ['Data — 10GB SME', '0806 ••• 1180', '− ₦3,400.00', 'signal'],
-                                ['Wallet funding', 'Card • 4242', '+ ₦20,000.00', 'credit-card'],
+                                ['Airtime â€” MTN', '0803 â€¢â€¢â€¢ 4471', 'âˆ’ â‚¦2,000.00', 'bolt'],
+                                ['Data â€” 10GB SME', '0806 â€¢â€¢â€¢ 1180', 'âˆ’ â‚¦3,400.00', 'signal'],
+                                ['Wallet funding', 'Card â€¢ 4242', '+ â‚¦20,000.00', 'credit-card'],
                             ] as [$title, $meta, $amount, $icon])
                                 <li class="flex items-center gap-3 px-5 py-3.5">
                                     <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ink-100 text-ink-600">
@@ -139,7 +139,7 @@
                                         <p class="truncate text-sm font-medium">{{ $title }}</p>
                                         <p class="truncate text-xs text-muted-foreground">{{ $meta }}</p>
                                     </div>
-                                    <span class="shrink-0 text-sm font-medium tabular-nums {{ str_starts_with($amount, '+') ? 'text-green-600' : 'text-ink-700' }}">
+                                    <span class="shrink-0 text-sm font-medium tabular-nums {{ str_starts_with($amount, '+') ? 'text-success-soft-foreground' : 'text-ink-700' }}">
                                         {{ $amount }}
                                     </span>
                                 </li>
@@ -246,7 +246,7 @@
                     Built to be boringly reliable
                 </h2>
                 <p class="mt-4 text-lg text-muted-foreground">
-                    Payments should not be exciting. They should just work — at 2am on a
+                    Payments should not be exciting. They should just work â€” at 2am on a
                     Sunday, on a slow connection, the first time.
                 </p>
             </div>

@@ -1,4 +1,4 @@
-@extends('admin.layouts.app')
+﻿@extends('admin.layouts.app')
 
 @section('title', 'Legal documents')
 @section('page-title', 'Legal documents')
@@ -205,7 +205,7 @@
                     <div class="flex items-center justify-between gap-3 border-b border-border pb-3">
                         <span class="stat-label">Modified by</span>
                         <span class="font-medium" id="modifiedBy">
-                            {{ $terms?->updatedBy?->name ?? '—' }}
+                            {{ $terms?->updatedBy?->name ?? 'â€”' }}
                         </span>
                     </div>
                     <div class="flex items-center justify-between gap-3">
@@ -239,7 +239,7 @@
 
     {{-- ========================= Preview modal ======================== --}}
     <div x-show="previewOpen" x-cloak
-         class="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/50 p-4"
+         class="fixed inset-0 z-50 flex items-center justify-center bg-scrim/50 p-4"
          @keydown.escape.window="closePreview()"
          @click.self="closePreview()">
         <div class="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-overlay"
@@ -269,7 +269,7 @@
      system does not provide.
 
      The version is pinned deliberately. To remove the dependency entirely,
-     vendor this file into public/vendor/quill/ and point the href at it —
+     vendor this file into public/vendor/quill/ and point the href at it â€”
      an SRI hash cannot be added safely until it is self-hosted, since a
      mismatch would silently break the editor. --}}
 <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">

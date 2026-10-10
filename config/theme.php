@@ -81,9 +81,11 @@ return [
     | different people for different reasons.
     */
     'theme_color' => [
-        /* Must match `--color-background` per theme in app.css: light is
-           --color-ink-50, dark is the dark plane. */
-        'light' => '#f7f8f7',
+        /* Must match `--color-surface-page` (and therefore `--color-background`)
+           per theme in app.css. Light is a true white on purpose: the canvas is
+           the surface, and layering is carried by hairlines rather than by a
+           near-white page tint. */
+        'light' => '#ffffff',
         'dark' => '#0e100e',
     ],
 ];

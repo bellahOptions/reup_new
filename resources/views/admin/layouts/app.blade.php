@@ -1,12 +1,12 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" {!! $themeState->attributes() !!}>
 <head>
     @include('partials.head')
 
     @hasSection('title')
-        <title>@yield('title') — Admin · {{ config('app.name', 'ReUp') }}</title>
+        <title>@yield('title') â€” Admin Â· {{ config('app.name', 'ReUp') }}</title>
     @else
-        <title>Admin · {{ config('app.name', 'ReUp') }}</title>
+        <title>Admin Â· {{ config('app.name', 'ReUp') }}</title>
     @endif
 
     {{-- Admin console is never indexable. --}}
@@ -178,7 +178,7 @@
         {{-- Mobile scrim --}}
         <div x-show="sidebarOpen" x-cloak @click="sidebarOpen = false"
              x-transition.opacity
-             class="fixed inset-0 z-40 bg-ink-950/40 lg:hidden"></div>
+             class="fixed inset-0 z-40 bg-scrim/40 lg:hidden"></div>
 
         {{-- ============================ Main ============================== --}}
         <div class="flex min-w-0 flex-1 flex-col transition-[margin] duration-200 ease-out"
@@ -417,7 +417,7 @@
                     const data = await res.json();
                     render(data.notifications || []);
                     updateCounts(data);
-                } catch (e) { /* transient network failure — retry on next tick */ }
+                } catch (e) { /* transient network failure â€” retry on next tick */ }
             }
 
             window.markAsRead = async function (type, id) {

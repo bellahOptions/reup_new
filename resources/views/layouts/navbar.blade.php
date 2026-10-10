@@ -15,6 +15,7 @@
         ['label' => 'WAEC e-PIN', 'route' => 'waec-pin.index', 'active' => 'waec-pin.*', 'icon' => 'document-check', 'description' => 'Verification & registration scratch cards'],
         ['label' => 'JAMB e-PIN', 'route' => 'jamb-pin.index', 'active' => 'jamb-pin.*', 'icon' => 'academic-cap', 'description' => 'UTME and Direct Entry PINs'],
         ['label' => 'Betting wallet', 'route' => 'betting.index', 'active' => 'betting.*', 'icon' => 'wallet', 'description' => 'Fund Bet9ja, SportyBet and others'],
+        ['label' => 'Personal account', 'route' => 'wallet.virtual-account', 'active' => 'wallet.virtual-account', 'icon' => 'building-library', 'description' => 'Your own account number for bank transfers'],
         ['label' => 'Pricelist', 'route' => 'pricelist', 'active' => 'pricelist', 'icon' => 'receipt-percent', 'description' => 'Current rates across all networks'],
         ['label' => 'Transactions', 'route' => 'transactions.index', 'active' => 'transactions.*', 'icon' => 'queue-list', 'description' => 'Full history of your activity'],
         ['label' => 'Refer and earn', 'route' => 'affiliate.index', 'active' => 'affiliate.*', 'icon' => 'users', 'description' => 'Earn ₦200 for every funded referral'],
@@ -163,6 +164,9 @@
                                 </a>
                                 <a href="{{ route('wallet.history') }}" class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-700 hover:bg-ink-100">
                                     <x-icon name="queue-list" class="h-4 w-4 text-ink-500" /> Wallet history
+                                </a>
+                                <a href="{{ route('wallet.virtual-account') }}" class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-700 hover:bg-ink-100">
+                                    <x-icon name="building-library" class="h-4 w-4 text-ink-500" /> Personal account
                                 </a>
                                 <a href="{{ route('contact') }}" class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-700 hover:bg-ink-100">
                                     <x-icon name="lifebuoy" class="h-4 w-4 text-ink-500" /> Support

@@ -1,4 +1,4 @@
-@extends('admin.layouts.app')
+﻿@extends('admin.layouts.app')
 
 @section('title', 'Create New Admin')
 @section('page-title', 'Create Administrator Account')
@@ -56,7 +56,7 @@
                                name="password" 
                                required
                                class="w-full border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200 @error('password') border-red-500 @enderror"
-                               placeholder="••••••••">
+                               placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢">
                         <p class="mt-1 text-xs text-gray-500">Minimum 8 characters with letters and numbers</p>
                         @error('password')
                         <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
@@ -69,7 +69,7 @@
                                name="password_confirmation" 
                                required
                                class="w-full border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                               placeholder="••••••••">
+                               placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢">
                     </div>
                 </div>
 
@@ -102,7 +102,7 @@
                                 <input type="checkbox" 
                                        name="permissions[]" 
                                        value="{{ $permission }}"
-                                       class="text-green-600 focus:ring-green-500 rounded border-gray-300"
+                                       class="text-success-soft-foreground focus:ring-green-500 rounded border-gray-300"
                                        {{ in_array($permission, old('permissions', [])) ? 'checked' : '' }}>
                                 <span class="text-sm text-gray-700">{{ $label }}</span>
                             </label>

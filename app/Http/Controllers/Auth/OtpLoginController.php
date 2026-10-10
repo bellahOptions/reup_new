@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Providers\RouteServiceProvider;
 use App\Services\OtpLoginService;
+use App\Support\HomeRoute;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -224,7 +225,11 @@ class OtpLoginController extends Controller
 
         Log::info('OTP sign-in succeeded', ['user_id' => $user->id, 'ip' => $request->ip()]);
 
-        return redirect()->intended(RouteServiceProvider::HOME);
+        // An administrator has no customer home to be sent to: the console is
+        // their dashboard, and `customer` would only bounce them there anyway.
+        return $user->isAdmin()
+            ? redirect()->route(HomeRoute::for($user))
+            : redirect()->intended(RouteServiceProvider::HOME);
     }
 
     /** Re-issue a code for the pending account. */

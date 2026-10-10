@@ -630,6 +630,165 @@ class WalletController extends Controller
     }
 
     /* =====================================================================
+     | Dedicated virtual account (pay-in account)
+     |====================================================================
+     | A permanent NUBAN issued per customer by Paystack. Every inbound
+     | transfer to it credits the wallet automatically: Paystack sends
+     | `charge.success` with `channel = dedicated_nuban`, `PaystackController
+     | ::webhook` recognises it, and `PaystackService::creditDedicatedAccount
+     | Transfer` writes the funding row and the ledger entry.
+     |
+     | So there is nothing per-transfer for this controller to arrange, and no
+     | amount is required up front — the customer transfers what they want.
+     | These two methods exist purely so the account can be requested and read
+     | without going through the "fund a specific amount by transfer" flow.
+     */
+
+    /**
+     * The customer's dedicated account, issuing one on first visit.
+     *
+     * Issuing on a GET is deliberate and safe:
+     *
+     *   * it is **idempotent** — `dedicatedAccount()` returns the stored account
+     *     without a network call once it exists, and Paystack rejects a second
+     *     assignment for the same customer anyway;
+     *   * it is **not a financial action** — no charge, no transaction row, no
+     *     balance change. A NUBAN that is never used costs nothing.
+     *
+     * The alternative, a page whose only content is a button labelled
+     * "Generate", asks the customer to make a decision they have no information
+     * to make, and then shows them a spinner. Requesting the account on arrival
+     * is what "generate my account" actually means.
+     *
+     * A failure to issue is *not* an error page. The account may be unavailable
+     * because Paystack is down, or because personal accounts are not enabled on
+     * this account yet — in which case the customer is told plainly and offered
+     * the other funding routes, which still work.
+     */
+    public function virtualAccount()
+    {
+        return $this->renderVirtualAccount($this->issueVirtualAccount());
+    }
+
+    /**
+     * Issue and display the customer's dedicated account, or explain why not.
+     *
+     * `with('warning')` rather than `with('error')`: nothing failed from the
+     * customer's side, and an error toast on a page that is working correctly is
+     * how a customer is taught to distrust the wallet.
+     */
+    private function issueVirtualAccount()
+    {
+        $user = Auth::user();
+
+        if ($user->dva_account_number) {
+            // Already issued. No network call, no message — the page just shows
+            // the account, which is what a returning visitor came for.
+            return null;
+        }
+
+        if (! $this->paystack->isConfigured()) {
+            Log::warning('Dedicated virtual account requested while Paystack is not configured', [
+                'user_id' => $user->id,
+            ]);
+
+            return 'Personal account numbers are not available on this deployment yet. '
+                . 'You can still fund with a card, or by transfer to the account on the funding page.';
+        }
+
+        try {
+            /*
+             * Locked, and re-read inside the lock.
+             *
+             * Requesting an account is an upstream API call, and Paystack
+             * rejects a second assignment for a customer that already has one —
+             * so two concurrent requests (a double-tap, two open tabs) would
+             * have one win and the other fail with a provider error shown to the
+             * customer. The lock makes the second request wait, see the account
+             * the first one stored, and do nothing.
+             *
+             * The row is re-fetched rather than trusting the instance loaded
+             * above: that instance predates the lock, so its `dva_account_number`
+             * may be stale — which is exactly the value being tested.
+             */
+            $account = DB::transaction(function () use ($user) {
+                $locked = User::whereKey($user->getKey())->lockForUpdate()->first();
+
+                if (! $locked || $locked->dva_account_number) {
+                    return null;
+                }
+
+                return $this->paystack->dedicatedAccount($locked);
+            });
+
+            if ($account === null) {
+                // The other request issued it while this one waited.
+                return null;
+            }
+
+            Log::info('Dedicated virtual account issued to a customer', [
+                'user_id' => $user->id,
+                'bank' => $account['bank_name'] ?? null,
+            ]);
+
+            return null;
+        } catch (Throwable $e) {
+            /*
+             * The raw provider message describes our configuration ("wema-bank
+             * is not available in test mode", "invalid key") and is never shown
+             * verbatim. `$dvaFallbackMessage()` is the same sanitiser the funding
+             * flow uses, so the two paths cannot describe one failure two ways.
+             *
+             * The full text is in the log, which is where it belongs.
+             */
+            Log::error('Dedicated virtual account could not be issued', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return $this->dvaFallbackMessage($e->getMessage());
+        }
+    }
+
+    private function renderVirtualAccount(?string $warning = null)
+    {
+        $user = Auth::user()->fresh();
+
+        $account = $this->dvaFromUser($user);
+
+        return view('wallet.virtual-account', [
+            'wallet' => $this->wallets->forUser($user),
+            'virtual_account' => $account,
+            'bank_details' => config('wallet.bank'),
+            'paystack_enabled' => $this->paystack->isConfigured(),
+            'dva_warning' => $warning ?? session('warning'),
+            /*
+             * Recent transfers to the account, so the customer can see the credit
+             * land without leaving the page. Matched on `payment_method`, which
+             * is how both settlement paths record a bank transfer — the webhook
+             * and the manual-proof fallback.
+             */
+            'recentTransfers' => Transactions::where('user_id', $user->id)
+                ->where('type', 'credit')
+                ->where('service_type', 'funding')
+                ->where('payment_method', 'bank_transfer')
+                ->where('status', 'success')
+                ->latest()
+                ->limit(5)
+                ->get(),
+        ]);
+    }
+
+    public function storeVirtualAccount()
+    {
+        $warning = $this->issueVirtualAccount();
+
+        return redirect()
+            ->route('wallet.virtual-account')
+            ->with($warning ? 'warning' : 'success', $warning ?: 'Your account is ready.');
+    }
+
+    /* =====================================================================
      | Paystack callback + webhook
      |=================================================================== */
 

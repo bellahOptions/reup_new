@@ -71,14 +71,17 @@ class ScheduleHealth extends Command
         }
 
         if ($running) {
-            $this->info('The scheduler is running. payments:reconcile is executing every minute.');
+            $this->info(
+                'The scheduler is running. payments:reconcile is executing every minute and '
+                . 'payments:auto-resolve every two minutes.'
+            );
 
             return self::SUCCESS;
         }
 
         $this->error(
-            'The scheduler is NOT running. Pending payments will never be reconciled, because '
-            . '`schedule:run` is not being invoked every minute.'
+            'The scheduler is NOT running. Pending payments will never be reconciled and no pending '
+            . 'transaction will be resolved, because `schedule:run` is not being invoked every minute.'
         );
 
         $this->newLine();

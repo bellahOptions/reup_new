@@ -43,18 +43,35 @@
     --color-brand-900: #174c12;
     --color-brand-950: #072a05;
 
-    /* ---- Neutrals: slightly green-leaning so brand sits comfortably ---- */
-    --color-ink-50: #f7f8f7;
-    --color-ink-100: #eef0ee;
-    --color-ink-200: #dfe3df;
-    --color-ink-300: #c3cac3;
-    --color-ink-400: #98a298;
-    --color-ink-500: #6f7a6f;
-    --color-ink-600: #576157;
-    --color-ink-700: #464e46;
-    --color-ink-800: #2f352f;
-    --color-ink-900: #1b1f1b;
-    --color-ink-950: #0d100d;
+    /* ---- Neutrals: slightly green-leaning so brand sits comfortably ----
+       KEY DECLARATIONS ONLY, each one a no-op self-reference.
+
+       This block is emitted as `:root, :host` and includes whatever it finds, so
+       a *value* written here is the value for every theme — which is how an
+       inverted ramp ended up in `:root` and made `text-ink-*` light-on-light
+       while the probe reading the dark attribute block said everything was fine.
+       A key is still required: Tailwind emits a utility only for a theme key it
+       can see, and deleting these removed `.text-ink-950`, `.bg-ink-100` and the
+       rest from the build entirely.
+
+       `--color-ink-950: var(--color-ink-950)` satisfies both requirements. It
+       is the single-word form the note above describes (the alias mangles back
+       to itself, so `.text-ink-950` reads the runtime token), and it is
+       *invalid as a declaration* — a custom property cannot be its own value —
+       so the browser discards it and it can never shadow `:root`.
+
+       The values live in the two theme blocks below, and must stay mirrors. */
+    --color-ink-50: var(--color-ink-50);
+    --color-ink-100: var(--color-ink-100);
+    --color-ink-200: var(--color-ink-200);
+    --color-ink-300: var(--color-ink-300);
+    --color-ink-400: var(--color-ink-400);
+    --color-ink-500: var(--color-ink-500);
+    --color-ink-600: var(--color-ink-600);
+    --color-ink-700: var(--color-ink-700);
+    --color-ink-800: var(--color-ink-800);
+    --color-ink-900: var(--color-ink-900);
+    --color-ink-950: var(--color-ink-950);
 
     /* ---- Type ---- */
     --font-sans: "DM Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
@@ -115,16 +132,30 @@
                      itself and the utility ends up reading the runtime token —
                      neat, and it means the value is written down only once.
      :root block     the *runtime* declaration: the real value, replaced per
-                     theme by `html[data-theme="dark"]`.
+                     theme by the dark-theme attribute block further down.
 
-   The exception is the compound names. Tailwind resolves the reference in
-   `--color-surface-strong: var(--color-surface-strong)` and emits
-   `.bg-surface-strong{background-color:var(--color-surface-strong)}` — but it
-   *stores* the key as `surface-strong`, having resolved the value, and a
-   suffixed alias (`--color-surface-strong-t`) is not recognised as part of the
-   colour namespace at all. Those keys therefore carry their literal value above
-   and their runtime value below, and the two must be kept in step. They are
-   marked below.
+                     Spelled out in prose rather than written literally, and that
+                     is deliberate: esbuild preserves comments, so a literal
+                     selector in a comment lands in the built stylesheet *before*
+                     the real rule. Anything that parses the CSS for that
+                     selector — a test, a contrast probe, a person grepping the
+                     minified output — then matches the sentence instead of the
+                     rule and silently reads the light theme. That is exactly
+                     what happened here: a probe reported "dark" while measuring
+                     light-mode values, which sent this investigation after a
+                     `var()` resolution bug that did not exist.
+
+   Compound names (`surface-strong`, `muted-foreground`, `border-strong`) work
+   the same way, and this is worth stating because the first version of this file
+   assumed they could not. Tailwind resolves
+   `--color-surface-strong: var(--color-surface-strong)` back to the identical
+   string, stores the key as `surface-strong`, and emits
+   `.bg-surface-strong{background-color:var(--color-surface-strong)}` — so the
+   utility reads the *runtime* token exactly like a single-word one. What does
+   NOT work is aliasing a compound name onto a *different* token
+   (`--color-surface-strong: var(--color-surface-muted)`): that resolves at build
+   time and welds the utility to `--color-surface-muted`, which is the trap
+   described above. Self-reference only.
 
    Verified against Tailwind 4.3.3; if a build ever reports an unknown utility,
    this is the first place to look.
@@ -132,12 +163,17 @@
 
 @theme {
     /* ---- Page & surface planes ----
-       The compound ones carry literals so the runtime tokens are reachable. */
+       Every one of these resolves straight through to its runtime token, so a
+       theme re-points the runtime declaration and nothing else. `surface-page`
+       is the literal canvas colour — it exists so `theme.theme_color` and the
+       CSS can share one source, and so `bg-surface-page` is available to a
+       panel that must sit flush on the page rather than a step above it. */
     --color-background: var(--color-background);
     --color-surface: var(--color-surface);
-    --color-surface-subtle: #f7f8f7;        /* = --color-ink-50  (compound) */
-    --color-surface-muted: #eef0ee;         /* = --color-ink-100 (compound) */
-    --color-surface-strong: #dfe3df;        /* = --color-ink-200 (compound) */
+    --color-surface-page: var(--color-surface-page);
+    --color-surface-subtle: var(--color-surface-subtle);
+    --color-surface-muted: var(--color-surface-muted);
+    --color-surface-strong: var(--color-surface-strong);
 
     /* `white` is a genuine white and is *not* re-pointed, because the utilities
        that mention it are split between two jobs: `text-white` on a coloured
@@ -150,14 +186,26 @@
 
     /* ---- Text ---- */
     --color-foreground: var(--color-foreground);
-    --color-muted-foreground: #6f7a6f;      /* = --color-ink-500 (compound) */
-    --color-subtle-foreground: #98a298;     /* = --color-ink-400 (compound) */
+    --color-muted-foreground: var(--color-muted-foreground);       /* (compound) */
+    --color-subtle-foreground: var(--color-subtle-foreground);     /* (compound) */
 
     /* ---- Lines & controls ---- */
     --color-border: var(--color-border);
-    --color-border-strong: #c3cac3;         /* = --color-ink-300 (compound) */
+    --color-border-strong: var(--color-border-strong);             /* (compound) */
     --color-input: var(--color-input);
     --color-ring: var(--color-ring);
+
+    /* ---- Scrim ----
+       The wash behind a modal, drawer or mobile-nav overlay. It is dark in
+       *both* themes by intent — an overlay's job is to dim what is behind it,
+       not to follow the page — so it is a token in its own right rather than
+       `bg-ink-950/50`.
+
+       It has to be a token because `ink-950` is a primitive that *inverts* for
+       dark mode (see the dark block). A view reaching for the primitive would
+       get a near-white wash over a dark page, which is the opposite of dimming.
+       Naming the intent avoids both that and the next person's guess. */
+    --color-scrim: var(--color-scrim);
 
     /* ---- Brand & states ----
        Every one of these is a single word, so each mangled alias resolves to the
@@ -207,12 +255,58 @@
 /* ==========================================================================
    Theme values
    --------------------------------------------------------------------------
-   `:root` is always the light theme. `html[data-theme="dark"]` is deliberately
-   one element more specific than `:root`, so these overrides win no matter what
-   order Tailwind emits its own theme variables in — the build has hoisted
-   `@theme` to `:root` before now, and a bare `[data-theme="dark"]` selector ties
+   `:root` is always the light theme. The dark block below is deliberately one
+   element more specific than `:root` (an `html` element carrying the theme
+   attribute, rather than a bare attribute selector), so its overrides win no
+   matter what order Tailwind emits its own theme variables in — the build has
+   hoisted `@theme` to `:root` before now, and a bare attribute selector ties
    with `:root` on specificity and would then lose on source order.
+
+   Not written literally here for the reason given above the primitive block:
+   a selector in a comment is preserved into the build and matches before the
+   real rule does.
    ========================================================================== */
+
+/* ==========================================================================
+   The neutral ramp, light values
+   --------------------------------------------------------------------------
+   `:root:root`, not `:root`, and that repeated pseudo-class is load-bearing.
+
+   Tailwind emits the `@theme` block as a *layered* `:root, :host` rule at the
+   top of the stylesheet and then re-emits the plain custom properties it found
+   in this file — including these — as an *unlayered* `:root` rule near the
+   bottom. The first copy is inert (a custom property cannot be its own value)
+   and the second is the problem: being unlayered it beats every layered rule,
+   and being at the bottom it beat the dark block on source order. The dark
+   block's values were discarded, so the ink utilities rendered the light ramp
+   in every theme — the home hero's `text-ink-950` stayed near-black on a dark
+   page.
+
+   So this selector has to outrank the generated `:root` (0,1,0) *and* stay
+   below the dark block. `:root:root` is (0,2,0); the dark block is
+   `html[data-theme="dark"]` at (0,2,1), which still wins on specificity
+   wherever either lands in the output.
+
+   It must NOT be `html:root` (0,1,1): that also outranks the generated rule,
+   but it outranks the dark block too — which silently pins every theme to the
+   light ramp while looking like it works.
+   ========================================================================== */
+
+:root:root {
+    /* `ink-50` is the lightest step and `ink-950` the darkest text; the dark
+       block swaps the ends. */
+    --color-ink-50: #f7f8f7;
+    --color-ink-100: #eef0ee;
+    --color-ink-200: #dfe3df;
+    --color-ink-300: #c3cac3;
+    --color-ink-400: #98a298;
+    --color-ink-500: #6f7a6f;
+    --color-ink-600: #576157;
+    --color-ink-700: #464e46;
+    --color-ink-800: #2f352f;
+    --color-ink-900: #1b1f1b;
+    --color-ink-950: #0d100d;
+}
 
 :root {
     /* Comma-separated so the browser falls through to the next family for any
@@ -224,12 +318,32 @@
        interiors, the canvas behind the page, and default scrollbar colours. */
     color-scheme: light;
 
-    /* ---- Page & surface planes ---- */
-    --color-background: var(--color-ink-50);
-    --color-surface: var(--color-ink-100);
-    --color-surface-subtle: var(--color-ink-50);
-    --color-surface-muted: var(--color-ink-100);
-    --color-surface-strong: var(--color-ink-200);
+    /* ---- The neutral ramp, light values ----
+       Declared under `html:root` above, mirrored in the dark block below, and
+       never in `@theme` — see the note on that block for why each of those is
+       load-bearing. `ink-50` is the lightest step and `ink-950` the darkest. */
+
+    /* ---- Page & surface planes ----
+       Light mode is drawn on true white, not a near-white tint.
+
+       `--color-background` and `--color-surface` both resolve to #ffffff
+       because this application has no outer canvas: the page plane *is* the
+       surface, and every page opens with `bg-surface`. Layering is carried by
+       the hairline border and the (very shallow) card shadow instead of by a
+       tint — which is the treatment the design system already specifies, and
+       which does not soften white into off-white by the back door.
+
+       White is therefore the *page*, and the neutral steps below it do the
+       work a page tint used to do: `.bg-surface-muted` on a table head or a
+       badge, `.bg-surface-strong` on a heavier control. That is why they sit a
+       step lower than the old scale — an off-white fill and an off-white page
+       would be indistinguishable once the page is white. */
+    --color-surface-page: #ffffff;
+    --color-background: var(--color-surface-page);
+    --color-surface: var(--color-surface-page);
+    --color-surface-subtle: #f6f8f6;
+    --color-surface-muted: #eaecea;
+    --color-surface-strong: #dcdfdc;
 
     /* ---- Text ---- */
     --color-foreground: var(--color-ink-900);
@@ -241,6 +355,12 @@
     --color-border-strong: var(--color-ink-300);
     --color-input: var(--color-ink-200);
     --color-ring: var(--color-brand-500);
+
+    /* Dark in both themes — an overlay dims what is behind it, whichever theme
+       the page is. Written as a literal rather than a primitive so the ink
+       ramp's inversion cannot reach it; the call site supplies the alpha
+       (`bg-scrim/50`), which is where the opacity was already written. */
+    --color-scrim: #0b0e0b;
 
     /* ---- Brand & states ---- */
     --color-primary: var(--color-brand-500);
@@ -270,13 +390,26 @@
     --color-info-border: #bae6fd;
 
     /* ---- Inverse panels ----
-       The mid steps (ink-400/500/600) are shared by both themes: in light mode
-       they sit on an ink-950 panel, in dark mode on a white one, and the same
-       value clears AA in both directions. The extreme steps have to move. */
+       The panel that flips: `ink-950` in light mode, white in dark mode.
+
+       These were the *least* inverted part of the light block, and it showed.
+       `--color-inverse-surface` correctly named the opposite end of the ramp,
+       but `--color-inverse-foreground` did not: it resolved to `ink-900`
+       (`#1b1f1b`), so the hero card's balance — `text-inverse-foreground` on a
+       near-black panel — was dark-on-dark in **light** mode. `inverse-muted`
+       and `inverse-subtle` had the same shape of problem in the other
+       direction: `#6f7a6f` is 4.48:1 on the white panel dark mode switches to,
+       just under AA.
+
+       Every value here is now a literal chosen to clear AA on *both* panels,
+       because the same token is read against `#0d100d` in one theme and
+       `#ffffff` in the other. Aliasing an ink step cannot express that: a step
+       that reads well on one panel is either invisible or marginal on the
+       other, and the ramp runs the wrong way for the low steps regardless. */
     --color-inverse-surface: var(--color-ink-950);
-    --color-inverse-foreground: var(--color-ink-900);
-    --color-inverse-muted: var(--color-ink-600);
-    --color-inverse-subtle: var(--color-ink-500);
+    --color-inverse-foreground: #eef0ee;
+    --color-inverse-muted: #a8b2a8;
+    --color-inverse-subtle: #98a298;
     --color-inverse-line: var(--color-ink-800);
     --color-inverse-overlay: rgb(255 255 255 / 0.1);
     --color-inverse-overlay-strong: rgb(255 255 255 / 0.18);
@@ -311,7 +444,13 @@ html[data-theme="dark"] {
     /* Neutral planes, flipped. Every step keeps its own contrast range exactly
        as it had it in light mode — ink-900 is always the highest-contrast text
        in the set, ink-100 is always the surface right next to the page — which
-       is why the whole ink scale can invert instead of being re-picked. */
+       is why the whole ink scale can invert instead of being re-picked.
+
+       Written out as literals rather than re-pointed at `--color-surface-page`,
+       even though the two agree: a reader (and a test) looking for "what colour
+       is the dark page" should find the answer here, not have to follow a
+       second indirection to find it. */
+    --color-surface-page: #0e100e;
     --color-background: #0e100e;
     --color-surface: #171a17;
     --color-surface-subtle: #121412;
@@ -329,6 +468,53 @@ html[data-theme="dark"] {
     --color-border-strong: #3a413a;
     --color-input: #343b34;
 
+    /* ======================================================================
+       The ink ramp, mirrored
+       ----------------------------------------------------------------------
+       This is the half that was missing, and it is the reason a dark home page
+       rendered its headline in near-black on near-black.
+
+       Everything above is the *semantic* layer, and it inverted correctly — but
+       the views also reach for the **primitives** about 250 times:
+       `text-ink-950` on the home hero, `bg-ink-100 text-ink-500` on every
+       empty-state icon circle, `text-ink-600`/`text-ink-700` on menu items and
+       list labels. A primitive does not read a token, so re-pointing the
+       semantic layer moved none of them: `text-ink-950` was `#0d100d` in both
+       themes, which is invisible on `#0e100e`. That was survivable only while
+       the light page was itself an off-white tint; on a white page it reads as
+       a broken heading the moment the device prefers dark.
+
+       So the ramp inverts — the same treatment Tailwind's own palette steps get
+       below, for the same reason. `ink-50` was the lightest step and is now the
+       darkest; `ink-900` was the darkest text and is now the lightest; the
+       midpoint (`ink-500`) is a genuine mid-tone and stays put, exactly as the
+       palette's own 500 step does. Two things follow from mirroring rather than
+       re-picking: relative contrast is preserved by construction (a pair that
+       cleared AA in light mode still does), and a utility's number keeps
+       meaning "how far from the page plane", which is what a view author is
+       actually choosing.
+
+       Two consequences worth stating, because each is a place this could go
+       wrong:
+
+         * `--color-footer-faint` is the one semantic token still *pointing* at
+           an ink step (see the light block), and the footer keeps its dark
+           panel in both themes — so it is given an explicit value above rather
+           than being allowed to follow the mirror into unreadability.
+         * `bg-ink-950/50` is a modal scrim. A mirrored `ink-950` is near-white,
+           which would turn every dimming overlay into a bright wash. Those call
+           sites now use `--color-scrim`, a token that is dark *on purpose* in
+           both themes. See the `scrim` note in the primitive block. */
+    /* The mirror itself lives in its own block *after* this one, so that all
+       eleven declarations can be marked `!important` in one place and for one
+       reason. See the note there. */
+
+    /* The footer is the one panel that stays dark in both themes, so its
+       faintest step is pinned to a value that clears AA on `#0b0e0b` — the
+       same relationship `--color-footer-subtle` above has. Left to the mirror
+       it would resolve to `#6f7a6f`, which is 3.6:1 on that panel. */
+    --color-footer-faint: #8b948b;
+
     /* The brand ramp is built around #2AB70D, which is a *light* green: it
        manages only ~2.3:1 against a near-black page, so as a text or focus
        colour in dark mode it fails AA outright. The dark theme therefore runs
@@ -337,6 +523,23 @@ html[data-theme="dark"] {
        is a large-surface requirement, and the white label on it clears 7:1. */
     --color-primary: var(--color-brand-400);
     --color-ring: var(--color-brand-400);
+    /* The brand fill is a *light* green in dark mode, so white text on it is
+       1.9:1 — invisible. The label has to invert with the fill, exactly as the
+       foreground does: ink-950 on brand-400 is 10:1, even though the pair reads
+       "dark label on bright button" — which is the same relationship the light
+       theme's accent tokens already use (`brand-50` fill, `brand-700` text).
+       This covers every `btn-primary` and every `bg-brand-500
+       text-primary-foreground` panel in one place.
+
+       Written as the literal `#0d100d` rather than `var(--color-ink-950)`, and
+       that is load-bearing rather than stylistic: a `var()` inside a custom
+       property is resolved against the value in scope at *declaration* time,
+       so the reference picked up the light-mode `ink-950` and the browser
+       reported this token as `#f7f8f7` — a second near-white-on-light-green
+       with no visible cause. The literals that only have to be *reachable*
+       (the surface planes above) are safe; one that has to be a specific value
+       is not. */
+    --color-primary-foreground: #0d100d;
     --color-accent: #14260f;
     --color-accent-foreground: var(--color-brand-200);
     --color-secondary: #232823;
@@ -362,11 +565,13 @@ html[data-theme="dark"] {
     --color-info-soft-foreground: #7dd3fc;
     --color-info-border: #1e4a63;
 
-    /* Inverse panels flip to the light end of the fixed ramp. */
+    /* Inverse panels flip to the light end of the fixed ramp. Values chosen to
+       clear AA against this block's `#ffffff` panel — see the light block's note
+       on why they are literals. */
     --color-inverse-surface: #ffffff;
     --color-inverse-foreground: #171a17;
     --color-inverse-muted: #576157;
-    --color-inverse-subtle: #6f7a6f;
+    --color-inverse-subtle: #576157;
     --color-inverse-line: #e8ebe8;
     /* Inverted: a dark wash on a white panel, so the overlay keeps reading as a
        recess rather than disappearing into it. */
@@ -504,6 +709,63 @@ html[data-theme="dark"] {
     --color-gray-700: #d1d5db;
     --color-gray-800: #e5e7eb;
     --color-gray-900: #f3f4f6;
+}
+
+/* ==========================================================================
+   The neutral ramp, dark values — the mirror
+   --------------------------------------------------------------------------
+   This is the half that was missing, and it is why a dark home page rendered
+   its headline in near-black on near-black.
+
+   The *semantic* layer above inverted correctly, but the views also reach for
+   the **primitives** about 250 times: `text-ink-950` on the hero, `bg-ink-100
+   text-ink-500` on every empty-state icon circle, `text-ink-600`/`text-ink-700`
+   on menu items and list labels. A primitive reads no token, so re-pointing the
+   semantic layer moved none of them — `text-ink-950` stayed `#0d100d` in both
+   themes. That was survivable only while the light page was itself an off-white
+   tint; on a white page it looks like a broken heading.
+
+   So the ramp mirrors: `ink-50` was the lightest step and is now the darkest,
+   `ink-900` was the darkest text and is now the lightest, and the midpoint
+   stays put — exactly the treatment Tailwind's own palette steps get above, and
+   for the same reason. Mirroring rather than re-picking preserves the relative
+   contrast of every pair by construction, and a utility's number keeps meaning
+   "how far from the page plane".
+
+   --------------------------------------------------------------------------
+   Why `!important`, and why the selector is not simply repeated
+   --------------------------------------------------------------------------
+   Two `!important`-free attempts at this did not work, and the shape of the
+   failure is worth recording.
+
+   Tailwind emits the `@theme` block as a *layered* `:root, :host` rule and then
+   re-emits the plain custom properties it found in this file — including the
+   light ramp — as an *unlayered* `:root` rule near the bottom of the output.
+   Unlayered rules beat every layered one, so that generated copy (0,1,0) had to
+   be outranked; but `html:root` (0,1,1) outranked *this* block (0,2,1 on
+   specificity, but only if it exists at all) and pinned every theme to the light
+   ramp. `:root:root` (0,2,0) then tied with the generated copy and lost on
+   source order.
+
+   A custom property cannot be given a priority inside its own `var()` chain, so
+   the honest fix is to say "this wins" explicitly on the eleven declarations
+   that need it, in a block of their own where that is the only thing happening.
+   That keeps it auditable: everything in the block above still cascades
+   normally, and the theme switch — which writes inline styles — is unaffected,
+   because an inline style beats `!important` only in the author origin, and
+   nothing here sets these inline. */
+html[data-theme="dark"] {
+    --color-ink-50: #0d100d !important;
+    --color-ink-100: #1b1f1b !important;
+    --color-ink-200: #2f352f !important;
+    --color-ink-300: #464e46 !important;
+    --color-ink-400: #576157 !important;
+    --color-ink-500: #6f7a6f !important;
+    --color-ink-600: #98a298 !important;
+    --color-ink-700: #c3cac3 !important;
+    --color-ink-800: #dfe3df !important;
+    --color-ink-900: #eef0ee !important;
+    --color-ink-950: #f7f8f7 !important;
 }
 
 /* ==========================================================================

@@ -1,4 +1,4 @@
-@extends('admin.layouts.app')
+﻿@extends('admin.layouts.app')
 
 @section('title', 'Transactions')
 @section('page-title', 'Transactions')
@@ -341,13 +341,13 @@
     {{-- ===================== Transaction detail modal ================= --}}
     {{-- On a phone this is a bottom sheet, not a centred dialog: a centred box
          with a fixed 90vh cap puts its header above the fold on a short screen,
-         so the only way to close it is the backdrop — which is a tap target the
+         so the only way to close it is the backdrop â€” which is a tap target the
          user has to guess at. Anchored to the bottom with the height capped
          against the *dynamic* viewport (dvh, so mobile browser chrome is
          accounted for), the header and the close button are always on screen.
          From `sm` up there is room for the centred dialog. --}}
     <div x-show="detailsId !== null" x-cloak
-         class="fixed inset-0 z-50 flex items-end justify-center bg-ink-950/50 sm:items-center sm:p-4"
+         class="fixed inset-0 z-50 flex items-end justify-center bg-scrim/50 sm:items-center sm:p-4"
          data-refresh-url-template="{{ route('admin.transactions.refresh-status', ['transaction' => '__ID__']) }}"
          @keydown.escape.window="closeTransactionModal()"
          @click.self="closeTransactionModal()">
@@ -421,7 +421,7 @@
                     if (box) box.innerHTML = html;
 
                     // Fill the shell's subtitle from the loaded content. It used
-                    // to sit on "Loading…" for the life of the dialog, which read
+                    // to sit on "Loadingâ€¦" for the life of the dialog, which read
                     // as a stuck request even after everything had arrived.
                     const subtitle = document.getElementById('modalSubtitle');
                     const reference = box

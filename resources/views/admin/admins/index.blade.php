@@ -1,4 +1,4 @@
-@extends('admin.layouts.app')
+﻿@extends('admin.layouts.app')
 
 @section('title', 'Administrators')
 @section('page-title', 'Administrator accounts')
@@ -24,7 +24,7 @@
     | The previous version ran its own Eloquent queries inside the view
     | (AdminLog::with('user')->latest()->limit(10)->get()) and derived the
     | metrics with `$admins->where(...)`, which only ever counted the current
-    | page — the header showed "Online now: 0" whenever the online admins all
+    | page â€” the header showed "Online now: 0" whenever the online admins all
     | sat on page two. It also threw
     | `Attempt to read property "name" on int` because the activity feed used
     | `$log->user_id->name` instead of `$log->user->name`.
@@ -287,7 +287,7 @@
                                 </td>
 
                                 <td class="whitespace-nowrap text-sm text-muted-foreground">
-                                    <span class="tabular-nums">{{ $admin->created_at?->format('M j, Y') ?? '—' }}</span>
+                                    <span class="tabular-nums">{{ $admin->created_at?->format('M j, Y') ?? 'â€”' }}</span>
                                 </td>
 
                                 <td class="text-right">
@@ -389,7 +389,7 @@
                                     $value = json_encode($value);
                                 }
 
-                                $detailParts[] = ucfirst(str_replace('_', ' ', (string) $key)) . ': ' . ($value ?? '—');
+                                $detailParts[] = ucfirst(str_replace('_', ' ', (string) $key)) . ': ' . ($value ?? 'â€”');
                             }
                         } elseif (is_string($details) && $details !== '') {
                             $detailParts[] = $details;
@@ -439,7 +439,7 @@
 
     {{-- ====================== Toggle availability dialog =================== --}}
     <div x-show="toggleAction !== null" x-cloak
-         class="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/50 p-4"
+         class="fixed inset-0 z-50 flex items-center justify-center bg-scrim/50 p-4"
          @keydown.escape.window="toggleAction = null"
          @click.self="toggleAction = null">
         <div class="w-full max-w-md overflow-hidden rounded-xl border border-border bg-surface shadow-overlay"
@@ -465,7 +465,7 @@
 
     {{-- ========================= Delete admin dialog ======================= --}}
     <div x-show="deleteAction !== null" x-cloak
-         class="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/50 p-4"
+         class="fixed inset-0 z-50 flex items-center justify-center bg-scrim/50 p-4"
          @keydown.escape.window="deleteAction = null"
          @click.self="deleteAction = null">
         <div class="w-full max-w-md overflow-hidden rounded-xl border border-border bg-surface shadow-overlay"
