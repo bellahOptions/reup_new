@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\UpdateProfileRequest;
 use App\Models\User;
 use App\Services\OtpLoginService;
 use App\Services\PaystackService;
@@ -66,49 +67,17 @@ class ProfileController extends Controller
         ]);
     }
 
-    public function update(Request $request)
+    public function update(UpdateProfileRequest $request)
     {
         $user = auth()->user();
-        
-        // Clean phone numbers before validation
-        $request->merge([
-            'phone' => preg_replace('/\D/', '', $request->phone),
-            'whatsapp' => preg_replace('/\D/', '', $request->whatsapp),
-        ]);
-        
-        $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users')->ignore($user->id)],
-            'phone' => ['nullable', 'string', 'regex:/^0[7-9][0-9]{9}$/', Rule::unique('users')->ignore($user->id)],
-            'whatsapp' => ['nullable', 'string', 'regex:/^0[7-9][0-9]{9}$/'],
-            'birthday' => ['nullable', 'date', 'before:-18 years'],
-            'gender' => ['nullable', 'in:male,female,other'],
-            'address' => ['nullable', 'string', 'max:500'],
-            'state' => ['nullable', 'string'],
-            'city' => ['nullable', 'string'],
-            'profile_picture' => [
-                'nullable',
-                'file',
-                'image',
-                // `mimes` compares the extension *guessed from the content*,
-                // `mimetypes` compares the detected MIME itself. Both are
-                // listed deliberately: the pair rejects a PHP/HTML/SVG payload
-                // renamed to .jpg, and the explicit allowlist keeps `image`'s
-                // wider set (bmp/webp/svg) out.
-                'mimes:jpeg,png,jpg,gif',
-                'mimetypes:image/jpeg,image/png,image/gif',
-                'max:2048',
-            ],
-            // Avatar choices are validated against the configured keys rather
-            // than accepted as free text, so a hand-crafted POST cannot store a
-            // colour or glyph the renderer does not know about.
-            'avatar_color' => ['nullable', 'string', Rule::in(array_keys(config('avatars.colors', [])))],
-            'avatar_icon' => ['nullable', 'string', Rule::in(array_keys(config('avatars.icons', [])))],
-        ], [
-            'phone.regex' => 'Please enter a valid Nigerian phone number (e.g., 08012345678)',
-            'whatsapp.regex' => 'Please enter a valid Nigerian phone number for WhatsApp',
-            'birthday.before' => 'You must be at least 18 years old',
-        ]);
+
+        /*
+         * What may be submitted — the names, the phone numbers, the upload and the
+         * avatar allowlists — is decided by the form request, which also normalises
+         * the name and the phone numbers before it judges them. This method is
+         * about what happens to what was submitted.
+         */
+        $validated = $request->validated();
 
         // An empty string from the "Initials" radio means "no glyph", which is
         // null in the column rather than an empty string that would then fail
@@ -157,28 +126,60 @@ class ProfileController extends Controller
         $user->update($validated);
 
         /*
-         * Push a newly-added phone number to the payment provider, if we already
-         * hold a customer record for this account.
+         * Profile completion *before* the name review, and the order is
+         * load-bearing.
          *
-         * Paystack will not create a dedicated virtual account for a customer
-         * with no phone number, and a customer record created during an earlier
-         * card payment has that gap frozen in it — `ensureCustomer()` returns the
-         * stored code and never revisits the record. Without this, a customer who
-         * follows the prompt on the virtual-account page, adds their number and
-         * comes back would be told the very same thing again, which reads as the
-         * form not saving.
-         *
-         * Best-effort on purpose: a gateway outage must not fail a profile save.
-         * The virtual-account path re-sends the number on every attempt, so a
-         * failure here is recovered the next time it actually matters.
+         * This block re-saves the model. `forceFill()` writes a value to the
+         * in-memory attribute and the second `save()` persists the whole model —
+         * including a `name_review` that the first save is about to change. When
+         * the review flag was set first, this save wrote `name_review => null` back
+         * over it, and the flag vanished: the review queue stayed empty and nothing
+         * errored. Setting it first and saving it last is the fix.
          */
-        $this->syncPhoneToPaymentProvider($user);
-
-        // Check if profile is now completed
-        if (!$user->profile_completed && $user->profile_completion_percentage >= 80) {
+        if (! $user->profile_completed && $user->profile_completion_percentage >= 80) {
             $user->profile_completed = true;
             $user->save();
         }
+
+        /*
+         * Only when the name is what changed.
+         *
+         * `wasChanged('name')` rather than an unconditional call, because a
+         * customer who fixes their address must not re-open a review an
+         * administrator already closed — and because asking the same question twice
+         * is how a review queue stops being read.
+         */
+        if ($user->wasChanged('name')) {
+            $request->flagNameForReview($user);
+        }
+
+        /*
+         * Push a changed name and phone number to the payment provider, if we
+         * already hold a customer record for this account.
+         *
+         * Three things at the gateway depend on these values, and none of them is
+         * recoverable by us locally:
+         *
+         *   * Paystack will not create a dedicated virtual account for a customer
+         *     in the Betting / Financial services / General Service category with
+         *     no phone number, and a customer record created during an earlier
+         *     card payment has that gap frozen in it — `ensureCustomer()` returns
+         *     the stored code and never revisits the record. Without this, a
+         *     customer who follows the prompt on the virtual-account page, adds
+         *     their number and comes back would be told the very same thing
+         *     again, which reads as the form not saving.
+         *   * The `first_name` and `last_name` on that record are what the
+         *     *account name* of the customer's personal account number is built
+         *     from — the name a payer reads in their own banking app. A customer
+         *     who corrects a typo in their name here must not have their next
+         *     account issued in the name they just told us was wrong.
+         *
+         * Best-effort on purpose: a gateway outage must not fail a profile save.
+         * The virtual-account path re-sends everything on every attempt (until
+         * the record is stamped as synced), so a failure here is recovered the
+         * next time it actually matters.
+         */
+        $this->syncDetailsToPaymentProvider($user);
 
         return redirect()->route('profile.index')
             ->with('success', 'Profile updated successfully!')
@@ -186,8 +187,8 @@ class ProfileController extends Controller
     }
 
     /**
-     * Attach the account's phone number to its Paystack customer, when there is
-     * one to attach to.
+     * Attach the account's name and phone number to its Paystack customer, when
+     * there is a customer to attach them to.
      *
      * A no-op in the common case: almost every profile save happens before any
      * card payment, so there is no customer code and nothing to do. That is why
@@ -195,19 +196,16 @@ class ProfileController extends Controller
      * the cost is a null check, and a job would need its own retry story for a
      * call that the virtual-account path already repeats for free.
      */
-    private function syncPhoneToPaymentProvider(User $user): void
+    private function syncDetailsToPaymentProvider(User $user): void
     {
-        $customerCode = (string) $user->paystack_customer_code;
-        $phone = preg_replace('/\D/', '', (string) $user->formatted_phone);
-
-        if ($customerCode === '' || $phone === '') {
+        if (empty($user->paystack_customer_code)) {
             return;
         }
 
         try {
-            app(PaystackService::class)->updateCustomerPhone($customerCode, $phone);
+            app(PaystackService::class)->syncCustomerProfile($user);
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('Could not sync a profile phone number to Paystack', [
+            \Illuminate\Support\Facades\Log::warning('Could not sync profile details to Paystack', [
                 'user_id' => $user->id,
                 'error' => $e->getMessage(),
             ]);

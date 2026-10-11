@@ -895,6 +895,402 @@ rather than a loop inside one test because registration signs the account in, so
 same test is correctly redirected away by `guest` and creates nothing — the loop version failed on its
 second iteration for exactly that reason.
 
+## 12. Names, dedicated virtual accounts, and funding receipts (2026-10-11)
+
+Three changes, in the order they depend on each other: the customer's name is now collected as two parts
+at sign-up; the dedicated-virtual-account module is rebuilt against Paystack's actual documentation; and a
+scheduled job notifies the customer with a receipt when their wallet is funded.
+
+### 12.1 First name and last name are collected, not guessed
+
+The sign-up form had one "Full name" field, and the two halves Paystack needs were derived by splitting
+it on the first space. That is wrong for a large fraction of real names: "Chidinma Nneka Okafor" became
+first `Chidinma`, last `Nneka Okafor`; a single-word name had no surname to send at all.
+
+It matters because those two values are what Paystack builds the **account name** of a customer's
+dedicated virtual account from — the name a payer reads in their own banking app before sending money.
+
+| # | Change |
+| --- | --- |
+| 1 | `resources/views/auth/register.blade.php`: "Full name" is replaced by First name (`autocomplete="given-name"`) and Last name (`autocomplete="family-name"`), side by side on wide screens and stacked on narrow ones |
+| 2 | `RegisteredUserController` validates both with one shared pattern, `User::NAME_PATTERN` |
+| 3 | The two halves are stored in new `users.first_name` / `users.last_name` columns; `users.name` is **kept** and derived from them on save |
+| 4 | The same fields are added to the profile form, so a name can be corrected after sign-up — and the correction is pushed to Paystack |
+
+**`name` is still authoritative for display.** Neither dropped nor renamed: it is read by the admin
+console, the dashboard greeting, the chat widgets and dozens of views, and a rename would be a wide,
+risky change for no benefit. `User`'s `saving` hook rebuilds it whenever the parts change, and the
+`first_name` / `last_name` accessors fall back to splitting `name` when the columns are empty — which is
+what keeps every factory, seeder and admin-console write (all of which set only `name`) working unchanged.
+
+**Two names in, three values out, and a test for each.** `test_a_name_split_across_two_fields_is_stored_as_both_and_as_a_whole`
+asserts all three, because getting one of them right and another wrong is the failure mode: the account is
+issued in one name and the customer is greeted with another.
+
+**The name rule is one constant, not two regexes.** `User::NAME_PATTERN` allows any Unicode letter, any
+combining mark, and `'`, `-`, `.` and inner spaces. The combining-mark class is not decoration: `Ọ̀ṣun` is
+spelled with a combining grave accent that is in neither `a-zA-Z` nor `\p{L}`, so the obvious pattern
+rejects a real Nigerian name while accepting "John". `RegistrationTest` has a data provider for six real
+names (apostrophe, hyphen, initial, accented, non-Latin script, combining diacritics).
+
+**A request that carries only a whole `name` still registers.** Someone with the previous form open, or a
+cached copy from a CDN, posts the old field set; the halves are derived from it. Rejecting them with "The
+first name field is required" for a form this very site showed them is a hostile way to lose a sign-up.
+
+### 12.2 The dedicated virtual account module, against the documentation
+
+Read from Paystack's Developer Documentation (`/docs/api/dedicated-virtual-account/`,
+`/docs/api/customer/` and `/docs/api/errors/dedicated-virtual-account/`). The findings that changed the
+code:
+
+| Finding | What it changed |
+| --- | --- |
+| "We currently support **Wema Bank and Titan Paystack**", and `preferred_bank` must come from the providers list | `PaystackService::dvaBank()` now checks `PAYSTACK_DVA_BANK` against `GET /dedicated_account/available_providers` (cached a day) and refuses with the available slugs named. An unreachable list does **not** block the attempt — the list is a diagnostic, and failing open keeps a transient gateway problem from becoming an outage |
+| "`first_name`, `last_name` and `phone` … become compulsory" for Betting / Financial services / General Service when a DVA is to be assigned | Already sent on customer creation; now also sent on `POST /dedicated_account`, which accepts them as optional parameters, and pushed to the **existing** customer record before the assignment |
+| Customer errors: "`first_name`, `last_name` are required in request body and must not be empty" | The setter (`ensureCustomer`) and the pusher (`syncCustomerDetails`) now send all three fields, not the phone alone |
+| DVA errors: "**Access Denied** — you need to confirm that you've been activated for this feature … contact support" | Detected (403 or the wording) and raised as a message that names the *feature*, so `paystack:diagnose-dva` and the operator log say "ask Paystack to enable dedicated virtual accounts" instead of relaying a bank's name. The customer still gets the same sanitised sentence as every other provider failure |
+| `POST /dedicated_account` returns `data.id`, and Fetch/Requery address the account by it | `dva_account_id` and `dva_bank_slug` are stored, so "re-query this account" is answerable from our row rather than from a Paystack dashboard search |
+| List responses wrap accounts in `data.accounts[]`; Create and Fetch return the object directly | One `accountRows()` normaliser replaces three `??` chains that each had to know which shape they were looking at |
+
+**The flow is now read-back first, then make the customer valid, then assign.** `GET
+/dedicated_account?customer=…` answers "does this customer already have one?" *before* anything is
+created, so a customer whose account exists at Paystack but not in our row — a rolled-back deploy, or an
+account assigned by hand — is **recovered** instead of being refused as a duplicate. That is a new test
+(`test_the_account_is_recovered_when_paystack_already_has_one`), and it also asserts that nothing was
+created.
+
+**The details sync no longer runs on every page load.** `users.paystack_details_synced_at` is stamped only
+when Paystack *accepts* the update. Stamping it regardless would be the worse bug of the two: a refused
+update recorded as done leaves the customer's record incomplete forever while every later page load skips
+the call that would have fixed it. `test_a_customer_whose_details_are_already_synced_is_not_updated_again`
+pins the saving, `test_a_failed_details_sync_does_not_break_the_page` pins the correctness.
+
+### 12.3 Funding receipts on a schedule
+
+`payments:send-funding-receipts`, every five minutes. It walks funding rows that are `success`, older
+than a one-minute grace period and have no `meta.receipt_sent_at`, dispatches
+`FundingReceiptNotification`, and stamps the row.
+
+**Why a sweep and not a line in the settlement path.** Funding settles on three paths — the browser
+callback, the gateway webhook, and the two-minute `payments:auto-resolve` fallback. Each is a place where
+a mail server having a bad thirty seconds could take the *credit* down with it, and a fourth path added
+later would silently not send receipts. Separating the two concerns also makes "did the customer get
+their receipt?" a question about rows, answerable after the fact, and previewable with `--dry-run`.
+
+**The claim is written after the send, deliberately.** Dispatching is the thing that can fail, so
+stamping first would record a receipt that never went out and remove the row from every future sweep —
+the customer's one chance, silently spent. The reverse is not perfectly atomic (a crash between the two
+sends one duplicate on the next run), and that is the correct side to fail on: two receipts is a mild
+annoyance, no receipt is a support ticket the customer has no way to anticipate.
+
+**`--days=7` bounds the look-back.** This is deployed onto a database with settled funding rows that were
+never receipted, because the feature did not exist. Without a window the first run would post a receipt
+for every piece of funding in the history — a customer who funded in March getting one in October reads
+as fraud or as a system that has lost track of time.
+
+**The receipt itself** (`resources/views/emails/funding-receipt.blade.php`) is a document, not a
+notification: amount, how the money arrived, who sent it and their note, the receiving account, both
+balances, the references, and the duration. It deliberately **omits** the payment receipt's "Wasn't
+you?" PIN panel — a card payment is authorised with the transaction PIN, money arriving in the wallet is
+not, and telling a customer their PIN may have been seen would be alarming and false.
+
+**Channels are `['database', 'mail']`, and the order is load-bearing.** Channels are processed in
+sequence and a throwing channel stops the ones after it, so `['mail', 'database']` would mean a mail
+outage also loses the *record* — the answer to "was this customer told?" disappearing exactly when
+somebody is asking. `FundingReceiptTest` asserts the order, not the membership.
+
+The `notifications` table did not exist. `User::markTermsNotificationSent()` had been calling
+`notifications()->create()` against it and throwing `Base table or view not found` on every call; nothing
+surfaced it because no caller was tested. The migration creates Laravel's standard table.
+
+### Verification
+
+```
+php artisan test --filter="RegistrationTest|VirtualAccountTest|FundingReceiptTest|UiCopyTest"
+php artisan migrate --force
+php artisan payments:send-funding-receipts --dry-run
+php artisan payments:send-funding-receipts
+php tools/check-encoding.php          # the 22 files that carry multi-byte characters
+php tools/show-funding.php            # which funding rows have been receipted
+php tools/show-notifications.php      # what the customer was actually told
+php tools/show-names.php              # first/last/whole name, per account
+php tools/db-snapshot.php             # the columns this release adds
+```
+
+### Still open, and operator-visible
+
+* **A `sk_test_` key cannot issue a dedicated virtual account at all.** Every partner bank answers
+  `"<bank> is not available in test mode"`; `paystack:diagnose-dva` demonstrates it for all five. This
+  deployment is configured with a test key, so the virtual-account page reports it plainly and the feature
+  works the moment `PAYSTACK_SECRET_KEY` is a live key. `PAYSTACK_ASSUME_LIVE_DVA` exists only as a
+  test-suite override.
+* **The Paystack business may still need "Dedicated Virtual Accounts" enabled.** That is what the
+  documented *Access Denied* error means, and it is the one failure we cannot fix from here. With a live
+  key and the feature not enabled, the operator log and `paystack:diagnose-dva` now say so; the customer
+  sees the generic unavailable message.
+* **Bank selection is configuration, not a fallback.** If `PAYSTACK_DVA_BANK` names a bank this business
+  does not have, the assignment is refused and the available slugs are printed. Silently moving to a
+  different bank would change where customers' money settles, which is a commercial decision.
+* **`name` is nullable and derived.** It is written on every real path, but a row created with neither a
+  whole name nor the parts gets the model's placeholder ("ReUp Customer") rather than a database error.
+
+## 13. Customer-name validation (2026-10-11)
+
+Every endpoint that accepts a name now goes through one engine, an obvious placeholder is flagged for a
+human rather than refused, and the admin console can clear the flag. Four entry points, one rule.
+
+### The four entry points
+
+| Endpoint | Where | Before |
+| --- | --- | --- |
+| `POST /register` | `App\Http\Requests\Auth\StoreRegistrationRequest` | Rules inline in the controller, with its own phone normalisation and its own regex |
+| `PUT /profile` | `App\Http\Requests\UpdateProfileRequest` | ~40 lines of inline validation in front of the 4 lines that did the work |
+| `PUT /admin/users/{user}` | `Admin\UserController::update()` | `'name' => 'required\|string\|max:255'` — no character rule at all, so an administrator could store a name the customer themselves would have been refused |
+| The legacy whole-`name` field on sign-up and profile | both form requests | Already tolerated; now normalised too, rather than only split |
+
+The admin editor is the one that mattered most. It is the only place a name can be *corrected*, so it is
+the only place a name can be corrected into something invalid — and since the halves are derived from the
+whole name, an invalid value there is what Paystack would print on the customer's next virtual account.
+
+### One rule, three jobs, kept apart
+
+`App\Support\Name` owns all three, and the separation is the design:
+
+| Method | Job | Guarantee |
+| --- | --- | --- |
+| `normalise()` | Unicode NFC, remove invisible characters, collapse whitespace | Changes what is stored without changing what it means |
+| `validate()` / `issues()` | Decide whether the value is a name at all | Rejects only digits, emoji, control characters, symbols and over-length values. **Never** rejects a name for being unfamiliar |
+| `reviewReasons()` | Advice, not a verdict | Returns machine-readable reasons a name *might* be filler. Nothing blocks on it |
+
+`User::NAME_PATTERN` is now re-exported from `Name::PART_PATTERN`, so there is one definition rather than
+two that can drift — the previous arrangement had the model and the controllers each spelling out their
+own copy of the same character class.
+
+**Normalisation runs before validation, on the request.** `NormalisesNames::prepareNamesForValidation()`
+rewrites the input in `prepareForValidation()`, so the value that is judged is the value that will be
+stored: `"  Ada  "` is not refused for leading whitespace, it is stored as `Ada`. It also means a form
+that fails validation *redisplays the cleaned name*, because the rewrite went into the request rather
+than into a controller's local copy.
+
+### What is accepted, and why the list is long
+
+`\p{L}` (a letter, any script) and `\p{M}` (a combining mark), plus `'`, `-`, `.` and inner spaces. The
+combining-mark class is not decoration: `Ọ̀ṣun` is spelled with a combining grave accent that is in
+neither `a-zA-Z` nor `\p{L}`, so the obvious pattern rejects a real Nigerian name while accepting "John".
+
+`NameTest::validNames()` is a data provider of **37 real names** — Nigerian, accented, Arabic, Chinese,
+Hebrew, Icelandic, Vietnamese, particles ("van der Berg"), double-barrelled, apostrophised, hyphenated,
+two-word given names, two-letter surnames and no-vowel surnames. The failure this guards against is not
+"we accepted junk"; it is "we refused a real person's name", and only a wide list of real names can catch
+that.
+
+### The messages name the actual problem
+
+```
+Ada1        → Names cannot contain numbers.
+Ada 😀      → Names cannot contain emoji.
+🎉          → Enter your name using letters.
+-Ada        → A name must start with a letter.
+Ada_        → Use letters, spaces, apostrophes, full stops and hyphens only.
+```
+
+The overlap is real — `Ada1` holds a digit *and* fails the allowed-character class — so the order of the
+checks decides the message, and the order is chosen for usefulness rather than severity. A name with no
+letters in it at all is answered once, up front, instead of being told "names cannot contain numbers" when
+it is not a name at all.
+
+### Detection is conservative, and stated
+
+`Name::reviewReasons()` returns reasons, never a refusal:
+
+| Signal | Threshold, and what it deliberately does not catch |
+| --- | --- |
+| Placeholder word | Whole-word only, so "Testy", "Anas" and "Odemo" are untouched |
+| Keyboard run | Prefix match only from 4 characters, so "Aban" is not "ab" |
+| Repeated character | Four or more in a row, so "Annan", "Bobbie" and "Nalli" pass |
+| Low variety | Exactly 3 **Latin** letters with fewer than 3 distinct — "Aaa" yes, "Xi"/"Ng" no, 张伟 exempt |
+| No vowel | Eight or more **Latin** letters only, so "Nguyen", "Ng" and "Nkrumah" pass and Arabic/Chinese never reach it |
+| Repeated word | Separator-spaced only, so "Test Test" and "asdf.asdf" are caught |
+
+**The two known false positives are documented in the code, not hidden.** "Naa" and "Yaa" are Akan
+day-names and both are flagged by the low-variety rule. That is the accepted cost of the only reliable
+signal for "aaa": a false flag costs an administrator one glance because clearing it is a click and it
+blocks nothing, while a database full of "aaa" is a set of accounts nobody can search. `NameTest` skips
+those two cases by name, with the reason, rather than weakening the rule to accommodate them.
+
+### Flagged, not refused — and not a suspension
+
+`users.name_review` is `pending` / `approved` / `rejected`, nullable, **with no backfill**. Existing
+accounts stay at `null`, which means "no opinion" rather than "passed": a migration that flagged a few
+hundred customers on the strength of a rule they never had a chance to satisfy would produce a queue
+nobody could clear.
+
+The integration boundary is deliberate. The application already has three ways to act on a customer —
+`status`, `is_blocked`, the wallet — and every one is a decision with a consequence. A suspicious name is
+a *question*:
+
+* the account is created and fully usable, with `status = active` and `is_blocked = false`;
+* `POST /admin/users/{user}/name-review` records the decision and the reviewer, and touches nothing else;
+* the flag appears on the customer list as a warning badge with the heuristic's own reason, and as its
+  own panel on the customer page that says so explicitly;
+* the reason text is the heuristic's finding *from the day it fired*, kept because the heuristic will
+  change and a record that reinterprets itself is not a record.
+
+### Three defects found while building it
+
+| Defect | Effect |
+| --- | --- |
+| `parent::prepareForValidation()` did not reach the trait | The trait is composed into the *child* class, so `parent::` called `FormRequest`'s empty hook. Normalisation silently never ran: validation passed, the value was stored, and `"Chidinma   Nneka"` landed in a column that should have held `"Chidinma Nneka"`. Fixed by naming the method distinctly (`prepareNamesForValidation()`) so the call cannot be got wrong |
+| A later `save()` wiped the flag | `ProfileController` re-saved the model for profile completion, and the second save persisted the whole in-memory attribute set — including a `name_review` that predated the flag being set. The flag vanished, the queue stayed empty and nothing errored. Fixed by ordering the saves, and by making `flagNameIfSuspicious()` idempotent through `forceFill()->saveQuietly()` |
+| A test passed for the wrong reason | The escaping test asserted on `admin.users.index`, where the customer row was not on the first page at all — so it was asserting about a name that was never rendered. Rewritten to test the template layer directly, with a second assertion on the customer's own profile page |
+
+### Verification
+
+```
+php artisan test --filter="NameTest|CustomerNameTest|RegistrationTest|VirtualAccountTest|SourceEncodingTest"
+php tools/check-names.php        # real and junk names through the rule; every stored name re-checked
+php tools/show-escaping.php      # how Blade encodes a name, in an attribute and as text
+php tools/show-columns.php users # the new columns
+```
+
+`tools/check-names.php` also runs every name already in the database through the new rule and reports
+any it would refuse. A rule that invalidates an account that already exists is a bug, not a tightening.
+
+### Not done, deliberately
+
+* **No backfill of the review flag**, as above.
+* **No rejection on the heuristics.** They are guesses, and a guess that refuses a real person's name is
+  worse than a placeholder in the database — only one of the two can be undone by an administrator.
+* **No change to what `name` is for.** It is still the whole name the console, the greeting and the chat
+  widgets read; the parts are still what Paystack is given.
+* **No third account-state column.** "Flagged" is not a status, and `isSuspended()` does not consider it.
+
+## 14. Paying for airtime by card, and profit that actually reports (2026-10-11)
+
+Three requests, and one finding that changed the scope of the second.
+
+### 14.1 The finding: profit was never recorded for anything the platform sold
+
+The console has a Revenue & Profit dashboard reading `profit_records`. `ProfitRecorder` is called
+**only** from `ServiceOrderService::finalize()`, and no live route creates a `ServiceOrder` — airtime
+and data go through `BillPaymentService`, which writes a `pricing_snapshots` row and stops. So the
+dashboard read a table nothing populated: **zero profit, for every sale, while the platform sold.**
+`tools/profit-sources.php` demonstrates it and is the tool to re-run after any change here.
+
+The fix is a second entry point on the recorder — `recordFromBillPurchase()` — called from
+`BillPaymentService::markSuccess()`. `markSuccess()` is the single gate every successful settlement
+passes (the purchase pipeline, the provider webhook, admin "force success", `payments:auto-resolve`),
+so one call covers all four and a fifth added later inherits it. The pricing snapshot stays the
+authority; nothing is recomputed.
+
+Two things were missing and both needed a migration:
+
+| Missing | Why it mattered |
+| --- | --- |
+| `service_type` on the record | The dashboard could group by product, provider and category but not by **service**, and "what do we make on airtime versus data" is the first question asked. A `group by` that has to join `transactions` is slower and easy to write wrongly |
+| A UNIQUE index on `transaction_id` | `service_order_id` is UNIQUE, which is what makes the order path idempotent. The live path has no order, so `transaction_id` is the key — and it was only a plain index, so a webhook **plus** the auto-resolve sweep could each insert a profit row for one sale and the dashboard would report it twice |
+| `service_order_id` was `NOT NULL` | The table was built for orders. A live purchase has no order, so the insert simply failed |
+
+### 14.2 Paying for airtime with Paystack
+
+The customer picks a product, sees the exact price, chooses "Card or transfer", and is sent to the
+gateway for **that exact amount**. When the payment settles the wallet is credited and the purchase is
+debited from it immediately, through the existing `BillPaymentService` pipeline.
+
+**The wallet round-trip is the design, not a shortcut.** It means a card purchase is the *same* code
+path as a wallet purchase in every respect — same provider selection, same float check, same pricing
+snapshot, same profit recording, same refund. A second settlement path that never touched the wallet
+would have needed a second implementation of the debit, the ledger entry, the snapshot and the refund,
+and a second implementation of money handling is how two records of one sale start disagreeing.
+
+**Profit is not a special case, and this is the answer to the brief's question.** The customer pays
+₦1,000 for ₦1,000 of airtime; the provider charges ReUp ₦970; the ₦30 is ours the moment the payment
+settles, because the debit that follows is the full ₦1,000 and the cost behind it is unchanged.
+Paying by card does not move the margin, and nothing in the flow tries to.
+
+| Piece | Where |
+| --- | --- |
+| The intent — product, recipient, provider payload, pricing context, quoted margin | `meta.funded_purchase` on a `funding` row |
+| Sending the customer to the gateway for the pinned price | `AirtimeDataController::startCardPurchase()` |
+| Vending on settlement | `PaystackService::creditFunding()` → `FundedPurchase::vend()` |
+| The backstop for a payment that settled but was never vended | `payments:vendor-funded-purchases`, every two minutes |
+
+Four decisions worth stating:
+
+* **Nothing is vended before the money arrives.** The redirect creates a `pending` funding row and
+  calls no provider, so a customer who closes the tab is charged nothing and receives nothing. The
+  vend is triggered by *settlement*, and `vend()` refuses a row that is not `success`.
+* **The funding service fee is not charged.** This money is already spent on goods before it rests in
+  the wallet, so a percentage taken from it would leave the debit that follows unable to afford the
+  purchase it was made for. `FundedPurchase` sets the flag; `PaystackService::isFeeExempt()` reads it.
+  The skip is deliberately outside the vending call, because skipping a fee must never skip delivery.
+* **No PIN on the card rail** — and the PIN field is disabled, not merely hidden, so the browser and the
+  server's `required_unless:payment_method,paystack` agree. Asking for a PIN *and* sending the customer
+  to their bank is two authorisations for one payment. The wallet rail still requires one; there is a
+  test for each side.
+* **A failed delivery keeps the customer's money.** A definite provider refusal goes through the
+  existing refund path and lands back in their wallet. A provider *timeout* is held rather than guessed
+  at, exactly as a wallet purchase is — the order may have been vended.
+
+### 14.3 The admin menu
+
+Pricing, Providers and Revenue & Profit were **absent** from the sidebar, not hidden from lesser roles:
+the only way to reach them was to know the URL. They are now listed, each carrying the permission its
+route already checks — `view_pricing`, `manage_providers`, `view_profit`, all in
+`Permissions::SUPER_ADMIN_ONLY`.
+
+Nothing about who may open them changes. What changes is that the menu now matches the routes: an item
+renders for an account the route would accept and stays hidden for one it would refuse. A menu that
+shows a link which then 403s teaches an administrator to distrust the menu; a menu that omits a module
+teaches them it does not exist.
+
+The Profit dashboard also gained the per-service breakdown, a live "profit today" figure the page polls
+every 30 seconds (server-formatted, so the browser does no money arithmetic), and a
+**verified-versus-estimated split** — because a margin measured against a rate somebody typed into the
+console is a forecast, and a total shown without that split presents it as earned.
+
+### Verification
+
+```
+php artisan test --filter="ProfitRecordingTest|PaystackAirtimeTest"
+php tools/profit-sources.php          # is profit reaching the table the dashboard reads?
+php tools/show-funded-purchases.php   # did a card customer get what they paid for?
+php artisan payments:vendor-funded-purchases --dry-run
+php artisan payments:vendor-funded-purchases
+```
+
+### Not done
+
+* **Only airtime and data.** The card rail is wired for those two, which are the products with a cost
+  resolver for re-pricing at vend time. Cable, electricity, WAEC and JAMB fall back to the wallet rail
+  rather than recording an unmeasured margin.
+* **No card reversal.** A failed delivery credits the wallet rather than reversing the gateway charge.
+  That is a real, spendable, recorded outcome; a card refund is a separate money movement this platform
+  has no path for.
+* **The `profit_records` backfill is not retroactive.** Profit is recorded from the moment this
+  deployment runs. Sales before it have snapshots and no profit rows, and are deliberately not
+  back-filled: a migration inventing accounting records for history is how a report becomes fiction.
+
+### 14.4 What rendering the pages then found
+
+The UI was covered only by tests that posted to the endpoints, so nothing had actually rendered the new
+component. `PaymentMethodPickerTest` renders the pages and pins the contract the JavaScript depends on.
+Three things came out of it, all of them the same lesson — the code was right and the *test* was wrong:
+
+| Assertion that failed | Why the code was right |
+| --- | --- |
+| `$this->blade('<x-transaction-pin />')` threw `Undefined variable $errors` | Laravel shares `$errors` with views rendered through the HTTP stack, not with one rendered in isolation. A component that assumes a shared variable is only really proved in place, so the assertions moved onto the page |
+| A plain `admin` did not see "Payments" | `manage_payments` is not in that role's defaults, so the menu correctly hid it |
+| A plain `admin` did not see the bare word "Transactions" | It is inside the sidebar link's `title` attribute, not visible text. Anchored on the route the link points at instead, which cannot drift with the markup |
+
+The last test in the file is the one that makes the menu honest: it walks every route the sidebar offers
+and asserts a super admin gets a 200 from each. A menu is a promise, and a typo in a route name or a
+permission that does not match its route now fails there rather than in front of an administrator.
+
+
+
+
+
 
 
 

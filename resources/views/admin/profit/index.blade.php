@@ -2,10 +2,111 @@
 
 @section('title', 'Revenue &amp; Profit')
 @section('page-title', 'Revenue &amp; Profit')
-@section('page-description', 'Realized revenue and margin. Only finalized, fulfilled orders are counted.')
+@section('page-description', 'Realized revenue and margin, per service and overall. Live — refreshes every 30 seconds.')
 
 @section('content')
-<div class="space-y-6">
+<div class="space-y-6"
+     x-data="profitLive({
+        today: @js($today['formatted']['gross_profit']),
+        todayRevenue: @js($today['formatted']['revenue']),
+        todayOrders: {{ (int) $today['transactions'] }},
+        endpoint: @js(route('admin.profit.data', [], false)),
+     })"
+     x-init="start()">
+
+    {{--
+        Live figures.
+
+        The numbers come from the server, not from arithmetic in the browser: the
+        polling call returns figures already computed and formatted against
+        `profit_records`, so a tampered response cannot make the console display
+        earnings that were not recorded. Before the first poll lands, the values
+        rendered by Blade are shown, so the panel is never blank.
+    --}}
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div class="card">
+            <div class="card-content">
+                <div class="flex items-start justify-between gap-3">
+                    <span class="stat-label">Profit today</span>
+                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+                        <x-icon name="banknotes" class="h-4 w-4" />
+                    </span>
+                </div>
+                <p class="stat-value mt-2 tabular-nums" x-text="today"></p>
+                <p class="mt-1 text-xs text-muted-foreground">
+                    <span x-text="todayOrders"></span> sale(s) · <span x-text="todayRevenue"></span> revenue
+                </p>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-content">
+                <span class="stat-label">Measured on a confirmed cost</span>
+                <p class="stat-value mt-2 tabular-nums">{{ $periods['today']['formatted']['verified_profit'] }}</p>
+                <p class="mt-1 text-xs text-muted-foreground">
+                    Today's profit booked against a provider rate that has been verified.
+                </p>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-content">
+                <span class="stat-label">Estimated — not yet confirmed</span>
+                <p class="stat-value mt-2 tabular-nums">{{ $periods['today']['formatted']['estimated_profit'] }}</p>
+                <p class="mt-1 text-xs text-muted-foreground">
+                    {{-- The distinction the whole figure depends on: a margin computed
+                         from a rate somebody typed into the console is a forecast. --}}
+                    {{ number_format($periods['today']['estimated_transactions']) }} of
+                    {{ number_format($periods['today']['transactions']) }} sale(s) priced against an
+                    assumed cost. Confirm the network rate under Pricing → Provider costs to move it
+                    into the verified column.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    {{-- Today, per service. The first question an operator asks. --}}
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Today by service</h2>
+            <p class="card-description">Profit recorded so far today, from settled sales.</p>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Service</th>
+                        <th class="text-right">Sales</th>
+                        <th class="text-right">Revenue</th>
+                        <th class="text-right">Provider cost</th>
+                        <th class="text-right">Profit</th>
+                        <th class="text-right">Margin</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse($today['by_service'] as $row)
+                        <tr>
+                            <td class="font-medium">{{ ucfirst(str_replace('-', ' ', $row['key'])) }}</td>
+                            <td class="text-right tabular-nums">{{ number_format($row['transactions']) }}</td>
+                            <td class="text-right tabular-nums">{{ $row['formatted_revenue'] }}</td>
+                            <td class="text-right tabular-nums">{{ $row['formatted_provider_cost'] }}</td>
+                            <td class="text-right tabular-nums {{ $row['gross_profit_minor'] < 0 ? 'text-red-600' : '' }}">
+                                {{ $row['formatted_gross_profit'] }}
+                            </td>
+                            <td class="text-right tabular-nums">{{ $row['formatted_gross_margin'] }}</td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="6" class="text-center text-muted-foreground">
+                                No settled sales yet today.
+                            </td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+    </div>
 
     {{-- ======================= Periods ======================= --}}
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -142,7 +243,8 @@
 
     {{-- ======================= Breakdowns ======================= --}}
     @foreach([
-        'By service' => $byProduct,
+        'By service' => $byService,
+        'By product' => $byProduct,
         'By provider' => $byProvider,
         'By category' => $byCategory,
     ] as $heading => $breakdown)
@@ -220,4 +322,81 @@
         </div>
     @endif
 </div>
+
+{{--
+    The polling script is pushed *outside* `@section('content')`, which is where the
+    admin layout expects a `@stack('scripts')` contribution — the same placement
+    `admin/admins/index.blade.php` uses. Pushing from inside a section registers it
+    against the section rather than the stack, and the script would silently never
+    render.
+--}}
+@push('scripts')
+<script>
+    /*
+     * Polls the profit endpoint so the figures move while an operator watches.
+     *
+     * Deliberately small, and deliberately dumb: it fetches numbers the server has
+     * already computed and formatted, and writes them into the DOM as text. It does
+     * no arithmetic, because the browser is the one place a money figure must never
+     * be derived — and because a client that summed its own totals would be a
+     * second, silently different answer to the same question.
+     *
+     * `visibilitychange` stops the timer on a hidden tab. A dashboard left open
+     * overnight should not poll all night, and a background poll that resumes on
+     * return gives the operator current figures the moment they look.
+     */
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('profitLive', (initial) => ({
+            today: initial.today,
+            todayRevenue: initial.todayRevenue,
+            todayOrders: initial.todayOrders,
+            timer: null,
+
+            start() {
+                this.timer = setInterval(() => this.refresh(), 30000);
+
+                document.addEventListener('visibilitychange', () => {
+                    if (document.hidden) {
+                        clearInterval(this.timer);
+                    } else {
+                        this.refresh();
+                        this.timer = setInterval(() => this.refresh(), 30000);
+                    }
+                });
+            },
+
+            async refresh() {
+                if (document.hidden) {
+                    return;
+                }
+
+                try {
+                    const response = await fetch(initial.endpoint, {
+                        headers: { Accept: 'application/json' },
+                    });
+
+                    if (!response.ok) {
+                        return;
+                    }
+
+                    const data = await response.json();
+
+                    // The server's formatted strings, assigned verbatim.
+                    this.today = data.today.formatted.gross_profit;
+                    this.todayRevenue = data.today.formatted.revenue;
+                    this.todayOrders = data.today.transactions;
+                } catch (error) {
+                    /*
+                     * A failed poll is not an error worth showing. The figures on
+                     * screen are the last ones the server confirmed, which is a
+                     * better answer than a blank panel or a toast that says the
+                     * dashboard is broken.
+                     */
+                }
+            },
+        }));
+    });
+</script>
+@endpush
+
 @endsection

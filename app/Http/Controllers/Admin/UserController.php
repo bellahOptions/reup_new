@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\AdminLog;
 use App\Models\Transactions;
 use App\Models\User;
+use App\Rules\ValidName;
 use App\Services\WalletService;
 use App\Support\Money;
+use App\Support\Name;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -52,7 +54,7 @@ class UserController extends Controller
     {
         $request->validate([
             'search' => 'nullable|string|max:120',
-            'status' => 'nullable|in:verified,unverified,active,inactive,suspended',
+            'status' => 'nullable|in:verified,unverified,active,inactive,suspended,name_review',
             'date_from' => 'nullable|date',
             'date_to' => 'nullable|date|after_or_equal:date_from',
             'sort' => 'nullable|string|max:40',
@@ -76,6 +78,10 @@ class UserController extends Controller
             'active' => $query->where('last_login_at', '>=', now()->subDays(30)),
             'inactive' => $query->where(fn ($q) => $q->where('last_login_at', '<', now()->subDays(30))->orWhereNull('last_login_at')),
             'suspended' => $query->where('status', 'suspended'),
+            // A view of the review queue rather than a customer state: it selects on
+            // `name_review` and says nothing about whether the account is usable,
+            // which is the point — a flagged name blocks nobody.
+            'name_review' => $query->awaitingNameReview(),
             default => null,
         };
 
@@ -105,6 +111,9 @@ class UserController extends Controller
             'new_this_month' => User::regularUsers()->where('created_at', '>=', now()->startOfMonth())->count(),
             'total_today' => User::regularUsers()->whereDate('created_at', today())->count(),
             'online_now' => User::regularUsers()->where('last_activity', '>=', now()->subMinutes(5))->count(),
+            // How many names are waiting on a human. On the dashboard because a
+            // review queue nobody can see is a review queue nobody clears.
+            'name_review' => User::regularUsers()->awaitingNameReview()->count(),
         ];
 
         return view('admin.users.index', compact('users', 'stats'));
@@ -143,8 +152,24 @@ class UserController extends Controller
     {
         abort_unless(! $user->isAdmin(), 404);
 
+        /*
+         * The admin form still posts one `name` field, and it stays that way: the
+         * console edits a customer's *record*, and splitting one input into two
+         * boxes here would be a UI change nobody asked for. The halves are derived
+         * from it below, which is also what keeps them — and therefore the account
+         * name on the customer's next Paystack virtual account — in step with what
+         * the administrator typed.
+         *
+         * The value is normalised (Unicode composed, whitespace collapsed) and judged
+         * by the same rule as sign-up, so an administrator cannot save a name the
+         * customer would have been refused: "Ada  Obi" keeps its double space out of
+         * the column, and a digit or an emoji is refused with a message that says
+         * which.
+         */
+        $request->merge(['name' => Name::normalise((string) $request->input('name'))]);
+
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => ['required', 'string', 'max:' . (Name::MAX_PART_LENGTH * 2), new ValidName()],
             'email' => 'required|email|max:255|unique:users,email,' . $user->id,
             'phone' => 'nullable|string|max:20',
         ]);
@@ -152,7 +177,25 @@ class UserController extends Controller
         $previousEmail = $user->email;
         $snapshot = $user->only(['name', 'email', 'phone']);
 
-        $user->fill($validated);
+        /*
+         * The two halves, from the whole name.
+         *
+         * `User::splitName()` puts everything after the first word in the last name —
+         * "Ada Obi Nwosu" is first `Ada`, last `Obi Nwosu` — so the whole name, the
+         * parts, and the name the payment provider is given all agree. Without this
+         * the parts would keep the name the customer signed up with while `name`
+         * showed the correction, and the next virtual account would be issued in the
+         * old name.
+         */
+        [$first, $last] = User::splitName($validated['name']);
+
+        $user->fill([
+            'name' => $validated['name'],
+            'first_name' => $first,
+            'last_name' => $last,
+            'email' => $validated['email'],
+            'phone' => $validated['phone'],
+        ]);
 
         // Changing the address invalidates the verification it carried.
         if ($previousEmail !== $validated['email']) {
@@ -161,10 +204,24 @@ class UserController extends Controller
 
         $user->save();
 
+        /*
+         * Flag a name that now looks like a placeholder, and log the decision either
+         * way. An administrator editing a name is a review happening, so a flag left
+         * over from sign-up is cleared by this save: `flagNameIfSuspicious()` will
+         * raise a new one only if the new name still looks odd, and it never
+         * re-opens a name an administrator has explicitly approved.
+         */
+        $flagged = $user->wasChanged('name') ? $user->flagNameIfSuspicious() : false;
+
+        if ($user->wasChanged('name') && ! $flagged && $user->name_review !== null) {
+            $user->forceFill(['name_review' => null, 'name_review_reason' => null])->save();
+        }
+
         AdminLog::log(Auth::id(), 'update_user', [
             'user_id' => $user->id,
             'before' => $snapshot,
             'after' => $user->only(['name', 'email', 'phone']),
+            'name_flagged_for_review' => $flagged,
         ]);
 
         return redirect()->route('admin.users.show', $user)
@@ -299,6 +356,52 @@ class UserController extends Controller
             'Wallet adjusted from ' . $result['before']->format()
             . ' to ' . $result['after']->format() . '.'
         );
+    }
+
+    /**
+     * Record an administrator's decision on a flagged name.
+     *
+     * ## Why this is not a suspension
+     *
+     * The heuristic that raises the flag is a guess, and the common case is a real
+     * person with an unusual name. So the decision here is recorded as a decision
+     * and nothing else happens: it does not touch `status`, `is_blocked` or the
+     * wallet, and an administrator who concludes that a customer is a problem uses
+     * the account controls that already exist for that, under their own audit.
+     *
+     * The reason text is kept rather than cleared. It is the heuristic's own finding
+     * from the day it fired, and a record that silently reinterprets itself once the
+     * heuristic changes is not a record — so the decision is appended to it.
+     */
+    public function reviewName(Request $request, User $user)
+    {
+        abort_unless(! $user->isAdmin(), 404);
+
+        $validated = $request->validate([
+            'decision' => 'required|in:approved,rejected',
+            'note' => 'nullable|string|max:200',
+        ]);
+
+        $user->reviewName($validated['decision'], (int) Auth::id());
+
+        if (! empty($validated['note'])) {
+            // Appended rather than replacing: the finding, the reviewer and the
+            // reviewer's own words are three separate facts about one decision.
+            $user->forceFill([
+                'name_review_reason' => trim(($user->name_review_reason ?? '') . ' — ' . $validated['note']),
+            ])->save();
+        }
+
+        AdminLog::log(Auth::id(), 'review_customer_name', [
+            'user_id' => $user->id,
+            'decision' => $validated['decision'],
+            'note' => $validated['note'] ?? null,
+            'name' => $user->name,
+        ]);
+
+        return back()->with('success', $validated['decision'] === 'approved'
+            ? 'Name confirmed as genuine.'
+            : 'Name marked as not genuine. No action was taken against the account.');
     }
 
     public function toggleStatus(Request $request, User $user)

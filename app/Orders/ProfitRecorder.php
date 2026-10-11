@@ -4,6 +4,7 @@ namespace App\Orders;
 
 use App\Models\ProfitRecord;
 use App\Models\ServiceOrder;
+use App\Models\Transactions;
 use App\Providers\Support\ProviderResult;
 use App\Providers\Support\ProviderStatus;
 use App\Support\Money;
@@ -159,6 +160,132 @@ class ProfitRecorder
         }
     }
 
+    /**
+     * Record profit for a live bill purchase.
+     *
+     * ## Why this exists
+     *
+     * `record()` above is driven by a `ServiceOrder`, and the platform's actual
+     * sales — airtime, data, cable, electricity, exam PINs — do not create one:
+     * they go through `BillPaymentService`, which writes a `pricing_snapshots` row
+     * in the same transaction as the debit and stops there. So the Revenue & Profit
+     * dashboard was reading a table that nothing populated, and reported zero while
+     * the platform was selling.
+     *
+     * This is the missing link. The pricing snapshot is still the authority on what
+     * was quoted and what the provider cost — nothing is recomputed here — and the
+     * transaction's final status is the authority on whether it was earned.
+     *
+     * ## Idempotency
+     *
+     * `profit_records.transaction_id` carries a UNIQUE index (added by the
+     * migration beside this change), so a webhook, the browser callback and the
+     * two-minute auto-resolve sweep cannot each insert a row for one sale. The
+     * existence check below is the friendly path — it returns the existing record
+     * rather than throwing — and the index is the one that holds under concurrency.
+     *
+     * ## Only a successful purchase
+     *
+     * A row is only realized when the transaction itself is `success`. A
+     * `processing` or `unknown` purchase may still be vended, and booking its
+     * profit now would report money that may have to be refunded. The call site
+     * runs again when the status resolves, and records it then.
+     */
+    public function recordFromBillPurchase(Transactions $transaction): ?ProfitRecord
+    {
+        $snapshot = $transaction->pricingSnapshot;
+
+        if (! $snapshot) {
+            /*
+             * Not an error worth a warning: a wallet top-up, a reversal, or a
+             * purchase priced before the pricing engine existed all legitimately
+             * have no snapshot. Reporting zero profit for them would present
+             * "unmeasured" as "measured and zero".
+             */
+            return null;
+        }
+
+        if ($transaction->status !== 'success') {
+            return null;
+        }
+
+        $existing = ProfitRecord::where('transaction_id', $transaction->getKey())->first();
+
+        $attributes = [
+            'service_order_id' => null,
+            'user_id' => $transaction->user_id,
+            'transaction_id' => $transaction->getKey(),
+            'service_type' => $transaction->service_type,
+            'provider_id' => $snapshot->provider_id ?? $transaction->provider_id ?? null,
+            'service_product_id' => $snapshot->service_product_id ?? $transaction->service_product_id ?? null,
+            'product_key' => (string) ($transaction->product_key ?? $transaction->service_type ?? 'unknown'),
+            'category_slug' => $snapshot->category_slug ?? null,
+            'provider_slug' => $snapshot->provider_slug ?? $transaction->provider_slug ?? null,
+            'revenue_minor' => (int) $snapshot->customer_price_minor,
+            'provider_cost_minor' => (int) $snapshot->provider_cost_minor,
+            'provider_fee_minor' => (int) $snapshot->provider_fee_minor,
+            'customer_fee_minor' => (int) $snapshot->customer_fee_minor,
+            'discount_minor' => (int) $snapshot->discount_minor,
+            'currency' => $snapshot->currency,
+            /*
+             * The cost basis travels with the record.
+             *
+             * A margin measured against a rate somebody typed into the console is a
+             * forecast, and the dashboard has to be able to separate it from profit
+             * measured against a rate the provider confirmed. The snapshot is the
+             * authority and it is immutable, so this is a fact being copied rather
+             * than a judgement being made here.
+             */
+            'cost_is_estimated' => (bool) $snapshot->cost_is_estimated,
+            'is_realized' => true,
+            'realized_at' => $transaction->completed_at ?? now(),
+        ];
+
+        if ($existing) {
+            // A re-settlement, or the sweep resolving a purchase the webhook
+            // already handled. The revenue does not change — the customer paid what
+            // they paid — but a late provider cost may now be known.
+            $existing->fill($attributes);
+            $existing->refunded_minor = $existing->refunded_minor;
+            $existing->recalculate();
+            $existing->save();
+
+            return $existing;
+        }
+
+        return DB::transaction(function () use ($attributes) {
+            $record = new ProfitRecord($attributes + ['refunded_minor' => 0]);
+            $record->recalculate();
+            $record->save();
+
+            return $record;
+        });
+    }
+
+    /**
+     * Un-realize the profit for a refunded purchase.
+     *
+     * `markRefunded()` above takes a `ServiceOrder`; this is the same action for the
+     * live path, and it is what keeps the dashboard honest when a vending call
+     * fails and the customer is refunded. The row is kept with `is_realized = false`
+     * rather than deleted, so the sale remains in the record — that is what a refund
+     * *rate* is computed from, and deleting it would erase the fact that anything
+     * went wrong.
+     */
+    public function markBillPurchaseRefunded(Transactions $transaction): void
+    {
+        $record = ProfitRecord::where('transaction_id', $transaction->getKey())->first();
+
+        if (! $record) {
+            return;
+        }
+
+        $record->refunded_minor = $record->revenue_minor + $record->customer_fee_minor;
+        $record->recalculate();
+        $record->is_realized = false;
+        $record->save();
+    }
+
     /* =====================================================================
      | Analytics
      | =================================================================== */
@@ -200,6 +327,16 @@ class ProfitRecorder
             ->selectRaw('COALESCE(SUM(discount_minor), 0) AS discounts')
             ->selectRaw('COALESCE(SUM(refunded_minor), 0) AS refunds')
             ->selectRaw('COALESCE(SUM(gross_profit_minor), 0) AS gross_profit')
+            /*
+             * How much of that profit rests on a *confirmed* provider cost.
+             *
+             * Selected here rather than left to a second query because the two
+             * figures only mean anything together: a margin measured against an
+             * assumed rate is a forecast, and a dashboard that shows the total
+             * without the split presents it as earned.
+             */
+            ->selectRaw('COALESCE(SUM(CASE WHEN cost_is_estimated = 1 THEN gross_profit_minor ELSE 0 END), 0) AS estimated_profit')
+            ->selectRaw('COALESCE(SUM(CASE WHEN cost_is_estimated = 1 THEN 1 ELSE 0 END), 0) AS estimated_transactions')
             ->first();
 
         /*
@@ -212,6 +349,7 @@ class ProfitRecorder
         $revenue = (int) ($aggregate->revenue ?? 0);
         $fees = (int) ($aggregate->fees ?? 0);
         $grossProfit = (int) ($aggregate->gross_profit ?? 0);
+        $estimatedProfit = (int) ($aggregate->estimated_profit ?? 0);
 
         return [
             'transactions' => (int) ($aggregate->transactions ?? 0),
@@ -222,6 +360,14 @@ class ProfitRecorder
             'discounts_minor' => (int) ($aggregate->discounts ?? 0),
             'refunds_minor' => (int) ($aggregate->refunds ?? 0),
             'gross_profit_minor' => $grossProfit,
+            /*
+             * The split, and `verified` is derived by subtraction rather than
+             * selected separately so the two can never add up to something other
+             * than the total.
+             */
+            'estimated_profit_minor' => $estimatedProfit,
+            'verified_profit_minor' => $grossProfit - $estimatedProfit,
+            'estimated_transactions' => (int) ($aggregate->estimated_transactions ?? 0),
             'gross_margin_bps' => $revenue + $fees > 0
                 ? (int) round($grossProfit * 10000 / ($revenue + $fees))
                 : 0,
@@ -232,6 +378,8 @@ class ProfitRecorder
                 'provider_cost' => Money::fromMinor((int) ($aggregate->provider_cost ?? 0))->format(),
                 'refunds' => Money::fromMinor((int) ($aggregate->refunds ?? 0))->format(),
                 'gross_profit' => Money::fromMinor($grossProfit)->format(),
+                'estimated_profit' => Money::fromMinor($estimatedProfit)->format(),
+                'verified_profit' => Money::fromMinor($grossProfit - $estimatedProfit)->format(),
                 'gross_margin' => number_format(($revenue + $fees > 0 ? $grossProfit * 10000 / ($revenue + $fees) : 0) / 100, 2) . '%',
             ],
         ];
@@ -244,7 +392,7 @@ class ProfitRecorder
      */
     public function breakdown(string $column, \DateTimeInterface $from, \DateTimeInterface $to, int $limit = 20): array
     {
-        if (! in_array($column, ['product_key', 'provider_slug', 'category_slug'], true)) {
+        if (! in_array($column, ['product_key', 'provider_slug', 'category_slug', 'service_type'], true)) {
             throw new \InvalidArgumentException("Cannot break profit down by [{$column}].");
         }
 

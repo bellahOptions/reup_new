@@ -39,14 +39,24 @@ class SourceEncodingTest extends TestCase
     /**
      * Files that are allowed to contain raw bytes rather than text.
      *
-     * The mojibake detector's own documentation quotes the sequences it looks
-     * for, which would otherwise make it fail on itself — which is a fair trade
-     * for having the sequences written down where the next person will find
-     * them.
+     * The first two contain the detector's own documentation, which quotes the
+     * sequences it looks for — a fair trade for having them written down where
+     * the next person will find them.
+     *
+     * The next two are the same trade made in production code: their comments
+     * explain *why* a currency symbol is written as `\u{20A6}` rather than as a
+     * literal, and the explanation is only useful with the mangled form spelled
+     * out. The cost is real and worth stating plainly — neither file is scanned
+     * for mojibake, so a genuine mangling added to one of them later would not be
+     * caught here. Both are in `tools/encoding-targets.txt`, which is what
+     * `tools/check-encoding.php` reads, so the check that matters for them is one
+     * command away.
      */
     private const ALLOWED = [
         'tests/Feature/SourceEncodingTest.php',
         'tools/find-mojibake.php',
+        'app/Notifications/FundingReceiptNotification.php',
+        'app/Console/Commands/SendFundingReceipts.php',
     ];
 
     public function test_no_source_file_contains_mojibake(): void
@@ -93,36 +103,81 @@ class SourceEncodingTest extends TestCase
          * A guard that cannot fail is worse than no guard, and this one is easy
          * to write in a way that never matches: the sequences are multi-byte and
          * a naive `str_contains` on a mis-escaped literal silently looks for the
-         * wrong thing. So it is given a known-bad string and must find it — the
-         * exact failure that a first attempt at this test had.
+         * wrong thing. So it is given known-bad strings and must find them — the
+         * exact failure a first attempt at this test had.
+         *
+         * One per family, because each family now requires its own number of
+         * continuation characters — a tightening that exists to stop `"\u{20A6}"`
+         * being read as a mangled naira sign. Tightening a detector without
+         * re-proving it still detects is how a guard quietly stops guarding.
          */
-        $broken = "Price: \u{00E2}\u{201A}\u{00A6}240.00";   // `â‚¦240.00`
-        $this->assertNotSame([], $this->mojibakeSequences($broken), 'The detector does not detect a known mojibake string.');
+        $threeByte = "Price: \u{00E2}\u{201A}\u{00A6}240.00";   // `â‚¦240.00` — a mangled ₦
+        $this->assertNotSame([], $this->mojibakeSequences($threeByte), 'The detector does not detect a mangled 3-byte character.');
 
-        $good = "Price: \u{20A6}240.00";                      // `₦240.00`
+        $twoByte = "Price: \u{00C2}\u{00A3}240";                // `Â£240` — a mangled £
+        $this->assertNotSame([], $this->mojibakeSequences($twoByte), 'The detector does not detect a mangled 2-byte character.');
+
+        /*
+         * `😀` is F0 9F 98 80, and cp1252 turns those four bytes into `ð`, `Ÿ`,
+         * `˜` and `€` — not into C1 control characters, because cp1252 is not
+         * latin-1 in the 0x80–0x9F band (0x80 is the euro sign). The class this
+         * detector matches on is built from the cp1252 table for that reason, and
+         * this is the case that proves the four-byte family uses it.
+         */
+        $fourByte = "Done \u{00F0}\u{0178}\u{02DC}\u{20AC}";   // `ðŸ˜€` — a mangled emoji
+        $this->assertNotSame([], $this->mojibakeSequences($fourByte), 'The detector does not detect a mangled 4-byte character.');
+
+        $good = "Price: \u{20A6}240.00";                       // `₦240.00`
         $this->assertSame([], $this->mojibakeSequences($good), 'The detector flags correct UTF-8.');
+
+        // The false positive that tightening the counts fixed: a PHP unicode
+        // escape in a clean file. `u` follows the backslash, `{` follows the `u`,
+        // and the old single-continuation 3-byte pattern matched that pair.
+        $escape = 'return "\u{20A6}" . number_format($amount, 2);';
+        $this->assertSame([], $this->mojibakeSequences($escape), 'The detector flags a PHP unicode escape.');
     }
 
     /**
      * The mojibake sequences present in a string.
+     *
+     * ## Why each family requires the exact number of continuation characters
+     *
+     * The count is not decoration — it is what stops the detector firing on
+     * legitimate source code, and that mattered the first time it did.
+     *
+     * A mangled multi-byte sequence always arrives with *all* of its continuation
+     * bytes intact, because the mangling only ever reinterpreted bytes that were
+     * already there: `₦` (E2 82 A6) becomes `â` `‚` `¦`, which is a lead character
+     * followed by exactly two continuations. Requiring one continuation instead
+     * made `"\u{20A6}"` — a PHP escape, where `u` sits after `\` and `{` follows —
+     * match, and reported two clean files as corrupt.
+     *
+     * The counts come from UTF-8 itself: two continuation bytes for a 3-byte
+     * sequence, three for a 4-byte one, one for a 2-byte one. Every real mojibake
+     * sequence has them, so tightening this loses no detection — and the
+     * known-bad strings asserted below are what proves that.
      *
      * @return array<int,string> human-readable names, at most one per family
      */
     private function mojibakeSequences(string $text): array
     {
         $families = [
-            // 2-byte sequences read as latin-1: `Â` + a latin-1 char.
-            'Â' => 'a 2-byte sequence decoded as latin-1',
+            // 2-byte sequences read as latin-1: `Â` + one latin-1 char (`Â£`).
+            'Â' => ['a 2-byte sequence decoded as latin-1', 1],
             // 3-byte sequences: `â` + two latin-1 chars (`â€”`, `â‚¦`, `â€¦`).
-            'â' => 'a 3-byte sequence decoded as latin-1',
+            'â' => ['a 3-byte sequence decoded as latin-1', 2],
             // 4-byte sequences (emoji) read as latin-1.
-            'ð' => 'a 4-byte sequence decoded as latin-1',
+            'ð' => ['a 4-byte sequence decoded as latin-1', 3],
         ];
 
         $found = [];
 
-        foreach ($families as $lead => $description) {
-            if (preg_match('/' . preg_quote($lead, '/') . self::CONTINUATION_CLASS . '/u', $text) === 1) {
+        foreach ($families as $lead => [$description, $continuations]) {
+            $pattern = '/' . preg_quote($lead, '/')
+                . str_repeat(self::CONTINUATION_CLASS, $continuations)
+                . '/u';
+
+            if (preg_match($pattern, $text) === 1) {
                 $found[$lead] = $description;
             }
         }

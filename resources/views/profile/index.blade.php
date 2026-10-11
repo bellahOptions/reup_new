@@ -228,15 +228,34 @@
                         <div class="card-content space-y-6">
                             <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
                                 <div class="space-y-1.5">
-                                    <label class="label" for="name">Full name <span class="text-destructive">*</span></label>
+                                    <label class="label" for="first_name">First name <span class="text-destructive">*</span></label>
                                     <input type="text"
-                                           id="name"
-                                           name="name"
-                                           value="{{ old('name', $user->name) }}"
-                                           class="input @error('name') input-error @enderror"
-                                           autocomplete="name"
+                                           id="first_name"
+                                           name="first_name"
+                                           value="{{ old('first_name', $user->first_name) }}"
+                                           class="input @error('first_name') input-error @enderror"
+                                           autocomplete="given-name"
                                            required>
-                                    @error('name')
+                                    @error('first_name')
+                                        <p class="field-error">{{ $message }}</p>
+                                    @enderror
+                                </div>
+
+                                {{-- The two halves are separate because Paystack
+                                     builds the account name of the customer's
+                                     personal account number from exactly these
+                                     two values: the name a payer sees in their
+                                     banking app before sending money. --}}
+                                <div class="space-y-1.5">
+                                    <label class="label" for="last_name">Last name <span class="text-destructive">*</span></label>
+                                    <input type="text"
+                                           id="last_name"
+                                           name="last_name"
+                                           value="{{ old('last_name', $user->last_name) }}"
+                                           class="input @error('last_name') input-error @enderror"
+                                           autocomplete="family-name"
+                                           required>
+                                    @error('last_name')
                                         <p class="field-error">{{ $message }}</p>
                                     @enderror
                                 </div>

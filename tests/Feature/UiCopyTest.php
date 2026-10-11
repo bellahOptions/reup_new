@@ -248,8 +248,10 @@ class UiCopyTest extends TestCase
 
         $response->assertOk();
 
-        // The first word of the name stands in for `{first_name}` — the `users` table
-        // has a single `name` column.
+        // `User` now stores first and last name separately and derives the first
+        // name from the whole `name` when only that was supplied — which is what
+        // this factory-created account does. The greeting therefore shows "Ada",
+        // exactly as the approved copy requires.
         $response->assertSee('Ada', false);
         $response->assertSee(UiCopy::get('dashboard.statement'), false);
         $response->assertSee(UiCopy::get('dashboard.recent_payments'), false);

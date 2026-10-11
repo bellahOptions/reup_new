@@ -1,0 +1,43 @@
+# Files to check with tools/check-encoding.php when no paths are given.
+#
+# This list is the set of files that carry legitimate multi-byte characters, plus
+# the newest additions. They are exactly the files tools/find-mojibake.php reports
+# as "SKIP (would not decode cleanly)", so they are the ones whose encoding
+# nothing else verifies — and the ones a rewrite by a non-UTF-8 editor would
+# damage first. Keep it short; add a file when it starts carrying a `₦`, a dash or
+# an accented character.
+app/Support/Money.php
+app/Support/Name.php
+app/Console/Commands/SendFundingReceipts.php
+app/Notifications/FundingReceiptNotification.php
+app/Services/PaystackService.php
+app/Models/User.php
+app/Rules/ValidName.php
+app/Http/Requests/NormalisesNames.php
+app/Http/Requests/Auth/StoreRegistrationRequest.php
+app/Http/Requests/UpdateProfileRequest.php
+app/Http/Controllers/Auth/RegisteredUserController.php
+app/Http/Controllers/ProfileController.php
+app/Http/Controllers/Admin/UserController.php
+app/Http/Controllers/WalletController.php
+resources/views/emails/funding-receipt.blade.php
+resources/views/emails/transaction-receipt.blade.php
+resources/views/emails/auth/verify-email.blade.php
+resources/views/components/emails/base.blade.php
+resources/views/auth/register.blade.php
+resources/views/profile/index.blade.php
+resources/views/admin/users/index.blade.php
+resources/views/admin/users/show.blade.php
+resources/views/admin/users/edit.blade.php
+tests/Unit/NameTest.php
+tests/Feature/CustomerNameTest.php
+tests/Feature/VirtualAccountTest.php
+tests/Feature/Auth/RegistrationTest.php
+tests/Feature/UiCopyTest.php
+tests/Feature/FundingPromiseTest.php
+tests/Feature/FundingFeeTest.php
+tools/check-encoding.php
+tools/check-names.php
+tools/show-escaping.php
+tools/show-names.php
+tools/db-snapshot.php

@@ -12,6 +12,13 @@
         'active' => 'Active in last 30 days',
         'inactive' => 'Inactive',
         'suspended' => 'Suspended',
+        /*
+         * Not an account state, and listed anyway because this dropdown is where an
+         * administrator looks for "who needs my attention". A flagged name blocks
+         * nothing — the account is fully usable — so it is a queue, not a status,
+         * and the option is worded to say so.
+         */
+        'name_review' => 'Name review needed',
     ];
 
     $quickFilters = [
@@ -216,6 +223,24 @@
                                                 <x-icon name="no-symbol" class="h-3 w-3" />
                                                 Suspended
                                             </span>
+                                        @endif
+
+                                        {{--
+                                            A name the heuristic thought might be a placeholder.
+
+                                            Shown as a *review* note rather than as a state, and
+                                            deliberately styled as a warning rather than an error: the
+                                            account is fully usable and the customer has done nothing
+                                            wrong. The reason is the heuristic's own finding, so whoever
+                                            looks at this can judge it without opening the record.
+                                        --}}
+                                        @if($user->nameReviewPending())
+                                            <a href="{{ route('admin.users.show', $user) }}"
+                                               class="badge badge-warning"
+                                               title="{{ $user->name_review_reason ?: 'Flagged for review' }}">
+                                                <x-icon name="eye" class="h-3 w-3" />
+                                                Name review
+                                            </a>
                                         @endif
                                     </div>
                                 </td>

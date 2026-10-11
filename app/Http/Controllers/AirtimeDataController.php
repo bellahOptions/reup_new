@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\PromotionNotification;
 use App\Models\Transactions;
+use App\Models\User;
 use App\Pricing\PricingEngine;
 use App\Services\BillPaymentService;
 use App\Services\ClubKonnectCatalogue;
@@ -18,6 +19,15 @@ use Throwable;
 
 class AirtimeDataController extends Controller
 {
+    /**
+     * The `payment_method` value meaning "charge my card or transfer, not my wallet".
+     *
+     * A constant rather than a literal because it appears in the validation rule, the
+     * controller's branch and the form, and a typo in one of those would silently
+     * charge the wrong rail.
+     */
+    public const PAY_WITH_PAYSTACK = 'paystack';
+
     /**
      * ClubKonnect network identifiers.
      *
@@ -40,6 +50,8 @@ class AirtimeDataController extends Controller
         private readonly ClubKonnectCatalogue $catalogue,
         private readonly PricingEngine $pricing,
         private readonly ProviderCostResolver $costs,
+        private readonly \App\Services\PaystackService $paystack,
+        private readonly \App\Orders\FundedPurchase $fundedPurchases,
     ) {
     }
 
@@ -91,11 +103,24 @@ class AirtimeDataController extends Controller
     {
         $range = (array) config('bills.ranges.airtime', ['min' => 50, 'max' => 50000]);
 
+        /*
+         * `payment_method` chooses the rail, and it decides whether a PIN is
+         * required. A wallet purchase is authorised by the transaction PIN; a card
+         * purchase is authorised at the gateway, and asking for a PIN as well would
+         * be asking the customer to authorise the same payment twice — once with a
+         * four-digit code and once with their bank.
+         *
+         * `required_unless` rather than `required`, so the two rails genuinely differ
+         * instead of a Paystack customer being made to invent a PIN.
+         */
+        $paysByCard = $request->input('payment_method') === self::PAY_WITH_PAYSTACK;
+
         $validated = $request->validate([
             'network' => 'required|string|in:' . implode(',', array_keys(self::NETWORKS)),
             'phone' => ['required', 'string', 'regex:/^0[7-9][0-9]{9}$/'],
             'amount' => 'required|numeric|min:' . $range['min'] . '|max:' . $range['max'],
-            'pin' => 'required|string|size:4',
+            'payment_method' => 'nullable|string|in:wallet,paystack',
+            'pin' => ['required_unless:payment_method,' . self::PAY_WITH_PAYSTACK, 'nullable', 'string', 'size:4'],
             'idempotency_key' => 'nullable|string|min:8|max:64',
         ]);
 
@@ -144,8 +169,13 @@ class AirtimeDataController extends Controller
                 'amount' => $faceValue->toFloat(),
             ],
             successMessage: $faceValue->format() . ' airtime sent to ' . $validated['phone'] . '.',
-            pin: $validated['pin'],
+            pin: $validated['pin'] ?? null,
             idempotencyKey: $validated['idempotency_key'] ?? null,
+            paysByCard: $paysByCard,
+            pricingContext: [
+                'network' => $networkKey,
+                'capability' => ProviderCostResolver::CAPABILITY_AIRTIME,
+            ],
         );
     }
 
@@ -255,9 +285,12 @@ class AirtimeDataController extends Controller
             'plan_name' => 'required|string|max:120',
             'plan_price' => 'required|numeric|min:' . $range['min'] . '|max:' . $range['max'],
             'plan_type' => 'nullable|string|max:60',
-            'pin' => 'required|string|size:4',
+            'payment_method' => 'nullable|string|in:wallet,paystack',
+            'pin' => ['required_unless:payment_method,' . self::PAY_WITH_PAYSTACK, 'nullable', 'string', 'size:4'],
             'idempotency_key' => 'nullable|string|min:8|max:64',
         ]);
+
+        $paysByCard = $request->input('payment_method') === self::PAY_WITH_PAYSTACK;
 
         $plan = $this->catalogue->plan($validated['data_plan']);
 
@@ -328,8 +361,13 @@ class AirtimeDataController extends Controller
                 'phone' => $validated['phone'],
             ],
             successMessage: $planName . ' sent to ' . $validated['phone'] . '.',
-            pin: $validated['pin'],
+            pin: $validated['pin'] ?? null,
             idempotencyKey: $validated['idempotency_key'] ?? null,
+            paysByCard: $paysByCard,
+            pricingContext: [
+                'network' => $networkKey,
+                'capability' => ProviderCostResolver::CAPABILITY_DATA,
+            ],
         );
     }
 
@@ -429,10 +467,42 @@ class AirtimeDataController extends Controller
         array $meta,
         array $providerParams,
         string $successMessage,
-        string $pin,
+        ?string $pin,
         ?string $idempotencyKey,
+        bool $paysByCard = false,
+        array $pricingContext = [],
     ) {
         $user = Auth::user();
+
+        /*
+         * ---- Pay with card or transfer ---------------------------------
+         *
+         * The customer is sent to the gateway for the exact quoted price, and the
+         * purchase happens when that payment settles. See `App\Orders\FundedPurchase`
+         * for why the money is credited to the wallet and then debited from it —
+         * the short version is that it makes a card purchase the *same* code path as
+         * a wallet purchase, so the margin, the provider selection, the pricing
+         * snapshot and the refund behaviour cannot drift apart from it.
+         */
+        if ($paysByCard) {
+            return $this->startCardPurchase(
+                request: $request,
+                user: $user,
+                product: $product,
+                amount: $amount,
+                recipient: $recipient,
+                providerLabel: $providerLabel,
+                description: $description,
+                quote: $quote,
+                networkKey: $networkKey,
+                networkName: $networkName,
+                meta: $meta,
+                providerParams: $providerParams,
+                successMessage: $successMessage,
+                idempotencyKey: $idempotencyKey,
+                pricingContext: $pricingContext,
+            );
+        }
 
         // Captured once, here, so every product's security block in the receipt
         // email has real values rather than blanks. This is the record the
@@ -480,6 +550,184 @@ class AirtimeDataController extends Controller
 
         return redirect()->route('transactions.success', $result['transaction']->reference)
             ->with('success', $result['message']);
+    }
+
+    /**
+     * Send the customer to the gateway for the exact price of a purchase.
+     *
+     * ## What is created here, and what is not
+     *
+     * A `funding` transaction for the quoted total, with the *purchase intent*
+     * attached to its meta: the product, the recipient, the provider payload and the
+     * pricing context. That row is the promise — it is what the gateway is asked for,
+     * what the webhook settles, and what the vending step reads when it runs in a
+     * later request with nothing else to go on.
+     *
+     * What is deliberately **not** created here is the product transaction. No
+     * provider is called and no airtime is vended, because no money has arrived yet.
+     * Vending on the strength of a redirect would hand over goods to anybody who
+     * reached this endpoint and closed the tab.
+     *
+     * ## The price is pinned
+     *
+     * The gateway is asked for `$quote->price()` — the figure the customer was shown.
+     * `PaystackService::settle()` then compares the amount actually paid against this
+     * row's `total_amount`, so a partial or altered payment cannot settle it. The
+     * customer pays what they were quoted, which is the funding promise this
+     * application already makes for wallet top-ups and now makes here too.
+     *
+     * ## Margin
+     *
+     * ReUp's profit is unaffected by the rail. The customer pays ₦1,000 for ₦1,000 of
+     * airtime; the provider charges us ₦970; the ₦30 is ours the moment the payment
+     * settles, because the debit that follows is the full ₦1,000 and the cost behind
+     * it is unchanged. Paying by card does not move the margin, and nothing here
+     * tries to — it comes from the quote the pricing engine already produced.
+     */
+    private function startCardPurchase(
+        Request $request,
+        User $user,
+        string $product,
+        float $amount,
+        string $recipient,
+        string $providerLabel,
+        string $description,
+        \App\Pricing\PriceQuote $quote,
+        ?string $networkKey,
+        string $networkName,
+        array $meta,
+        array $providerParams,
+        string $successMessage,
+        ?string $idempotencyKey,
+        array $pricingContext,
+    ) {
+        $price = $quote->price();
+
+        if (! $price->isPositive()) {
+            return back()->withInput()->with('error', 'That purchase has no price right now. Please try again.');
+        }
+
+        $meta = $meta + [
+            'request_ip' => $request->ip(),
+            'request_user_agent' => \Illuminate\Support\Str::limit((string) $request->userAgent(), 255, ''),
+            'network_key' => $networkKey,
+            'network_name' => $networkName,
+        ];
+
+        try {
+            $funding = \Illuminate\Support\Facades\DB::transaction(function () use ($user, $price, $description, $recipient, $idempotencyKey, $meta) {
+                return Transactions::create([
+                    'user_id' => $user->id,
+                    'reference' => $this->wallets->generateReference('FND'),
+                    'type' => 'credit',
+                    'service_type' => 'funding',
+                    'description' => 'Payment for ' . $description,
+                    'amount' => $price->toDecimalString(),
+                    /*
+                     * `total_amount` is what the gateway is asked for, and it equals
+                     * the quote's price. Settlement compares the two, so the amount
+                     * the customer agreed to and the amount they are charged cannot
+                     * diverge.
+                     */
+                    'service_fee' => '0.00',
+                    'total_amount' => $price->toDecimalString(),
+                    'recipient' => $recipient,
+                    'provider' => 'paystack',
+                    'payment_method' => 'paystack',
+                    'payment_status' => 'pending',
+                    'status' => 'pending',
+                    'idempotency_key' => $idempotencyKey,
+                    'meta' => $meta + [
+                        'funding_amount' => $price->toDecimalString(),
+                        'total_payable' => $price->toDecimalString(),
+                        'initiated_at' => now()->toDateTimeString(),
+                        /*
+                         * Marked so the funding page, the receipt and support all
+                         * know this money was not a top-up: it was already spent
+                         * before it arrived.
+                         */
+                        'purpose' => 'product_purchase',
+                    ],
+                ]);
+            });
+        } catch (Throwable $e) {
+            report($e);
+
+            return back()->withInput()->with('error', 'We could not start that payment. Nothing has been charged.');
+        }
+
+        /*
+         * The intent goes on after the row exists, so the record of what the money
+         * is for is written by the same service that will act on it.
+         */
+        $this->fundedPurchases->attach($funding, [
+            'product' => $product,
+            'amount' => $amount,
+            'recipient' => $recipient,
+            'provider_label' => $providerLabel,
+            'description' => $description,
+            'success_message' => $successMessage,
+            'provider_params' => $providerParams,
+            'meta' => $meta,
+            'network_key' => $networkKey,
+            'network_name' => $networkName,
+            'idempotency_key' => $idempotencyKey,
+            /*
+             * What the pricing engine needs to re-price this sale when it is vended,
+             * so the snapshot records the margin actually earned rather than the one
+             * quoted at checkout. A moved provider cost would otherwise be misstated.
+             */
+            'pricing_context' => $pricingContext,
+            'quoted_price_minor' => $price->minor(),
+            'quoted_cost_minor' => $quote->providerCostMinor,
+            'quoted_profit_minor' => $quote->grossProfitMinor,
+        ]);
+
+        try {
+            $url = $this->paystack->initialize($funding, $user);
+        } catch (Throwable $e) {
+            report($e);
+
+            /*
+             * Nothing reached a gateway, so the row is failed rather than left
+             * pending — `payments:reconcile` would otherwise have to age it out, and
+             * a pending row for a payment that was never started is a row an operator
+             * has to investigate.
+             */
+            $funding->forceFill([
+                'status' => 'failed',
+                'payment_status' => 'failed',
+                'status_message' => 'Could not start the card payment session.',
+                'completed_at' => now(),
+            ])->save();
+
+            return back()->withInput()->with(
+                'error',
+                'We could not start the card payment session. Nothing has been charged — please try again or pay from your wallet.'
+            );
+        }
+
+        return $this->sendToGateway($request, $url);
+    }
+
+    /**
+     * Hand the customer to the gateway, in whichever shape the request asked for.
+     *
+     * The same contract as `WalletController::sendToGateway()`, for the same reason:
+     * this page submits with `fetch()` so it can report a failure in one round trip,
+     * and a full-page POST leaves the old page — and its spinner — on screen for as
+     * long as the gateway takes to answer.
+     */
+    private function sendToGateway(Request $request, string $url)
+    {
+        if (! $request->wantsJson()) {
+            return redirect()->away($url);
+        }
+
+        return response()->json([
+            'status' => 'redirect',
+            'redirect' => $url,
+        ]);
     }
 
     /* =====================================================================

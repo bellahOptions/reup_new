@@ -91,6 +91,14 @@ class BillPaymentService
         private readonly ProviderManager $providers,
         private readonly ProviderBalanceService $balances,
         private readonly SecurityService $security,
+        /*
+         * Profit recording belongs to the settlement gate rather than to each
+         * purchase path, so it is injected here. `ProfitRecorder` writes only to
+         * `profit_records` and never touches a wallet — profit is an accounting
+         * figure derived from the immutable pricing snapshot, not a money movement —
+         * so this dependency cannot affect the balance of anything.
+         */
+        private readonly \App\Orders\ProfitRecorder $profit,
     ) {
     }
 
@@ -151,6 +159,40 @@ class BillPaymentService
         ?\App\Pricing\PriceQuote $quote = null,
         ?string $networkKey = null,
         ?string $networkName = null,
+        /*
+         * Set by `App\Orders\FundedPurchase` when a Paystack payment has already
+         * settled and the wallet has already been credited.
+         *
+         * Two things change when it is true, and both are deliberate:
+         *
+         *   * the PIN is not verified. The customer authorised the payment at the
+         *     gateway, which is a stronger authorisation than a four-digit PIN;
+         *     asking for one here would be asking them to authorise a second time
+         *     for money that has already left their account;
+         *   * the *wallet balance* check is skipped, because the balance was credited
+         *     by the settlement that triggered this call and the debit that follows
+         *     is guaranteed to be covered. The limit and duplicate checks still run —
+         *     those are fraud controls, not affordability ones, and a payment having
+         *     already settled is not a reason to stop counting.
+         *
+         * The debit still happens. That is the point: this purchase is then the same
+         * code path as a wallet purchase in every other respect.
+         */
+        bool $fundingAlreadySettled = false,
+        /*
+         * A factory for the pricing snapshot, called with the provider cost that was
+         * actually charged.
+         *
+         * Needed only by the funded-purchase path, and only because the snapshot has
+         * to be built from a *live* cost — the provider's price is the authority, and
+         * a snapshot written from a quote taken at checkout would misstate the margin
+         * on any product whose cost moved in between. Passing the factory keeps the
+         * pricing knowledge in the caller (which has the pricing engine wired up) and
+         * keeps this service free of a dependency on it.
+         *
+         * @var (callable(int):?\App\Pricing\PriceQuote)|null
+         */
+        ?callable $snapshotFactory = null,
     ): array {
         /*
          * ---- The quoted price is the price ---------------------------------
@@ -200,19 +242,30 @@ class BillPaymentService
          * the debit, which is the point of no return.
          */
         // ---- Security gates, before any lock is taken ---------------------
-        $this->security->verifyPin($user, $pin);
+        if (! $fundingAlreadySettled) {
+            $this->security->verifyPin($user, $pin);
+        }
+
         $this->security->assertNotThrottled($user);
         $this->security->assertWithinLimits($user, $total, $product);
         $this->security->assertNotDuplicate($user, $product, $total, $recipient);
 
         // ---- Customer balance --------------------------------------------
-        $balance = $this->wallets->balanceFor($user);
+        /*
+         * Skipped only for a funded purchase, where the credit has just landed.
+         * Checking it there would be checking that the money we have just put in is
+         * there — harmless but pointless — and, worse, a stale read could fail it and
+         * refuse a purchase the customer has already paid for.
+         */
+        if (! $fundingAlreadySettled) {
+            $balance = $this->wallets->balanceFor($user);
 
-        if ($balance->lessThan($total)) {
-            throw new RuntimeException(
-                'Insufficient wallet balance. You need ' . $total->format()
-                . ' but your balance is ' . $balance->format() . '.'
-            );
+            if ($balance->lessThan($total)) {
+                throw new RuntimeException(
+                    'Insufficient wallet balance. You need ' . $total->format()
+                    . ' but your balance is ' . $balance->format() . '.'
+                );
+            }
         }
 
         // ---- Provider float and availability ------------------------------
@@ -247,9 +300,18 @@ class BillPaymentService
 
         // ---- Debit under a row lock --------------------------------------
         try {
-            $transaction = DB::transaction(function () use ($user, $product, $amountMoney, $feeMoney, $total, $recipient, $providerLabel, $description, $meta, $idempotencyKey, $quote, $networkKey, $networkName) {
+            $transaction = DB::transaction(function () use ($user, $product, $amountMoney, $feeMoney, $total, $recipient, $providerLabel, $description, $meta, $idempotencyKey, $quote, $networkKey, $networkName, $snapshotFactory, $fundingAlreadySettled) {
                 $reference = $this->wallets->generateReference('TXN');
 
+                /*
+                 * `payment_method` records how the customer paid. A purchase funded
+                 * by a Paystack payment is recorded as `paystack`, not `wallet`, even
+                 * though the money physically moves out of the wallet — because that
+                 * is the truth about the customer's experience, and it is what lets
+                 * support answer "I paid by card" by looking at one column. The
+                 * wallet balance between the credit and this debit is the mechanism,
+                 * not the payment.
+                 */
                 $transaction = Transactions::create([
                     'user_id' => $user->id,
                     'reference' => $reference,
@@ -270,7 +332,7 @@ class BillPaymentService
                     'provider' => $providerLabel,
                     'network_code' => $networkKey,
                     'network_name' => $networkName,
-                    'payment_method' => 'wallet',
+                    'payment_method' => $fundingAlreadySettled ? 'paystack' : 'wallet',
                     'payment_status' => 'success',
                     'status' => 'processing',
                     'idempotency_key' => $idempotencyKey,
@@ -300,8 +362,33 @@ class BillPaymentService
                  * unanswerable, and a recorded price with no charge makes the record
                  * a lie. Either alone is worse than both together.
                  */
-                if ($quote) {
-                    $transaction->attachPricingSnapshot($quote, [
+                $snapshot = $quote;
+
+                /*
+                 * A funded purchase has no quote from checkout it can trust: the
+                 * provider's price is the authority, and a cost that moved between
+                 * the customer paying and the purchase being vended would be
+                 * misstated by a snapshot taken at checkout. So the caller — which
+                 * has the pricing engine wired up — is asked for a fresh quote at the
+                 * price the customer actually agreed to.
+                 *
+                 * Best-effort: a snapshot that cannot be built leaves the sale
+                 * unmeasured, which `pricingAnalysis()` already reports honestly as
+                 * null rather than as zero profit.
+                 */
+                if ($snapshot === null && $snapshotFactory !== null) {
+                    try {
+                        $snapshot = $snapshotFactory($total->minor());
+                    } catch (Throwable $e) {
+                        Log::warning('Could not re-price a funded purchase for its snapshot', [
+                            'product' => $product,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+
+                if ($snapshot) {
+                    $transaction->attachPricingSnapshot($snapshot, [
                         'product' => $product,
                         'recipient' => $recipient,
                         'customer_amount_minor' => $amountMoney->minor(),
@@ -823,6 +910,43 @@ class BillPaymentService
                 'token' => $token,
             ], fn ($v) => $v !== null)),
         ])->save();
+
+        $this->recordProfit($transaction->fresh());
+    }
+
+    /**
+     * Book the profit on a settled purchase, and never let it break the sale.
+     *
+     * ## Why it is here and not at each call site
+     *
+     * `markSuccess()` is the single gate every successful settlement passes
+     * through — the purchase pipeline, the provider's webhook, the admin "force
+     * success", and `payments:auto-resolve` — so one call here covers all four.
+     * Putting it at the call sites instead is how the fifth settlement path added
+     * later quietly stops recording profit, and nothing would notice until somebody
+     * asked why the margin had halved.
+     *
+     * ## Why it cannot throw
+     *
+     * This runs immediately after a purchase has been vended. A missing profit row
+     * is an accounting gap that a later reconciliation can fill — `recordFromBillPurchase`
+     * is idempotent and reads an immutable snapshot, so it can be re-run at any
+     * time. An exception here would fail a delivery the customer has paid for, or
+     * worse, tempt a caller to refund a purchase that actually succeeded. The
+     * failure is logged loudly and swallowed.
+     */
+    private function recordProfit(Transactions $transaction): void
+    {
+        try {
+            $this->profit->recordFromBillPurchase($transaction);
+        } catch (Throwable $e) {
+            Log::error('Could not record profit for a settled purchase', [
+                'transaction_id' => $transaction->id,
+                'reference' => $transaction->reference,
+                'service_type' => $transaction->service_type,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /* =====================================================================
@@ -967,6 +1091,17 @@ class BillPaymentService
                     ]),
                 ])->save();
 
+                /*
+                 * Profit booked on this purchase is no longer earned.
+                 *
+                 * Deliberately inside the same transaction as the refund: if the
+                 * un-realization failed while the refund succeeded, the dashboard
+                 * would report profit on a sale that was reversed, and nothing would
+                 * ever reconcile the two. It is also idempotent — the row is looked
+                 * up by transaction and simply flipped off.
+                 */
+                $this->unrealizeProfit($locked);
+
                 return true;
             });
         } catch (Throwable $e) {
@@ -981,6 +1116,23 @@ class BillPaymentService
 
             return false;
         }
+    }
+
+    /**
+     * Take profit off the books for a reversed purchase.
+     *
+     * Called from inside the refund's database transaction, so a failure here rolls
+     * the refund back rather than leaving the dashboard claiming profit on money
+     * that was returned. The row is kept and marked un-realized rather than deleted:
+     * a refund *rate* is computed from those rows, and deleting one would erase the
+     * fact that anything went wrong.
+     *
+     * Logged rather than thrown only for the "no record exists" case, which is
+     * normal — a purchase that failed before settlement never had profit booked.
+     */
+    private function unrealizeProfit(Transactions $transaction): void
+    {
+        $this->profit->markBillPurchaseRefunded($transaction);
     }
 
     /* =====================================================================

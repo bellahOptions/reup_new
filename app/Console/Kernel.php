@@ -111,6 +111,66 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping();
 
         /*
+         * Deliver card purchases that were paid for but never vended.
+         *
+         * A card purchase is two steps across two requests — the payment settles,
+         * then the product is vended — and settlement triggers the vend inline. So in
+         * the ordinary case this finds nothing.
+         *
+         * It exists for the cases nothing else can cover: the worker died between the
+         * credit and the provider call, or the provider was down for the thirty
+         * seconds that mattered. In all of them the customer has paid and does not
+         * have what they bought, and no other process is looking —
+         * `payments:auto-resolve` resolves the *payment*, finds it already settled,
+         * and stops. That is the worst state a commerce system can leave somebody in,
+         * so it gets its own sweep rather than a support ticket.
+         *
+         * Every two minutes, matching `payments:auto-resolve`, because both are
+         * waiting on the same thing: a payment that has already settled. `--grace=1`
+         * leaves the inline path its chance first, so this is the backstop rather
+         * than the normal route. `withoutOverlapping` matters more than usual here:
+         * two concurrent runs would both see the same undelivered intent.
+         */
+        $schedule->command('payments:vendor-funded-purchases')
+            ->everyTwoMinutes()
+            ->withoutOverlapping()
+            ->runInBackground();
+
+        /*
+         * Funding receipts.
+         *
+         * Every five minutes. This is the "notify the customer that their money
+         * arrived, with a receipt" entry: it walks funding rows that have settled
+         * and have no `meta.receipt_sent_at`, sends the receipt, and stamps the
+         * row.
+         *
+         * ## Why a sweep rather than a line in the settlement path
+         *
+         * Funding settles on three paths — the browser callback, the gateway
+         * webhook, and the two-minute `payments:auto-resolve` fallback — and each
+         * one is a place where a mail server having a bad thirty seconds could
+         * take the *credit* down with it. A sweep keeps the two concerns apart,
+         * makes a missed receipt a row that any later run picks up, and means a
+         * fourth settlement path added later cannot silently forget to receipt.
+         *
+         * ## Why five minutes, and why after the others
+         *
+         * The receipt is worthless before the money is there, so it must not race
+         * the settlement it describes; `--grace=1` skips anything younger than a
+         * minute for the same reason. Five minutes is a compromise between a
+         * customer who funds by transfer and then watches the page, and a mail
+         * server being asked to do work on every tick of a mostly-idle schedule.
+         *
+         * `withoutOverlapping` because two concurrent runs would both read the
+         * same unreceipted rows — the stamp that makes this idempotent is written
+         * after the notification goes out, so the second run would send a second
+         * copy of every receipt the first was still working through.
+         */
+        $schedule->command('payments:send-funding-receipts')
+            ->everyFiveMinutes()
+            ->withoutOverlapping();
+
+        /*
          * Bill reminders.
          *
          * A reminder notifies; it never debits. `reminders:dispatch` writes a

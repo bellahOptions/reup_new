@@ -27,22 +27,66 @@
                     </div>
                 @endif
 
-                <div>
-                    <label for="name" class="label">Full name</label>
-                    <input
-                        id="name"
-                        name="name"
-                        type="text"
-                        value="{{ old('name') }}"
-                        required
-                        autofocus
-                        autocomplete="name"
-                        placeholder="Ada Obi"
-                        class="input mt-1.5 @error('name') input-error @enderror">
-                    @error('name')
-                        <p class="field-error">{{ $message }}</p>
-                    @enderror
+                {{--
+                    First name and last name, apart.
+
+                    They were one "Full name" field until now, and the two halves
+                    are what Paystack builds a personal account number's account
+                    name from — the name a payer reads in their own banking app
+                    before sending money. Guessing it by splitting on the first
+                    space is wrong for anyone with a two-word given name, a
+                    single-word name, or a surname that is two words, so it is
+                    asked for instead of inferred.
+
+                    Side by side on a wide screen, stacked on a narrow one: they
+                    are one thought, and a phone screen has no room to waste on
+                    two rows of chrome. `autocomplete` is set per field so the
+                    browser's own name autofill fills the right box.
+                --}}
+                <div class="grid gap-4 sm:grid-cols-2 sm:gap-3">
+                    <div>
+                        <label for="first_name" class="label">First name</label>
+                        <input
+                            id="first_name"
+                            name="first_name"
+                            type="text"
+                            value="{{ old('first_name') }}"
+                            required
+                            autofocus
+                            autocomplete="given-name"
+                            placeholder="Ada"
+                            class="input mt-1.5 @error('first_name') input-error @enderror">
+                        @error('first_name')
+                            <p class="field-error">{{ $message }}</p>
+                        @enderror
+                    </div>
+
+                    <div>
+                        <label for="last_name" class="label">Last name</label>
+                        <input
+                            id="last_name"
+                            name="last_name"
+                            type="text"
+                            value="{{ old('last_name') }}"
+                            required
+                            autocomplete="family-name"
+                            placeholder="Obi"
+                            class="input mt-1.5 @error('last_name') input-error @enderror">
+                        @error('last_name')
+                            <p class="field-error">{{ $message }}</p>
+                        @enderror
+                    </div>
                 </div>
+
+                @unless($errors->has('first_name') || $errors->has('last_name'))
+                    {{-- Says what the two fields are for. "Name" is the field
+                         people fill in with whatever is shortest unless given a
+                         reason not to, and this reason is real: it is printed on
+                         the account other people pay into. --}}
+                    <p class="-mt-3 text-xs text-muted-foreground">
+                        Use your real names — they appear on the personal account number you are paid into.
+                    </p>
+                @endunless
 
                 <div>
                     <label for="email" class="label">Email address</label>

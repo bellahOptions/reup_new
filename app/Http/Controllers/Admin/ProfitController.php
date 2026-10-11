@@ -66,6 +66,14 @@ class ProfitController extends Controller
             'detail' => $detail,
             'window' => $window,
             'filters' => $filters,
+            /*
+             * The per-service breakdown comes first, because "how much do we make on
+             * airtime versus data versus electricity" is the question an operator
+             * asks before any of the others — and until this release the dashboard
+             * answered every one of them with zero, because nothing wrote the table
+             * it reads.
+             */
+            'byService' => $this->profit->breakdown('service_type', $window['from'], $window['to']),
             'byProduct' => $this->profit->breakdown('product_key', $window['from'], $window['to']),
             'byProvider' => $this->profit->breakdown('provider_slug', $window['from'], $window['to']),
             'byCategory' => $this->profit->breakdown('category_slug', $window['from'], $window['to']),
@@ -75,7 +83,35 @@ class ProfitController extends Controller
             'providers' => Provider::orderBy('name')->get(['slug', 'name']),
             'categories' => ServiceCategory::orderBy('name')->get(['slug', 'name']),
             'operations' => $this->operationsSnapshot(),
+            /*
+             * How much of the period's profit is measured against a *confirmed*
+             * provider cost, and what the platform has sold today so far.
+             *
+             * The first is not decoration: a margin computed from a rate somebody
+             * typed into the console is a forecast, and a total shown without that
+             * split presents it as earned. The second is the "realtime" half — the
+             * page polls `admin.profit.data` every 30 seconds, and this is the
+             * figure that moves while an operator watches it.
+             */
+            'today' => $this->todaySnapshot(),
         ]);
+    }
+
+    /**
+     * Profit recorded so far today, and the sales behind it.
+     *
+     * Read straight from `profit_records` for the current day, so it is the same
+     * accounting table every other figure on the page comes from — a "realtime"
+     * number computed a different way from the totals beside it is how a dashboard
+     * ends up disagreeing with itself.
+     *
+     * @return array<string,mixed>
+     */
+    private function todaySnapshot(): array
+    {
+        return $this->profit->summary(now()->startOfDay(), now()->endOfDay()) + [
+            'by_service' => $this->profit->breakdown('service_type', now()->startOfDay(), now()->endOfDay()),
+        ];
     }
 
     /**
@@ -98,9 +134,20 @@ class ProfitController extends Controller
 
         return response()->json([
             'summary' => $this->profit->summary($from, $to, $validated),
+            /*
+             * Today, separately from the window the caller asked for.
+             *
+             * The chart polls this endpoint on a timer, and the figure an operator
+             * watches move is "what have we made today" — not "what did we make in
+             * the last 30 days", which barely changes while they watch it. Both are
+             * returned so the page can show a live number without a second request.
+             */
+            'today' => $this->profit->summary(now()->startOfDay(), now()->endOfDay()),
             'daily' => $this->profit->daily($from, $to),
+            'by_service' => $this->profit->breakdown('service_type', $from, $to),
             'by_product' => $this->profit->breakdown('product_key', $from, $to),
             'by_provider' => $this->profit->breakdown('provider_slug', $from, $to),
+            'generated_at' => now()->toIso8601String(),
         ]);
     }
 

@@ -68,6 +68,65 @@
                             Edit profile
                         </a>
                     @endif
+
+                    {{--
+                        The name review, when the heuristic flagged one.
+
+                        Its own panel rather than a line in the status list, because the
+                        two decisions are different in kind: `status` suspends an account
+                        and this does nothing at all. The reason is the heuristic's own
+                        finding from the day it fired, kept because the heuristic will
+                        change and a record that reinterprets itself is not a record.
+                    --}}
+                    @if($user->name_review !== null)
+                        <div class="mt-5 rounded-lg border p-4 text-left
+                                    {{ $user->nameReviewPending() ? 'border-amber-200 bg-amber-50' : 'border-border bg-surface-muted' }}">
+                            <p class="flex items-center gap-2 text-sm font-semibold">
+                                <x-icon name="eye" class="h-4 w-4" />
+                                @if($user->nameReviewPending())
+                                    Name flagged for review
+                                @elseif($user->name_review === \App\Models\User::NAME_REVIEW_APPROVED)
+                                    Name confirmed genuine
+                                @else
+                                    Name marked not genuine
+                                @endif
+                            </p>
+
+                            @if($user->name_review_reason)
+                                <p class="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                                    {{ $user->name_review_reason }}
+                                </p>
+                            @endif
+
+                            @if($user->nameReviewPending())
+                                <p class="mt-2 text-xs text-muted-foreground">
+                                    This does not restrict the account. Suspending a customer is a
+                                    separate decision, made below.
+                                </p>
+
+                                <div class="mt-3 flex flex-wrap gap-2">
+                                    <form method="POST" action="{{ route('admin.users.name-review', $user, false) }}">
+                                        @csrf
+                                        <input type="hidden" name="decision" value="approved">
+                                        <button type="submit" class="btn btn-outline btn-sm">
+                                            <x-icon name="check" class="h-4 w-4" />
+                                            Name is genuine
+                                        </button>
+                                    </form>
+
+                                    <form method="POST" action="{{ route('admin.users.name-review', $user, false) }}"
+                                          onsubmit="return confirm('Mark this name as not genuine? The account is not changed by this.');">
+                                        @csrf
+                                        <input type="hidden" name="decision" value="rejected">
+                                        <button type="submit" class="btn btn-ghost btn-sm">
+                                            <x-icon name="x-mark" class="h-4 w-4" />
+                                            Not genuine
+                                        </button>
+                                    </form>
+                                </div>
+                            @endif
+                        </div>
+                    @endif
                 </div>
 
                 <div class="border-t border-border p-5">

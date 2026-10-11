@@ -28,14 +28,14 @@ use Throwable;
 class PaystackService
 {
     /**
-     * The user whose phone number has already been pushed to Paystack in this
-     * request, so the dedicated-account path does not send it twice.
+     * The user whose customer details have already been pushed to Paystack in
+     * this request, so the dedicated-account path does not send them twice.
      *
      * An instance property rather than a model column on purpose: this is a
      * "have I already done this network call" flag, not durable state, and
      * storing it would mean a stale value could suppress a genuine sync.
      */
-    private ?int $phoneSyncedFor = null;
+    private ?int $detailsSyncedFor = null;
 
     public function __construct(
         private readonly WalletService $wallets,
@@ -473,10 +473,89 @@ class PaystackService
          * selects on exactly that key) could never see a fee it needed to collect.
          * The fee row was still written; only the record of it was lost, which is
          * the failure mode that would have gone unnoticed in production.
+         *
+         * ## The one funding that carries no fee
+         *
+         * Money that arrived to pay for a product rather than to top up a wallet.
+         * It is already spent before it rests in the wallet, and taking a percentage
+         * of it would leave the customer unable to afford the very purchase they
+         * paid for — the debit that follows a few milliseconds later would fail for
+         * want of the fee. `FundedPurchase` sets the flag when it attaches the
+         * intent; this is the settlement path that owns fee collection, so the
+         * decision is honoured here rather than in each caller.
+         *
+         * The vending call below is deliberately *outside* this branch: skipping the
+         * fee must never skip the delivery.
          */
-        $this->chargeFundingFee($user, $locked);
+        if (! $this->isFeeExempt($locked)) {
+            $this->chargeFundingFee($user, $locked);
+        }
+
+        /*
+         * A payment made to buy something, rather than to top up a wallet.
+         *
+         * Runs **last**, after the credit and the fee bookkeeping have been written,
+         * and deliberately so: the customer's money must be safely in their wallet
+         * before a provider is asked to vend anything. If vending fails from here the
+         * money is still theirs and still spendable, the failure is recorded on the
+         * intent, and the sweep retries it.
+         *
+         * It never throws. `settle()` is reached from the webhook, the browser
+         * callback, the reconciler and the auto-resolve sweep, and an exception here
+         * would make a payment that *did* settle look unsettled to all four.
+         */
+        $this->vendFundedPurchase($locked);
 
         return ['status' => 'settled', 'transaction' => $locked];
+    }
+
+    /**
+     * Vend the product a settled payment was made for, if it was made for one.
+     *
+     * A no-op for an ordinary wallet top-up, which is the overwhelming majority of
+     * settlements — the check is one array lookup on the row that has just settled.
+     *
+     * ## Why settlement is the trigger
+     *
+     * Four paths can settle a Paystack payment: the webhook, the browser callback,
+     * `payments:reconcile` and `payments:auto-resolve`. Hooking each of them
+     * separately is four places to forget, and a fifth added later would silently
+     * take money without vending. All four pass through here, so one call covers
+     * them all and a new settlement path gets the behaviour for free.
+     *
+     * `FundedPurchase::vend()` takes a row lock and claims the intent before calling
+     * any provider, so two of those four arriving at once cannot vend twice.
+     */
+    private function vendFundedPurchase(Transactions $funding): void
+    {
+        try {
+            app(\App\Orders\FundedPurchase::class)->vend($funding);
+        } catch (Throwable $e) {
+            /*
+             * Logged at error rather than warning: a customer has paid and does not
+             * have what they bought. The intent is left vendable so the sweep picks
+             * it up — but somebody should see this line before that sweep runs.
+             */
+            Log::error('A settled payment could not be vended', [
+                'funding_transaction_id' => $funding->id,
+                'reference' => $funding->reference,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Does this funding row carry no ReUp service fee?
+     *
+     * Only one kind does: money that arrived to pay for a product. It is flagged by
+     * {@see \App\Orders\FundedPurchase}, which is the code that knows what the money
+     * is for, and read here, which is the code that collects fees. Keeping the flag
+     * rather than a second settlement branch means there is still exactly one place
+     * a fee is taken from.
+     */
+    private function isFeeExempt(Transactions $funding): bool
+    {
+        return (bool) (($funding->meta ?? [])[\App\Orders\FundedPurchase::META_SKIP_FEE] ?? false);
     }
 
     /**
@@ -650,7 +729,21 @@ class PaystackService
             }
         }
 
-        [$first, $last] = $this->splitName((string) $user->name);
+        /*
+         * `first_name` and `last_name` are read from the model, not guessed from
+         * `name`, and `nameParts()` is the single place that decides what to send
+         * when one is missing.
+         *
+         * Both are genuinely required for this integration, not merely nice:
+         * Paystack's Customer API documentation makes `first_name`, `last_name`
+         * and `phone` compulsory when the customer is going to be assigned a
+         * dedicated virtual account and the business category is Betting,
+         * Financial services or General Service — and ReUp is a wallet. The
+         * dedicated-account error reference states the same thing from the other
+         * side: "first_name, last_name are required in request body and must not
+         * be empty".
+         */
+        [$firstName, $lastName] = $user->nameParts();
 
         /*
          * `formatted_phone`, not the raw column: it converts a local Nigerian
@@ -666,8 +759,8 @@ class PaystackService
          */
         $created = $this->client()->post('https://api.paystack.co/customer', array_filter([
             'email' => $user->email,
-            'first_name' => $first,
-            'last_name' => $last,
+            'first_name' => $firstName,
+            'last_name' => $lastName,
             'phone' => $this->internationalPhone($user),
         ]));
 
@@ -697,24 +790,35 @@ class PaystackService
      * so the stored details are returned when present and the API is only
      * consulted when they are missing or a refresh is explicitly requested.
      *
+     * ## The order of the three calls, and why it is this order
+     *
+     *   1. **Read back first.** `GET /dedicated_account?customer=…` answers "does
+     *      this customer already have one?" without creating anything. A customer
+     *      whose account exists on Paystack's side but not on ours — the row was
+     *      rolled back, or the account was created by hand in their dashboard —
+     *      is recovered here rather than being shown "you already have one".
+     *   2. **Make the customer valid.** Paystack attaches the account to a
+     *      *customer record* and refuses one whose record has no phone, or whose
+     *      `first_name`/`last_name` are empty ("Customer phone number is
+     *      required", "first_name, last_name are required in request body and
+     *      must not be empty"). Both names and the phone are pushed to the
+     *      existing record, because a record created during an earlier card
+     *      payment has neither and `ensureCustomer()` will never revisit it — the
+     *      code is already stored, so it returns early. That gap used to be
+     *      permanent and surfaced much later, on a different page, as a provider
+     *      error.
+     *   3. **Assign.** `POST /dedicated_account` with the customer code and the
+     *      preferred bank slug. The names and phone are sent again as the
+     *      endpoint's own optional parameters: they are redundant with step 2 on
+     *      a well-behaved account, and they are the difference between an account
+     *      and a hard failure on one where step 2 was refused.
+     *
      * ## The phone number
      *
-     * Paystack attaches the account to a *customer record* and refuses to create
-     * one for a customer with no phone — "Customer phone number is required".
-     * Two things follow, and getting either wrong is how a customer ends up
-     * staring at an unexplainable message:
-     *
-     *   * We check for the phone **ourselves, first**, and raise
-     *     {@see PhoneNumberRequiredException} before spending a request. The
-     *     customer then gets a prompt they can act on instead of the gateway's
-     *     internal wording relayed back to them.
-     *   * We push the phone to the **existing** customer record when we have one.
-     *     A customer created earlier without a phone keeps that gap forever
-     *     otherwise: the record already exists, so `ensureCustomer()` returns the
-     *     stored code and never touches it again. That is the actual shape of the
-     *     bug this fixes — card funding does not need a phone, so the customer was
-     *     created silently without one, and the failure only surfaced on the
-     *     virtual-account page, much later, as a provider error.
+     * We check for it **ourselves, first**, and raise
+     * {@see PhoneNumberRequiredException} before spending a request, so the
+     * customer gets a prompt they can act on instead of the gateway's internal
+     * wording relayed back to them.
      *
      * @return array{account_number:string,bank_name:string,account_name:string}
      */
@@ -730,32 +834,300 @@ class PaystackService
 
         $customerCode = $this->ensureCustomer($user);
 
-        $this->ensureCustomerHasPhone($user, $customerCode);
+        /*
+         * The phone check happens before anything else, including the read-back:
+         * it is the one failure the *customer* can fix, and telling them so is
+         * more useful than any gateway answer about an account they cannot have.
+         */
+        if (! $this->hasPhoneForDedicatedAccount($user)) {
+            throw new PhoneNumberRequiredException();
+        }
 
-        $response = $this->client()->post('https://api.paystack.co/dedicated_account', [
+        /*
+         * The partner bank is resolved *first*, and not lazily at the create
+         * call.
+         *
+         * It is a configuration check, and a misconfigured slug has to fail
+         * before anything is asked of the gateway: Paystack's answer to a bank it
+         * does not offer for this business is a message about a *bank*, which
+         * sends whoever reads it looking for a bank problem that does not exist.
+         * Deciding it up front means the failure names our own setting.
+         */
+        $bank = $this->dvaBank();
+
+        /*
+         * Read back before creating. Paystack refuses a second assignment for a
+         * customer — and, depending on timing, answers with a message that merely
+         * *contains* "already" — so asking first turns "you already have an
+         * account, here it is" into the success it actually is rather than an
+         * error the customer cannot act on.
+         */
+        $existing = $this->findDedicatedAccount($customerCode);
+
+        if ($existing !== null) {
+            return $this->storeDedicatedAccount($user, $existing, $bank);
+        }
+
+        [$firstName, $lastName] = $user->nameParts();
+
+        // Names and phone onto the customer record, before it is asked for an
+        // account. Idempotent on Paystack's side and skipped when already sent in
+        // this request.
+        $this->syncCustomerDetails($user, $customerCode);
+
+        $response = $this->client()->post('https://api.paystack.co/dedicated_account', array_filter([
             'customer' => $customerCode,
-            'preferred_bank' => config('services.paystack.dva_bank', 'wema-bank'),
-        ]);
+            'preferred_bank' => $bank,
+            // Sent as strings, never null: the endpoint rejects an empty value
+            // but is happy to be told what it already knows.
+            'first_name' => $firstName,
+            'last_name' => $lastName,
+            'phone' => $this->internationalPhone($user),
+        ]));
 
         $body = $response->json() ?? [];
 
         if (! $response->successful() || ! ($body['status'] ?? false)) {
-            $message = $body['message'] ?? 'unknown error';
+            $message = (string) ($body['message'] ?? 'unknown error');
 
-            // Already assigned is not an error: read the existing account back.
+            /*
+             * "Already assigned" is not an error. Paystack words it differently
+             * depending on timing (`"Customer already has a dedicated account"`,
+             * `"Assign dedicated account in progress"`), so this matches on
+             * `already` anywhere in the message rather than on one phrasing.
+             */
             if (stripos($message, 'already') !== false) {
-                $existing = $this->fetchDedicatedAccount($customerCode);
+                $fetched = $this->findDedicatedAccount($customerCode);
 
-                if ($existing) {
-                    return $this->storeDedicatedAccount($user, $existing);
+                if ($fetched !== null) {
+                    return $this->storeDedicatedAccount($user, $fetched);
                 }
+            }
+
+            /*
+             * Access Denied is the one failure with an action attached to it, and
+             * Paystack's error reference names that action: the business has not
+             * been activated for dedicated virtual accounts, and support has to
+             * enable it. It is raised as a distinguishable exception so
+             * `paystack:diagnose-dva` and the operator log can say so, while the
+             * customer still gets the same sanitised message as every other
+             * provider failure.
+             */
+            if ($this->isDvaAccessDenied($response->status(), $message)) {
+                throw new RuntimeException(
+                    'Dedicated virtual accounts are not enabled on this Paystack business (Access Denied). '
+                    . 'Ask Paystack support to activate "Dedicated Virtual Accounts" for the integration.',
+                    403
+                );
             }
 
             throw new RuntimeException('Could not generate a bank account: ' . $message);
         }
 
-        return $this->storeDedicatedAccount($user, $body['data'] ?? []);
+        return $this->storeDedicatedAccount($user, $body['data'] ?? [], $bank);
     }
+
+    /**
+     * The partner bank slug to ask for an account at.
+     *
+     * `PAYSTACK_DVA_BANK`, validated against what Paystack says this integration
+     * actually supports (`GET /dedicated_account/available_providers`). The
+     * documentation names Wema Bank and Titan Paystack as the supported
+     * providers, but which of them a given business may use is Paystack's
+     * decision, returned by that endpoint — so the configuration is checked
+     * against the live list rather than against a hardcoded pair that goes stale.
+     *
+     * ## Why this is worth a cached round trip
+     *
+     * A wrong slug fails at the last step of a flow the customer has already
+     * waited through, with `"<bank> is not available"` — a message about a bank,
+     * for a problem in our configuration. Checking first turns that into one
+     * clear sentence before any assignment is attempted. The list changes when
+     * Paystack changes it, so a day of cache is plenty and costs one request.
+     *
+     * If the configured bank is not on the list and others are, the configured
+     * one is still refused and the alternatives are named in the exception: a
+     * silent fallback to a different bank would change where customers' money
+     * settles, which is a commercial decision, not a repair.
+     *
+     * @throws RuntimeException when the configured bank is not available
+     */
+    public function dvaBank(): string
+    {
+        $configured = trim((string) config('services.paystack.dva_bank', 'wema-bank'));
+
+        $providers = $this->availableDvaProviders();
+
+        // An empty list means the question could not be answered (gateway down,
+        // endpoint changed). Proceed with the configured value and let the
+        // assignment call be the authority: refusing to try because a *diagnostic*
+        // failed would turn a transient gateway problem into an outage.
+        if ($providers === []) {
+            return $configured;
+        }
+
+        $slugs = array_values(array_filter(array_map(
+            fn ($provider) => is_array($provider) ? ($provider['slug'] ?? null) : null,
+            $providers
+        )));
+
+        if (in_array($configured, $slugs, true)) {
+            return $configured;
+        }
+
+        throw new RuntimeException(
+            'PAYSTACK_DVA_BANK [' . $configured . '] is not an available dedicated-account provider on this '
+            . 'Paystack business. Available: ' . (implode(', ', $slugs) ?: 'none')
+            . '. Set PAYSTACK_DVA_BANK to one of them, or leave it unset for wema-bank.'
+        );
+    }
+
+    /**
+     * The dedicated-account providers this integration may use.
+     *
+     * @return array<int,mixed>
+     */
+    public function availableDvaProviders(): array
+    {
+        if (! $this->isConfigured()) {
+            return [];
+        }
+
+        return Cache::remember('paystack.dva.providers', now()->addDay(), function (): array {
+            try {
+                $response = $this->client()->get('https://api.paystack.co/dedicated_account/available_providers');
+
+                if ($response->successful() && ($response->json('status') ?? false)) {
+                    return (array) ($response->json('data') ?? []);
+                }
+
+                Log::warning('Could not list Paystack dedicated-account providers', [
+                    'http_status' => $response->status(),
+                    'message' => $response->json('message'),
+                ]);
+            } catch (Throwable $e) {
+                Log::warning('Could not reach Paystack for the dedicated-account provider list', [
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
+            // An empty list rather than null: `remember` treats null as a miss
+            // and would retry the call on every page load.
+            return [];
+        });
+    }
+
+    /**
+     * Is this response Paystack refusing the feature rather than the request?
+     *
+     * Both halves are checked because the two arrive separately in practice: the
+     * status is a 403 when the business is not activated, and the wording is
+     * "Access Denied" when the endpoint is answering with a plain error body.
+     * Matched on either so a wording change on their side does not turn an
+     * actionable configuration failure back into an anonymous one.
+     */
+    private function isDvaAccessDenied(int $status, string $message): bool
+    {
+        return $status === 403 || stripos($message, 'access denied') !== false;
+    }
+
+    /**
+     * Look up an existing dedicated account for a customer code, without
+     * creating one.
+     *
+     * Returns the active NGN account when there is one. `null` means "this
+     * customer has none that we can see" — which includes the case where the
+     * endpoint errored, deliberately: an unreachable gateway must not be read as
+     * "no account exists", because the next thing the caller does is *create*
+     * one, and Paystack rejects a duplicate. Returning null there would turn a
+     * transient outage into a confusing provider error, which is why the status
+     * is logged loudly.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function findDedicatedAccount(string $customerCode, bool $logFailures = true): ?array
+    {
+        if ($customerCode === '') {
+            return null;
+        }
+
+        try {
+            $response = $this->client()->get('https://api.paystack.co/dedicated_account', [
+                'customer' => $customerCode,
+            ]);
+        } catch (Throwable $e) {
+            if ($logFailures) {
+                Log::warning('Dedicated-account lookup failed', [
+                    'customer_code' => $customerCode,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
+            return null;
+        }
+
+        $rows = $response->json('data') ?? [];
+
+        // The endpoint returns a list. `accounts[]` appears nested inside a single
+        // object on some responses, so both shapes are flattened.
+        foreach ((array) $rows as $row) {
+            foreach ($this->accountRows(is_array($row) ? $row : []) as $candidate) {
+                if (($candidate['active'] ?? false) && ($candidate['currency'] ?? 'NGN') === 'NGN') {
+                    return $candidate;
+                }
+            }
+        }
+
+        foreach ((array) $rows as $row) {
+            foreach ($this->accountRows(is_array($row) ? $row : []) as $candidate) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Normalise the two shapes a dedicated-account payload arrives in.
+     *
+     * The Create and Fetch endpoints return the account object directly
+     * (`data.account_number`, `data.bank.name`, `data.id`), while the List
+     * endpoint returns a list of them and some responses wrap the same objects in
+     * `data.accounts[]`. Rather than have every caller know which of the three it
+     * is looking at, this yields the account objects one at a time.
+     *
+     * @param  array<string,mixed>  $row
+     * @return array<int,array<string,mixed>>
+     */
+    private function accountRows(array $row): array
+    {
+        if (isset($row['account_number']) || isset($row['account_id'])) {
+            return [$row];
+        }
+
+        $nested = $row['accounts'] ?? null;
+
+        if (is_array($nested) && $nested !== []) {
+            return array_values(array_filter($nested, 'is_array'));
+        }
+
+        return [];
+    }
+
+    /**
+     * Fetch an existing dedicated account for a customer code.
+     *
+     * Kept as the public name used elsewhere in the application; the work is done
+     * by {@see findDedicatedAccount()}, which additionally reports failures.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function fetchDedicatedAccount(string $customerCode): ?array
+    {
+        return $this->findDedicatedAccount($customerCode);
+    }
+
+    /**
 
     /**
      * Does this account have a phone number a virtual account can be built on?
@@ -775,30 +1147,143 @@ class PaystackService
     }
 
     /**
-     * Guarantee both we and the gateway hold this customer's phone number.
+     * Guarantee both we and the gateway hold this customer's name and phone.
      *
      * Synchronous and deliberately before the assignment call: doing it lazily
      * would mean the first attempt fails, the customer retries, and the failure
      * and the fix are separated by an unexplained error.
      *
-     * @throws PhoneNumberRequiredException when there is no phone to send
+     * An empty payload — every field already present on the record — costs no
+     * request at all, which is the common case for a customer created by this
+     * release. Only the fields Paystack might be missing are sent, so this cannot
+     * *remove* a value: `PUT /customer/{code}` merges, and a field that is absent
+     * from the payload is left alone.
      */
-    private function ensureCustomerHasPhone(User $user, string $customerCode): void
+    private function syncCustomerDetails(User $user, string $customerCode): void
     {
-        $phone = $this->internationalPhone($user);
-
-        if ($phone === null) {
-            throw new PhoneNumberRequiredException();
-        }
-
         // Already pushed in this request — `dedicatedAccount()` is called once per
         // page load, but a retry loop or a future caller should not re-send it.
-        if ($this->phoneSyncedFor === $user->getKey()) {
+        if ($this->detailsSyncedFor === $user->getKey()) {
             return;
         }
 
-        $this->updateCustomerPhone($customerCode, $phone);
-        $this->phoneSyncedFor = $user->getKey();
+        $phone = $this->internationalPhone($user);
+
+        if (! $user->paystack_details_synced_at) {
+            $payload = array_filter([
+                'first_name' => trim((string) $user->first_name),
+                'last_name' => trim((string) $user->last_name),
+                'phone' => $phone,
+            ], fn ($value) => filled($value));
+
+            /*
+             * The record is only stamped as synced when Paystack accepted the
+             * update. Stamping it regardless would be the worse bug of the two: a
+             * refused update would be recorded as done, and the customer's record
+             * would stay incomplete forever while every later page load skipped
+             * the call that would have fixed it.
+             */
+            if ($payload !== [] && $this->updateCustomer($customerCode, $payload)) {
+                $user->forceFill(['paystack_details_synced_at' => now()])->save();
+            }
+        }
+
+        $this->detailsSyncedFor = $user->getKey();
+    }
+
+    /**
+     * Push name and phone to an existing Paystack customer record.
+     *
+     * Used by the profile form, so that a customer who corrects their name or
+     * adds a phone number does not keep a stale record at the gateway — the two
+     * name fields are what the *account name* of a dedicated virtual account is
+     * built from, so a correction there has to reach Paystack or the customer's
+     * next account would be issued in the name they just told us was wrong.
+     *
+     * Safe to call for a customer that does not exist yet: the caller passes the
+     * stored code, and there is nothing to do without one.
+     */
+    public function syncCustomerProfile(User $user): void
+    {
+        if (empty($user->paystack_customer_code) || ! $this->isConfigured()) {
+            return;
+        }
+
+        $payload = array_filter([
+            'first_name' => trim((string) $user->first_name),
+            'last_name' => trim((string) $user->last_name),
+            'phone' => $this->internationalPhone($user),
+        ], fn ($value) => filled($value));
+
+        if ($payload === []) {
+            return;
+        }
+
+        $this->updateCustomer((string) $user->paystack_customer_code, $payload);
+
+        $user->forceFill(['paystack_details_synced_at' => now()])->save();
+    }
+
+    /**
+     * Attach details to an existing Paystack customer.
+     *
+     * `PUT /customer/{code}` merges, so only the fields given are touched. It is
+     * idempotent — re-sending the same values is a no-op on their side — which is
+     * what makes it safe to call on every attempt rather than tracking whether the
+     * record already has them (a `GET /customer/{code}` per attempt to find out
+     * would be a second round trip for no benefit).
+     *
+     * @param  array<string,string>  $payload
+     * @return bool whether Paystack accepted the update
+     */
+    public function updateCustomer(string $customerCode, array $payload): bool
+    {
+        try {
+            $response = $this->client()->put(
+                'https://api.paystack.co/customer/' . rawurlencode($customerCode),
+                $payload
+            );
+        } catch (Throwable $e) {
+            // Logged, not thrown as a provider error: the assignment call that
+            // follows is what decides the outcome, and it will fail with the
+            // gateway's own wording if the details really are the blocker.
+            // Throwing here would replace a specific, gateable failure with a
+            // generic one.
+            Log::warning('Could not update the Paystack customer record', [
+                'customer_code' => $customerCode,
+                'fields' => array_keys($payload),
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+
+        $body = $response->json() ?? [];
+
+        if (! $response->successful() || ! ($body['status'] ?? false)) {
+            Log::warning('Could not update the Paystack customer record', [
+                'customer_code' => $customerCode,
+                'fields' => array_keys($payload),
+                'http_status' => $response->status(),
+                'message' => $body['message'] ?? null,
+            ]);
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Attach a phone number to an existing Paystack customer.
+     *
+     * Kept because it is the narrow, well-named operation the profile form used
+     * before names were pushed as well, and because a caller that only has a
+     * phone should not have to build a payload to say so.
+     */
+    public function updateCustomerPhone(string $customerCode, string $phone): bool
+    {
+        return $this->updateCustomer($customerCode, ['phone' => $phone]);
     }
 
     /**
@@ -819,83 +1304,42 @@ class PaystackService
     }
 
     /**
-     * Attach a phone number to an existing Paystack customer.
+     * Persist an assigned dedicated account onto the customer.
      *
-     * `PUT /customer/{code}` merges, so this sends only the phone. It is
-     * idempotent — re-sending the same number is a no-op on their side — which is
-     * what makes it safe to call on every attempt rather than tracking whether
-     * the record already has one (a `GET /customer/{code}` per attempt to find
-     * out would be a second round trip for no benefit).
-     */
-    public function updateCustomerPhone(string $customerCode, string $phone): void
-    {
-        $response = $this->client()->put(
-            'https://api.paystack.co/customer/' . rawurlencode($customerCode),
-            ['phone' => $phone]
-        );
-
-        $body = $response->json() ?? [];
-
-        if (! $response->successful() || ! ($body['status'] ?? false)) {
-            // Logged, not thrown as a provider error: the assignment call below
-            // is what decides the outcome, and it will fail with the gateway's
-            // own wording if the phone really is the blocker. Throwing here would
-            // replace a specific, gateable failure with a generic one.
-            Log::warning('Could not attach a phone number to the Paystack customer', [
-                'customer_code' => $customerCode,
-                'http_status' => $response->status(),
-                'message' => $body['message'] ?? null,
-            ]);
-        }
-    }
-
-    /**
-     * Fetch an existing dedicated account for a customer code.
+     * ## What is read, and from which shape
      *
-     * @return array<string,mixed>|null
-     */
-    public function fetchDedicatedAccount(string $customerCode): ?array
-    {
-        $response = $this->client()->get('https://api.paystack.co/dedicated_account', [
-            'customer' => $customerCode,
-        ]);
-
-        $rows = $response->json('data') ?? [];
-
-        // The endpoint returns a list; take the active NGN account.
-        foreach ((array) $rows as $row) {
-            if (($row['active'] ?? false) && ($row['currency'] ?? 'NGN') === 'NGN') {
-                return $row;
-            }
-        }
-
-        return $rows[0] ?? null;
-    }
-
-    /**
+     * Paystack returns the account object directly from Create and Fetch
+     * (`data.account_number`, `data.bank.name`, `data.id`) and wraps the same
+     * objects in `data.accounts[]` in some responses. `accountRows()` handles
+     * both, so the three access patterns that used to be spelled out here as
+     * `??` chains — each of which had to know about the nesting — are now one
+     * lookup.
+     *
+     * ## The account id and bank slug
+     *
+     * Both are stored because both are needed to talk about this account later:
+     * Fetch Dedicated Account and Requery Dedicated Account address it by `id`,
+     * and the slug is what a support request has to name when the question is
+     * "can this customer be moved to the other partner bank?". Neither is used to
+     * credit a transfer — that is `dva_account_number`, which is unique and must
+     * stay that way.
+     *
      * @param  array<string,mixed>  $data
      * @return array{account_number:string,bank_name:string,account_name:string}
      */
-    private function storeDedicatedAccount(User $user, array $data): array
+    private function storeDedicatedAccount(User $user, array $data, ?string $bankSlug = null): array
     {
-        $accountNumber = (string) (
-            $data['account_number']
-            ?? data_get($data, 'accounts.0.account_number')
-            ?? ''
-        );
+        $account = $this->accountRows($data)[0] ?? $data;
+
+        $accountNumber = (string) ($account['account_number'] ?? '');
 
         $bankName = (string) (
-            data_get($data, 'bank.name')
-            ?? data_get($data, 'accounts.0.bank.name')
-            ?? data_get($data, 'bank')
+            data_get($account, 'bank.name')
+            ?? (is_string($account['bank'] ?? null) ? $account['bank'] : '')
             ?? ''
         );
 
-        $accountName = (string) (
-            $data['account_name']
-            ?? data_get($data, 'accounts.0.account_name')
-            ?? ''
-        );
+        $accountName = (string) ($account['account_name'] ?? '');
 
         if ($accountNumber === '') {
             throw new RuntimeException('The payment provider did not return an account number.');
@@ -904,13 +1348,19 @@ class PaystackService
         $user->forceFill([
             'dva_account_number' => $accountNumber,
             'dva_bank_name' => $bankName,
+            'dva_bank_slug' => data_get($account, 'bank.slug') ?: $bankSlug,
             'dva_account_name' => $accountName,
+            'dva_account_id' => $account['id'] ?? null,
             'dva_created_at' => now(),
         ])->save();
 
         Log::info('Dedicated virtual account assigned', [
             'user_id' => $user->id,
             'bank' => $bankName,
+            'bank_slug' => data_get($account, 'bank.slug') ?: $bankSlug,
+            // The provider's own id, not a credential: it is what a support
+            // request quotes to re-query the account.
+            'account_id' => $account['id'] ?? null,
         ]);
 
         return [
@@ -1081,16 +1531,6 @@ class PaystackService
 
             return ['status' => 'credited', 'transaction' => $transaction];
         });
-    }
-
-    /** Split a full name into first and last, for Paystack's customer record. */
-    private function splitName(string $name): array
-    {
-        $parts = preg_split('/\s+/', trim($name)) ?: [];
-        $first = $parts[0] ?? 'ReUp';
-        $last = count($parts) > 1 ? implode(' ', array_slice($parts, 1)) : 'Customer';
-
-        return [$first, $last];
     }
 
     /* =====================================================================

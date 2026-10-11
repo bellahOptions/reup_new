@@ -87,6 +87,13 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'admin'])->group(fun
         Route::post('/{user}/wallet', [UserController::class, 'updateWallet'])
             ->middleware('admin:manage_wallets')->name('wallet.update');
         Route::post('/{user}/toggle-status', [UserController::class, 'toggleStatus'])->name('toggle-status');
+        /*
+         * A name the heuristic thought might be a placeholder. Its own endpoint and
+         * its own permission, because it is a records question rather than a money
+         * one — the same reason it is not `status` or `is_blocked`: clearing a name
+         * flag must not be able to suspend anybody by accident.
+         */
+        Route::post('/{user}/name-review', [UserController::class, 'reviewName'])->name('name-review');
         Route::delete('/{user}', [UserController::class, 'destroy'])->name('destroy');
     });
 

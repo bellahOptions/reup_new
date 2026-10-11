@@ -43,6 +43,19 @@
                     <input id="name" name="name" type="text" required
                            value="{{ old('name', $user->name) }}"
                            class="input mt-1.5 @error('name') input-error @enderror">
+                    @error('name')
+                        {{-- The message used to be applied as a class with nothing to
+                             read: an administrator who typed a digit into the box got a
+                             red outline and no explanation. --}}
+                        <p class="field-error">{{ $message }}</p>
+                    @enderror
+                    {{-- The two halves are derived from this one value, and they are what
+                         the account name of the customer's personal account number is
+                         built from — so a correction here is what the payer will read. --}}
+                    <p class="mt-1.5 text-xs text-muted-foreground">
+                        Letters, spaces, apostrophes, full stops and hyphens. Saved as the customer's
+                        first and last name, which is what appears on their account number.
+                    </p>
                 </div>
 
                 <div>

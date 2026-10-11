@@ -59,6 +59,10 @@ everything under Composer.
 | every minute | `payments:reconcile` | Resolves **Paystack** payments a webhook never confirmed, and fails payments that were abandoned or never reached a gateway |
 | every two minutes | `payments:auto-resolve` | Resolves **everything else still pending** — card funding through either gateway, and provider-backed purchases whose outcome is `unknown` |
 | hourly | `payments:review-unconfirmed` | Asks providers about purchases whose outcome is unknown, and reports the ones that still are |
+| hourly | `payments:charge-funding-fees` | Collects funding service fees that could not be taken at settlement (see §Funding fees below) |
+| every two minutes | `payments:vendor-funded-purchases` | Delivers purchases paid for by card that settled but were never vended |
+| every five minutes | `payments:send-funding-receipts` | Notifies the customer, with a receipt, for every wallet funding that has settled and has not been receipted |
+| every five minutes | `providers:check-balances` | Probes each provider's float and health, so a purchase is never sold against a vendor that cannot fund it |
 | every minute | *(heartbeat)* | Writes `scheduler:last_run`, which `schedule:health` reads |
 
 **Without a scheduler runner none of these executes** and pending payments stay
@@ -103,7 +107,42 @@ php artisan payments:auto-resolve --dry-run             # what the two-minute sw
 php artisan payments:auto-resolve                       # do it
 php artisan payments:review-unconfirmed --list           # what is still unconfirmed
 php artisan payments:review-unconfirmed                  # ask the providers
+php artisan payments:send-funding-receipts --dry-run      # what the receipt sweep would send
+php artisan payments:send-funding-receipts                # send them
 ```
+
+#### `payments:send-funding-receipts` — the receipt the customer keeps
+
+Every five minutes, this walks funding rows that are `success`, older than a
+one-minute grace period, and have no `meta.receipt_sent_at`; it dispatches
+`App\Notifications\FundingReceiptNotification` for each and then stamps the row.
+
+```
+php artisan payments:send-funding-receipts                       # send what is outstanding
+php artisan payments:send-funding-receipts --dry-run             # list who would be mailed
+php artisan payments:send-funding-receipts --limit=25            # bound one run
+php artisan payments:send-funding-receipts --days=90             # widen the look-back (back-filling)
+php artisan payments:send-funding-receipts --grace=10            # leave newer rows to settle first
+```
+
+Why it is a sweep rather than a line in the settlement path, and why the stamp is
+written *after* the mail goes out, is in `AUDIT.md` §12.3. Two operational
+consequences worth knowing:
+
+* **A mail outage is survivable.** The row stays unclaimed and the next run tries
+  again. Nothing is lost, and nothing needs to be replayed by hand — but the
+  command exits non-zero and logs the customer, so a mail server that is down is
+  visible rather than silent.
+* **`--days` is what stops a first run mailing the backlog.** It defaults to 7,
+  deliberately. On a deployment where funding predates this feature, raising it is
+  a decision to send receipts for old transactions, and it should be made on
+  purpose.
+
+Mail is configured by `MAIL_*`; in development `MAIL_MAILER=log` writes the
+rendered receipt to `storage/logs/laravel.log` and sends nothing, which is enough
+to check the figures in it. `php tools/show-funding.php` lists which funding rows
+have been receipted and `php tools/show-notifications.php` shows what the customer
+was actually told.
 
 The reconciliation sweep only ever *polls* payments where Paystack is the
 authority (card, bank transfer, USSD funding). Bill purchases are resolved by
@@ -924,6 +963,60 @@ cause; `User::formatted_phone` is the one conversion rule, used by both paths.
 `VirtualAccountTest` covers each of the three, plus that no request is made when
 the phone is missing and that the provider's wording never reaches the page.
 
+#### The name on the account is the customer's, not a guess
+
+Paystack builds the account name from the customer's `first_name` and `last_name`,
+and its documentation makes both **compulsory** — not optional — when the customer
+is to be assigned a virtual account and the business category is Betting,
+Financial services or General Service. ReUp is a wallet, so it is in that set, and
+the error reference states the same thing from the other side: *"first_name,
+last_name are required in request body and must not be empty"*.
+
+So the two halves are **collected at sign-up** (`first_name`, `last_name`; the old
+single "Full name" field is gone) rather than derived by splitting a whole name on
+the first space. Splitting was wrong for anyone with a two-word given name, a
+single-word name, or a two-word surname — and the value it produces is printed on
+the account number that other people pay into, so the payer reads it in their own
+banking app before sending money.
+
+`users.name` is kept and derived: `User`'s `saving` hook rebuilds it whenever
+either half changes, and the `first_name` / `last_name` accessors fall back to
+splitting `name` when the columns are empty, which is what keeps factories,
+seeders and the admin console (all of which set only `name`) working unchanged.
+
+Three calls make the assignment, in this order, and the order matters:
+
+| # | Call | Why |
+| --- | --- | --- |
+| 1 | `GET /dedicated_account?customer=…` | Read back **before** creating, so a customer whose account exists at Paystack but not in our row (a rolled-back deploy, an account assigned by hand) is recovered instead of refused as a duplicate |
+| 2 | `PUT /customer/{code}` with `first_name`, `last_name`, `phone` | Paystack refuses an account for a record whose names are empty or whose phone is missing, and a record created during an earlier card payment has neither. Skipped entirely once `users.paystack_details_synced_at` is stamped — and stamped **only** when Paystack accepted the update, because a refused update recorded as done would leave the record incomplete forever |
+| 3 | `POST /dedicated_account` with `customer`, `preferred_bank`, and the names and phone again | The names are sent as the endpoint's own optional parameters. Redundant with step 2 on a well-behaved account; the difference between an account and a hard failure on one where step 2 was refused |
+
+`PAYSTACK_DVA_BANK` is checked against `GET /dedicated_account/available_providers`
+(cached for a day) before the assignment is attempted, and refused with the
+available slugs named if it is not on the list. An unreachable provider list does
+**not** block the attempt: it is a diagnostic, and failing open on it keeps a
+transient gateway problem from becoming an outage. Wema Bank and Titan Paystack
+are the documented providers; which of them a given business may use is Paystack's
+decision, so it is read from the API rather than hardcoded.
+
+The account's Paystack `id` and the bank slug are stored on the user
+(`dva_account_id`, `dva_bank_slug`) — Fetch and Requery address an account by its
+id, so "re-query this customer's account" is answerable from our row rather than
+from a dashboard search.
+
+#### "Access Denied" is a feature that has not been enabled
+
+Paystack's error reference for this endpoint is explicit: *"Access Denied — you
+need to confirm that you've been activated for this feature. You can reach out to
+our support team at support@paystack.com."*
+
+That is the one failure with an action attached to it, and it names a **feature**,
+not a bank. It is detected (403, or the wording) and raised with a message that
+says so, so the operator log and `paystack:diagnose-dva` point at the right place
+instead of naming a partner bank that is working fine. The customer still gets the
+same sanitised sentence as every other provider failure.
+
 ```
 PAYSTACK_SECRET_KEY=sk_...        # required; without it the page explains itself
 PAYSTACK_DVA_BANK=wema-bank       # the partner bank Paystack assigns from
@@ -932,6 +1025,106 @@ PAYSTACK_DVA_BANK=wema-bank       # the partner bank Paystack assigns from
 `VirtualAccountTest` covers the three claims that matter: the account is issued
 exactly once, a failure is explained rather than fatal, and one customer is never
 shown another's account.
+
+#### `payments:vendor-funded-purchases` — paid for, but not delivered
+
+Airtime and data can be paid for by card as well as from the wallet. That makes a
+purchase two steps across two requests: the payment settles (webhook, callback, or
+one of the sweeps), and *then* the product is vended. Settlement triggers the vend
+inline, so in the ordinary case this command finds nothing.
+
+It exists for what nothing else covers: the worker died between the credit and the
+provider call; the provider was down for the thirty seconds that mattered. In all of
+them the customer has paid and has nothing, and no other sweep is looking —
+`payments:auto-resolve` resolves the *payment*, finds it already settled, and stops.
+
+```
+php artisan payments:vendor-funded-purchases --dry-run    # who is waiting for delivery
+php artisan payments:vendor-funded-purchases              # deliver them
+php artisan payments:vendor-funded-purchases --grace=10   # leave newer ones to settle first
+```
+
+The state lives on `meta.funded_purchase.state` of the **funding** row, and
+`tools/show-funded-purchases.php` prints it — that is the first thing to look at when
+a customer says they were charged and received nothing. `pending` means the payment
+has not settled; `vended` gives the delivered reference; anything else carries a
+message explaining where the money is (in their wallet, always).
+
+#### Revenue & profit
+
+`/admin/profit` is the money page, and it reads `profit_records` — one row per
+realized sale, written by `ProfitRecorder` from the immutable pricing snapshot.
+
+**If every figure is zero, profit is not being recorded, not merely absent.** Check
+with:
+
+```
+php tools/profit-sources.php
+```
+
+It counts `profit_records` against `pricing_snapshots`, which is what tells you
+whether sales are reaching the table the dashboard reads. The dashboard groups by
+service, product, provider and category, polls `/admin/profit/data` every 30 seconds
+for the live "today" figure, and separates profit measured against a **confirmed**
+provider cost from profit measured against an assumed one — the second is a
+forecast, and the two are never added together in the headline.
+
+
+
+Small, read-only scripts under `tools/`. They exist because the questions they
+answer — "which columns does this deployment have?", "which funding rows have been
+receipted?", "is this file still valid UTF-8?", "would this rule refuse a name that
+already exists?" — are otherwise answered by opening a MySQL client or a hex editor
+and guessing.
+
+```
+php tools/db-snapshot.php        # do the columns this release needs exist?
+php tools/env-report.php         # mail/queue/cache/DVA settings, in one screen
+php tools/show-columns.php users # a table's columns and types
+php tools/show-names.php         # first / last / whole name, per account
+php tools/show-funding.php       # which funding rows have been receipted
+php tools/show-funded-purchases.php # did a card customer get what they paid for?
+php tools/profit-sources.php     # is profit reaching the table the dashboard reads?
+php tools/show-notifications.php # what the customer was actually told
+php tools/show-escaping.php      # how Blade encodes a name, in an attribute and as text
+php tools/check-names.php        # the name rule against real and junk names, and every stored name
+php tools/rename-migration.php --list   # migration rows whose file is missing
+php tools/check-encoding.php     # UTF-8, BOM and mojibake, for the touched files
+php tools/find-mojibake.php      # the whole-tree mojibake sweep (see the note below)
+```
+
+`find-mojibake.php` reports `SKIP (would not decode cleanly)` for every file that
+contains a *legitimate* multi-byte character — `₦` appears throughout the tests
+and tools — so its "0 file(s) contain mojibake" line is easy to read as a clean
+bill of health when it means "nothing to report among the files that happened to
+decode". `check-encoding.php` is the narrower check, and `tools/encoding-targets.txt`
+lists the files it looks at when given no arguments. Add a file there when it
+starts carrying a `₦`, a dash or an accented character.
+
+#### Customer names
+
+Names arrive at four endpoints — sign-up, the profile form, the admin customer
+editor, and the legacy whole-`name` field each of the first two still accepts — and
+all four go through `App\Support\Name`, which normalises (Unicode NFC, no invisible
+characters, one space between words), validates, and reports reasons a name might be
+a placeholder.
+
+```
+php artisan test --filter="NameTest|CustomerNameTest"
+php tools/check-names.php
+```
+
+`check-names.php` runs a list of real international names and a list of junk through
+the rule and prints the outcome for each, then runs **every name already in the
+database** through `validate()` and reports any it would refuse. That last part is
+the question a deploy actually needs answered: a validation rule that invalidates an
+account that already exists is a bug, not a tightening, and the answer must be zero.
+
+A name the heuristic thinks might be a placeholder is **flagged, never refused**:
+`users.name_review` is set to `pending` and the account stays fully usable. The admin
+customer list filters on `status=name_review` and shows the reason, and the customer
+page has the Approve / Not-genuine buttons. Neither decision changes the account —
+suspending a customer is a separate action with its own audit.
 
 ### `@vite` is provided by this application, not the framework
 

@@ -155,8 +155,13 @@
                             </div>
 
             
+                            {{-- How to pay. Above the PIN, because the choice decides
+                                 whether a PIN is asked for at all. --}}
+                            <x-payment-method :wallet="$wallet->balance ?? 0" />
+
                 {{-- PIN is verified server-side before the debit; the key makes a
-                     double submit idempotent. --}}
+                     double submit idempotent. Not required on the card rail — see
+                     the component. --}}
                 <x-transaction-pin id="airtime-pin" />
 
                 <input type="hidden" name="idempotency_key" value="{{ Str::random(32) }}">
@@ -241,7 +246,10 @@
                                 </div>
                             </div>
 
-            
+                            {{-- How to pay. Above the PIN, because the choice decides
+                                 whether a PIN is asked for at all. --}}
+                            <x-payment-method :wallet="$wallet->balance ?? 0" />
+
                 <x-transaction-pin id="data-pin" />
 
                 <input type="hidden" name="idempotency_key" value="{{ Str::random(32) }}">

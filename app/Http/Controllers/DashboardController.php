@@ -155,10 +155,12 @@ class DashboardController extends Controller
         /*
          * The greeting follows a local clock, and §51.8's copy uses `{first_name}`.
          *
-         * Neither is stored: the `users` table has a single `name` and no timezone
-         * column. Rather than invent a schema to satisfy a greeting, the first word of
-         * the name is used — which is what a customer would have typed into a first-name
-         * field anyway — and the application timezone stands in for the customer's.
+         * The first name is now a field of its own — collected at sign-up, because
+         * Paystack needs it for the customer's account name — so the greeting no
+         * longer has to guess it by splitting `name` on the first space. The
+         * accessor still falls back to that split for accounts that predate the
+         * field, and `?: $user->name` covers an account with no name at all, so a
+         * greeting is always a greeting rather than a blank.
          *
          * The timezone is the one place where this is a genuine approximation rather
          * than a derivation: a customer abroad reads the greeting of the deployment's
@@ -166,7 +168,7 @@ class DashboardController extends Controller
          * salutation rather than a wrong amount, and a per-account timezone is the
          * upgrade if it ever matters.
          */
-        $greetingName = Str::of((string) $user->name)->trim()->explode(' ')->first() ?: (string) $user->name;
+        $greetingName = trim((string) $user->first_name) ?: trim((string) $user->name);
         $localNow = now()->setTimezone(config('app.timezone', 'UTC'));
 
         return view('dashboard', compact(

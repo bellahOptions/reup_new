@@ -8,6 +8,7 @@ use App\Models\Wallet;
 use App\Models\WalletLedger;
 use App\Services\WalletService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -37,6 +38,15 @@ class VirtualAccountTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        /*
+         * The dedicated-account provider list is cached for a day, and
+         * `RefreshDatabase` does not clear the cache between tests — so a value
+         * cached by one test would silently answer another's question. Flushed
+         * here rather than in the tests that care, because every test in this
+         * file goes through `dvaBank()`.
+         */
+        Cache::flush();
 
         config([
             'services.paystack.secret_key' => 'sk_test_dva',
@@ -68,35 +78,100 @@ class VirtualAccountTest extends TestCase
         ], $attributes));
     }
 
-    /** `PUT /customer/{code}` — the phone sync. */
+    /**
+     * The empty "you have none" answer to the read-back.
+     *
+     * `dedicatedAccount()` asks `GET /dedicated_account?customer=…` *before* it
+     * creates anything, so that a customer whose account already exists on
+     * Paystack's side — but not on ours — is recovered rather than being shown
+     * "you already have one". Every test of the create path therefore has to
+     * answer that question; this is the shape Paystack returns when the customer
+     * genuinely has no account.
+     *
+     * @return array<string,mixed>
+     */
+    private function fakeNoExistingAccount(): array
+    {
+        return [
+            'api.paystack.co/dedicated_account?*' => Http::response([
+                'status' => true,
+                'message' => 'Dedicated accounts retrieved',
+                'data' => [],
+            ], 200),
+        ];
+    }
+
+    /**
+     * The provider list, in the shape Paystack returns it.
+     *
+     * Its own helper because `/dedicated_account/available_providers` is *also*
+     * matched by the `/dedicated_account*` wildcard the create call needs.
+     * Laravel resolves the first matching fake, so the specific pattern has to be
+     * declared first — and getting that wrong is silent: the provider list is
+     * answered with an account object, `dvaBank()` sees an empty list, and every
+     * create is refused for a reason the test never mentions.
+     *
+     * @return array<string,mixed>
+     */
+    private function providerListResponse(): array
+    {
+        return [
+            'status' => true,
+            'message' => 'Providers retrieved',
+            'data' => [
+                ['slug' => 'wema-bank', 'name' => 'Wema Bank'],
+                ['slug' => 'titan-paystack', 'name' => 'Titan Paystack'],
+            ],
+        ];
+    }
+
+    /** `PUT /customer/{code}` — the name and phone sync, plus the provider list. */
     private function fakePhoneSync(): void
     {
         Http::fake([
+            'api.paystack.co/dedicated_account/available_providers*' => Http::response($this->providerListResponse(), 200),
             'api.paystack.co/customer/*' => Http::response([
                 'status' => true,
                 'message' => 'Customer updated',
                 'data' => ['customer_code' => 'CUS_test_1'],
             ], 200),
-        ]);
+        ] + $this->fakeNoExistingAccount());
     }
 
-    /** The shape Paystack returns for `POST /dedicated_account`. */
+    /**
+     * The shape Paystack returns for the calls that make up an assignment.
+     *
+     * The provider list is answered before the read-back, the read-back before
+     * the create: all three are matched by overlapping URL prefixes, and
+     * `Http::fake` resolves the first matching pattern. That is exactly why these
+     * fakes are declared in one place rather than repeated per test.
+     */
     private function fakeAssignment(string $number = '9876543210'): void
     {
         Http::fake([
-            // The phone sync that precedes the assignment, matched first.
+            // Declared first: see providerListResponse().
+            'api.paystack.co/dedicated_account/available_providers*' => Http::response($this->providerListResponse(), 200),
+            // The read-back that precedes the assignment.
+            'api.paystack.co/dedicated_account?*' => Http::response([
+                'status' => true,
+                'message' => 'Dedicated accounts retrieved',
+                'data' => [],
+            ], 200),
+            // The name and phone sync.
             'api.paystack.co/customer/*' => Http::response([
                 'status' => true,
                 'message' => 'Customer updated',
                 'data' => ['customer_code' => 'CUS_test_1'],
             ], 200),
+            // The assignment itself.
             'api.paystack.co/dedicated_account*' => Http::response([
                 'status' => true,
                 'message' => 'Assign dedicated account in progress',
                 'data' => [
+                    'id' => 253,
                     'account_number' => $number,
                     'account_name' => 'REUP / TEST CUSTOMER',
-                    'bank' => ['name' => 'Wema Bank'],
+                    'bank' => ['name' => 'Wema Bank', 'id' => 20, 'slug' => 'wema-bank'],
                     'active' => true,
                     'currency' => 'NGN',
                 ],
@@ -122,16 +197,220 @@ class VirtualAccountTest extends TestCase
 
         $this->assertSame('9876543210', $customer->fresh()->dva_account_number);
         $this->assertSame('Wema Bank', $customer->fresh()->dva_bank_name);
+        $this->assertSame('wema-bank', $customer->fresh()->dva_bank_slug);
+        $this->assertSame(253, $customer->fresh()->dva_account_id);
         $this->assertNotNull($customer->fresh()->dva_created_at);
 
         /*
-         * Two requests, not one: the phone number is attached to the customer
-         * record before the assignment is asked for, because a record created by
-         * an earlier card payment has no phone and the assignment would be
-         * refused. Asserted by count rather than by "no error" so a future change
-         * that drops the sync is caught here.
+         * Four requests, and each one is load-bearing:
+         *
+         *   1. `GET /dedicated_account?customer=…` — read back first, so a
+         *      customer whose account already exists on Paystack's side is
+         *      recovered instead of being refused;
+         *   2. `PUT /customer/{code}` — the name and phone, without which the
+         *      assignment is refused for a record created during an earlier card
+         *      payment;
+         *   3. `POST /dedicated_account` — the assignment;
+         *   4. the same GET again, which is what turns "already assigned" into
+         *      the success it is.
+         *
+         * Asserted by count rather than by "no error" so a future change that
+         * drops one of them is caught here rather than in production.
          */
-        Http::assertSentCount(2);
+        Http::assertSentCount(4);
+    }
+
+    public function test_the_assignment_sends_the_customers_first_and_last_name(): void
+    {
+        /*
+         * Paystack's own error reference is explicit: "first_name, last_name are
+         * required in request body and must not be empty". They are what the
+         * account *name* of the customer's personal account number is built
+         * from — the name a payer reads in their banking app before sending
+         * money — so they are sent on the assignment call as well as on the
+         * customer record, and taken from the fields the customer typed rather
+         * than guessed from a whole name.
+         */
+        $customer = $this->customer([
+            'first_name' => 'Ọ̀ṣun',
+            'last_name' => "O'Brien-Smith",
+            'name' => "Ọ̀ṣun O'Brien-Smith",
+        ]);
+
+        $this->fakeAssignment();
+
+        $this->actingAs($customer)->get(route('wallet.virtual-account'))->assertOk();
+
+        Http::assertSent(function ($request) {
+            return $request->method() === 'POST'
+                && str_contains($request->url(), '/dedicated_account')
+                && ($request['first_name'] ?? null) === 'Ọ̀ṣun'
+                && ($request['last_name'] ?? null) === "O'Brien-Smith"
+                && ($request['preferred_bank'] ?? null) === 'wema-bank';
+        });
+
+        // And on the customer record, which is where Paystack reads them from.
+        Http::assertSent(function ($request) {
+            return $request->method() === 'PUT'
+                && str_contains($request->url(), '/customer/CUS_test_1')
+                && ($request['first_name'] ?? null) === 'Ọ̀ṣun'
+                && ($request['last_name'] ?? null) === "O'Brien-Smith"
+                && ($request['phone'] ?? null) === '2348031234567';
+        });
+    }
+
+    public function test_the_account_is_recovered_when_paystack_already_has_one(): void
+    {
+        /*
+         * The read-back exists for this: the customer holds an account at the
+         * gateway and our row lost it (a rolled-back deploy, or an account
+         * assigned by hand in the Paystack dashboard). Asking for a second one
+         * would be refused with a message about a duplicate; reading it back
+         * instead turns a lost row into a repaired one.
+         */
+        $customer = $this->customer();
+
+        Http::fake([
+            'api.paystack.co/dedicated_account?*' => Http::response([
+                'status' => true,
+                'data' => [[
+                    'id' => 99,
+                    'account_number' => '5555000011',
+                    'account_name' => 'REUP / RECOVERED',
+                    'bank' => ['name' => 'Wema Bank', 'slug' => 'wema-bank'],
+                    'active' => true,
+                    'currency' => 'NGN',
+                ]],
+            ], 200),
+            'api.paystack.co/customer/*' => Http::response(['status' => true, 'data' => []], 200),
+        ]);
+
+        $this->actingAs($customer)
+            ->get(route('wallet.virtual-account'))
+            ->assertOk()
+            ->assertSee('5555000011', false);
+
+        $this->assertSame('5555000011', $customer->fresh()->dva_account_number);
+
+        // Nothing was created: the only write to Paystack was the details sync.
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST');
+    }
+
+    public function test_the_configured_bank_is_checked_against_the_providers_this_account_has(): void
+    {
+        /*
+         * The documentation names Wema Bank and Titan Paystack, but which of
+         * them an integration may use is Paystack's decision and is returned by
+         * `GET /dedicated_account/available_providers`. Asking a bank that is not
+         * on that list fails at the last step of a flow the customer has already
+         * waited through, with a message about a *bank* for a problem in our
+         * configuration.
+         */
+        \Illuminate\Support\Facades\Cache::flush();
+
+        config(['services.paystack.dva_bank' => 'wema-bank']);
+
+        Http::fake([
+            'api.paystack.co/dedicated_account/available_providers' => Http::response([
+                'status' => true,
+                'data' => [
+                    ['slug' => 'wema-bank', 'name' => 'Wema Bank'],
+                    ['slug' => 'titan-paystack', 'name' => 'Titan Paystack'],
+                ],
+            ], 200),
+        ]);
+
+        $this->assertSame('wema-bank', app(\App\Services\PaystackService::class)->dvaBank());
+    }
+
+    public function test_a_bank_this_account_does_not_have_is_refused_with_the_available_list(): void
+    {
+        \Illuminate\Support\Facades\Cache::flush();
+
+        config(['services.paystack.dva_bank' => 'first-bank']);
+
+        Http::fake([
+            'api.paystack.co/dedicated_account/available_providers' => Http::response([
+                'status' => true,
+                'data' => [
+                    ['slug' => 'wema-bank', 'name' => 'Wema Bank'],
+                    ['slug' => 'titan-paystack', 'name' => 'Titan Paystack'],
+                ],
+            ], 200),
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/wema-bank, titan-paystack/');
+
+        app(\App\Services\PaystackService::class)->dvaBank();
+    }
+
+    public function test_an_unreachable_provider_list_does_not_block_the_assignment(): void
+    {
+        /*
+         * The provider list is a *diagnostic*. Refusing to try because a
+         * diagnostic call failed would turn a transient gateway problem into an
+         * outage of a feature that would have worked — so the configured bank is
+         * passed through and the assignment call is the authority.
+         */
+        \Illuminate\Support\Facades\Cache::flush();
+
+        config(['services.paystack.dva_bank' => 'wema-bank']);
+
+        Http::fake([
+            'api.paystack.co/dedicated_account/available_providers' => Http::response(['status' => false], 500),
+        ]);
+
+        $this->assertSame('wema-bank', app(\App\Services\PaystackService::class)->dvaBank());
+    }
+
+    public function test_access_denied_is_reported_as_the_feature_being_disabled(): void
+    {
+        /*
+         * Paystack's error reference for this endpoint: "Access Denied — you need
+         * to confirm that you've been activated for this feature. Reach out to
+         * support." That is the one failure with an action attached, and it names
+         * a *feature*, not a bank — so it is raised as a distinguishable message
+         * rather than being relayed as "we could not generate a bank account",
+         * which reads like a bug in us.
+         */
+        $customer = $this->customer();
+
+        Http::fake([
+            'api.paystack.co/dedicated_account?*' => Http::response(['status' => true, 'data' => []], 200),
+            'api.paystack.co/customer/*' => Http::response(['status' => true, 'data' => []], 200),
+            'api.paystack.co/dedicated_account*' => Http::response([
+                'status' => false,
+                'message' => 'Access Denied',
+            ], 403),
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/not enabled on this Paystack business/');
+
+        app(\App\Services\PaystackService::class)->dedicatedAccount($customer);
+    }
+
+    public function test_the_customer_never_sees_the_access_denied_wording(): void
+    {
+        // The customer gets the same sanitised message as any other provider
+        // failure; the diagnostic belongs in the log and in `paystack:diagnose-dva`.
+        $customer = $this->customer();
+
+        Http::fake([
+            'api.paystack.co/dedicated_account?*' => Http::response(['status' => true, 'data' => []], 200),
+            'api.paystack.co/customer/*' => Http::response(['status' => true, 'data' => []], 200),
+            'api.paystack.co/dedicated_account*' => Http::response([
+                'status' => false,
+                'message' => 'Access Denied',
+            ], 403),
+        ]);
+
+        $this->actingAs($customer)
+            ->get(route('wallet.virtual-account'))
+            ->assertOk()
+            ->assertDontSee('Access Denied', false)
+            ->assertDontSee('Paystack', false);
     }
 
     public function test_a_second_visit_does_not_ask_paystack_again(): void
@@ -149,13 +428,14 @@ class VirtualAccountTest extends TestCase
         $this->actingAs($customer)->get(route('wallet.virtual-account'))->assertOk();
 
         /*
-         * Still exactly two — the phone sync plus the one assignment — across
-         * three visits. The account exists after the first, so the second and
-         * third return it from the stored row without touching the gateway at
-         * all. A count that grew with the visits would mean the assignment (or
-         * the sync) had become per-page-load.
+         * Still exactly four — the read-back, the details sync, the one
+         * assignment, and the read-back that confirms it — across three visits.
+         * The account exists after the first, so the second and third return it
+         * from the stored row without touching the gateway at all. A count that
+         * grew with the visits would mean the assignment (or the sync) had become
+         * per-page-load.
          */
-        Http::assertSentCount(2);
+        Http::assertSentCount(4);
     }
 
     public function test_a_customer_who_already_has_an_account_never_calls_paystack(): void
@@ -200,6 +480,8 @@ class VirtualAccountTest extends TestCase
         // The real shape of the common failure: personal accounts are not
         // enabled on the Paystack account being used.
         Http::fake([
+            'api.paystack.co/dedicated_account?*' => Http::response(['status' => true, 'data' => []], 200),
+            'api.paystack.co/customer/*' => Http::response(['status' => true, 'data' => []], 200),
             'api.paystack.co/dedicated_account*' => Http::response([
                 'status' => false,
                 'message' => 'wema-bank is not available in test mode',
@@ -351,19 +633,28 @@ class VirtualAccountTest extends TestCase
 
         $this->actingAs($customer)->get(route('wallet.virtual-account'))->assertOk();
 
+        /*
+         * The provider's own record is what has to be fixed, and it has to be
+         * fixed *before* the assignment is asked for. Checked by position rather
+         * than by "a PUT was sent": a test that only asserted the call happened
+         * would pass even if the sync had drifted to after the assignment — where
+         * it is useless.
+         *
+         * The provider list is read first (it is cached for a day, so this is one
+         * request for the whole deployment), then the read-back, then the details,
+         * then the assignment.
+         */
         $sent = [];
         Http::assertSent(function ($request) use (&$sent) {
-            $sent[] = $request->method() . ' ' . $request->url();
+            $sent[] = $request->method() . ' ' . strtok($request->url(), '?');
 
             return true;
         });
 
-        $this->assertStringContainsString(
-            'PUT https://api.paystack.co/customer/CUS_test_1',
-            $sent[0] ?? '',
-            'The phone must be attached to the customer record before the assignment is requested.'
-        );
-        $this->assertStringContainsString('POST https://api.paystack.co/dedicated_account', $sent[1] ?? '');
+        $this->assertSame('GET https://api.paystack.co/dedicated_account/available_providers', $sent[0] ?? '');
+        $this->assertSame('GET https://api.paystack.co/dedicated_account', $sent[1] ?? '');
+        $this->assertSame('PUT https://api.paystack.co/customer/CUS_test_1', $sent[2] ?? '');
+        $this->assertSame('POST https://api.paystack.co/dedicated_account', $sent[3] ?? '');
     }
 
     public function test_the_phone_is_sent_in_international_form(): void
@@ -387,13 +678,21 @@ class VirtualAccountTest extends TestCase
         });
     }
 
-    public function test_a_failed_phone_sync_does_not_break_the_page(): void
+    public function test_a_failed_details_sync_does_not_break_the_page(): void
     {
-        // A gateway that refuses the update must not turn a working page into an
-        // error: the assignment call is what decides the outcome.
+        /*
+         * A gateway that refuses the update must not turn a working page into an
+         * error: the assignment call is what decides the outcome. The one thing
+         * that must *not* happen is the record being stamped as synced — a
+         * refused update recorded as done would leave the customer's Paystack
+         * record incomplete forever while every later page load skipped the call
+         * that would have fixed it.
+         */
         $customer = $this->customer();
 
         Http::fake([
+            'api.paystack.co/dedicated_account/available_providers*' => Http::response($this->providerListResponse(), 200),
+            'api.paystack.co/dedicated_account?*' => Http::response(['status' => true, 'data' => []], 200),
             'api.paystack.co/customer/*' => Http::response(['status' => false, 'message' => 'nope'], 400),
             'api.paystack.co/dedicated_account*' => Http::response([
                 'status' => true,
@@ -411,6 +710,29 @@ class VirtualAccountTest extends TestCase
             ->get(route('wallet.virtual-account'))
             ->assertOk()
             ->assertSee('9876543210', false);
+
+        $this->assertNull(
+            $customer->fresh()->paystack_details_synced_at,
+            'A refused sync must not be stamped as done, or the record stays incomplete forever.'
+        );
+    }
+
+    public function test_a_customer_whose_details_are_already_synced_is_not_updated_again(): void
+    {
+        /*
+         * The cost control. Without the stamp, every load of the virtual-account
+         * page would pay for a `PUT /customer/{code}` that changes nothing —
+         * for a page customers reload while waiting for a transfer to land.
+         */
+        $customer = $this->customer(['paystack_details_synced_at' => now()]);
+        $this->fakeAssignment();
+
+        $this->actingAs($customer)->get(route('wallet.virtual-account'))->assertOk();
+
+        Http::assertNotSent(fn ($request) => $request->method() === 'PUT');
+
+        // The read-back, the assignment and the confirming read-back still happened.
+        Http::assertSentCount(3);
     }
 
     /* =====================================================================

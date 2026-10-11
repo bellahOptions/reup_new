@@ -30,6 +30,21 @@
 
         // Grouped navigation. `permission` mirroring the route middleware keeps
         // the menu honest: an item only renders if the route would accept it.
+        //
+        // ## Every module is listed, and the permission column is what gates it
+        //
+        // Pricing, Providers and Revenue & Profit were missing from this menu
+        // entirely — not hidden from lesser roles, absent — so the only way to reach
+        // them was to know the URL. Their routes have always carried
+        // `view_pricing`, `manage_providers` and `view_profit`, which are in
+        // `Permissions::SUPER_ADMIN_ONLY`, so listing them changes nothing about who
+        // may open them: the item renders for an account the route would accept and
+        // stays hidden for one it would refuse.
+        //
+        // That relationship is the point. A menu that lists a link which then 403s
+        // teaches an administrator to distrust the menu, and a menu that omits a
+        // module teaches them it does not exist. Both are worse than a short menu
+        // that is exactly right.
         $navGroups = [
             [
                 'label' => null,
@@ -44,6 +59,23 @@
                     ['Bank transfers', 'admin.bank-transfers.index', 'admin.bank-transfers.*', 'building-library', 'manage_wallets',
                         $pendingTransfers ?? 0],
                     ['Customers', 'admin.users.index', 'admin.users.*', 'users', 'manage_users', null],
+                    ['Payments', 'admin.paystack.balance', 'admin.paystack.*', 'credit-card', 'manage_payments', null],
+                    /*
+                     * Revenue & Profit sits in Money rather than with the commercial
+                     * controls below, because it is *reporting*: an operator looking
+                     * at what the platform earned should not have to think of it as a
+                     * pricing screen. The permission still does the gating.
+                     */
+                    ['Revenue & profit', 'admin.profit.index', 'admin.profit.*', 'chart-bar', 'view_profit', null],
+                ],
+            ],
+            [
+                'label' => 'Commercial',
+                'items' => [
+                    ['Pricing', 'admin.pricing.index', 'admin.pricing.*', 'banknotes', 'view_pricing', null],
+                    ['Provider costs', 'admin.pricing.costs', 'admin.pricing.costs', 'banknotes', 'view_pricing', null],
+                    ['Margin watchlist', 'admin.profit.watchlist', 'admin.profit.watchlist', 'eye', 'view_profit', null],
+                    ['Providers', 'admin.providers.index', 'admin.providers.*', 'server-stack', 'manage_providers', null],
                 ],
             ],
             [
