@@ -281,6 +281,7 @@ class AffiliateRewardTest extends TestCase
         $this->post('/register', [
             'name' => 'New Person',
             'email' => 'new@example.test',
+            'phone' => '08031234567',
             'password' => 'password123',
             'password_confirmation' => 'password123',
             'terms' => true,
@@ -300,6 +301,7 @@ class AffiliateRewardTest extends TestCase
         $this->post('/register', [
             'name' => 'New Person',
             'email' => 'new2@example.test',
+            'phone' => '08061234567',
             'password' => 'password123',
             'password_confirmation' => 'password123',
             'terms' => true,

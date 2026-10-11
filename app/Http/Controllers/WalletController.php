@@ -132,7 +132,36 @@ class WalletController extends Controller
 
         $transactions = $query->latest()->paginate(20)->withQueryString();
 
-        return view('wallet.history', compact('wallet', 'transactions'));
+        /*
+         * The service fee charged on each of *these* funding rows, keyed by the
+         * funding transaction id.
+         *
+         * One query for the page rather than a relation per row: the fee lives on
+         * the funding row's `meta` (where it was recorded when taken) but is also
+         * a transaction of its own, so reading it from the rows already loaded
+         * keeps the history page at two queries regardless of page size.
+         *
+         * The two sources are deliberate, not redundant. `meta` is durable and
+         * survives even when the fee row could not be written; the transaction id
+         * is what makes the fee auditable and clickable. `meta` wins because it
+         * is the one that always exists.
+         */
+        $fundingFees = $transactions->getCollection()
+            ->filter(fn (Transactions $t) => $t->service_type === 'funding' && is_array($t->meta))
+            ->mapWithKeys(function (Transactions $t) {
+                $fee = $t->meta['service_fee'] ?? '0.00';
+
+                if (! is_numeric($fee) || (float) $fee <= 0) {
+                    return [];
+                }
+
+                return [$t->id => [
+                    'fee' => $fee,
+                    'transaction_id' => $t->meta['funding_fee_transaction_id'] ?? null,
+                ]];
+            });
+
+        return view('wallet.history', compact('wallet', 'transactions', 'fundingFees'));
     }
 
     public function fund()
@@ -150,8 +179,13 @@ class WalletController extends Controller
         return view('wallet.fund', [
             'wallet' => $wallet,
             'bank_details' => config('wallet.bank'),
-            'paystack_fee' => config('wallet.fees.paystack'),
-            'bank_fee' => config('wallet.fees.bank_transfer'),
+            /*
+             * The wallet-side service fee, as a rate rather than a charge. The
+             * form uses it to *disclose* what will be taken after funding — it
+             * is not added to anything the customer pays, so the page shows
+             * "you pay ₦X, we credit ₦X, ₦Y is then taken as our fee".
+             */
+            'funding_fee_config' => config('wallet.funding_fee', []),
             'min_amount' => config('wallet.minimum_funding', 100),
             'max_amount' => config('wallet.maximum_funding', 1000000),
             'recent_funding' => $recentFunding,
@@ -191,8 +225,22 @@ class WalletController extends Controller
          * amount, and the fee was computed from that same float.
          */
         $amount = Money::fromNaira($validated['amount']);
-        $fee = $this->calculateFee($amount, $validated['payment_method']);
-        $total = $amount->plus($fee);
+
+        /*
+         * The customer pays what they chose. Exactly.
+         *
+         * `total_amount` is what the gateway is asked for and what the customer
+         * sees, so it equals `amount` — the old `$amount->plus($fee)` put the
+         * service fee on the checkout, which is the behaviour being removed.
+         *
+         * The fee is not computed here any more either. It is a wallet-side
+         * charge applied on settlement (`WalletService::chargeFundingFee`), so
+         * there is one implementation of it rather than a checkout copy and a
+         * settlement copy that can disagree. The transaction's `meta` records
+         * what it *will* be, for the receipt and for support.
+         */
+        $fee = $this->fundingFee($amount);
+        $total = $amount;
 
         /*
          * Replay protection for the funding intent itself. The key is optional
@@ -247,7 +295,18 @@ class WalletController extends Controller
                     'service_type' => 'funding',
                     'description' => 'Wallet funding — ' . ($validated['payment_method'] === 'paystack' ? 'Card' : 'Bank transfer'),
                     'amount' => $amount->toDecimalString(),
-                    'service_fee' => $fee->toDecimalString(),
+                    /*
+                     * `service_fee` stays 0.00 on the funding row and the fee
+                     * moves to `meta`, because the columns on this row describe
+                     * *the payment* — and no fee was part of it. Putting the fee
+                     * in `service_fee` here would make the row read as though the
+                     * customer paid more than they did.
+                     *
+                     * `total_amount` therefore equals `amount`, which is also
+                     * what every existing reader assumes when it reckons what was
+                     * charged.
+                     */
+                    'service_fee' => '0.00',
                     'total_amount' => $total->toDecimalString(),
                     'recipient' => $user->email,
                     'provider' => $validated['payment_method'],
@@ -257,7 +316,10 @@ class WalletController extends Controller
                     'idempotency_key' => $idempotencyKey,
                     'meta' => [
                         'funding_amount' => $amount->toDecimalString(),
-                        'processing_fee' => $fee->toDecimalString(),
+                        'service_fee' => $fee->toDecimalString(),
+                        'net_credit' => $amount->minus($fee)->toDecimalString(),
+                        // Kept for the funding page and the bank-transfer view,
+                        // which read it to show what is being transferred.
                         'total_payable' => $total->toDecimalString(),
                         'initiated_at' => now()->toDateTimeString(),
                     ],
@@ -529,29 +591,31 @@ class WalletController extends Controller
     }
 
     /**
-     * The processing fee for a funding method, in exact kobo.
+     * The service fee that will be taken from the wallet after funding.
      *
-     * `Money::percentage()` rounds half-up to the nearest kobo, which is what
-     * the previous `round($amount * $percentage / 100 + $additional, 2)` did —
-     * so no historical fee changes value, but the arithmetic no longer depends
-     * on binary floating point.
+     * Recorded on the funding row at initiation so the receipt and the support
+     * console can show it before it is charged, but it is *not* part of the
+     * checkout: `WalletService::chargeFundingFee()` computes the authoritative
+     * figure when the money lands. Both read `config('wallet.funding_fee')`, so
+     * the preview and the charge cannot diverge on the rate.
+     *
+     * Kept as a controller method rather than inlined because the fee is now
+     * purely informational on this side, and that is easier to see named.
      */
-    private function calculateFee(Money $amount, string $method): Money
+    private function fundingFee(Money $amount): Money
     {
-        if ($method !== 'paystack') {
-            return Money::fromDatabase(config('wallet.fees.bank_transfer.fixed', 0));
-        }
+        $config = config('wallet.funding_fee', []);
 
-        $config = config('wallet.fees.paystack', ['percentage' => 1.5, 'additional' => 100, 'cap' => 2000]);
-
-        $fee = $amount->percentage($config['percentage'] ?? 0)
+        $fee = $amount->percentage((float) ($config['percentage'] ?? 0))
             ->plus(Money::fromDatabase($config['additional'] ?? 0));
 
-        if (isset($config['cap'])) {
+        if (isset($config['cap']) && $config['cap'] !== null) {
             $fee = $fee->min(Money::fromDatabase($config['cap']));
         }
 
-        return $fee;
+        // Never more than the customer actually funded: a fee larger than the
+        // credit would debit money they did not just add.
+        return $fee->min($amount);
     }
 
     /* =====================================================================

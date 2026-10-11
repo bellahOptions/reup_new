@@ -777,6 +777,73 @@ instead (`BillPaymentService::resolveUnknown`), and bank transfers are reported
 as not queryable — a dedicated virtual account has no per-transaction lookup,
 so the inbound transfer is matched by the webhook.
 
+### Wallet funding: what the customer pays, and when the fee is taken
+
+**The customer pays exactly the amount they choose.** The service fee is taken
+from the wallet *after* the money lands, as a separate recorded debit — it is
+never added to the checkout.
+
+```
+user funds ₦1,000
+  checkout               ₦1,000      (what Paystack/Bachs is asked for)
+  wallet credit         +₦1,000      (the full amount)
+  service fee              ₦10       (a separate wallet debit, its own row)
+  net balance increase    ₦990
+```
+
+Configured in `config/wallet.php` under `funding_fee`:
+
+```
+WALLET_FUNDING_FEE_PERCENT=     # percentage of the funded amount
+WALLET_FUNDING_FEE_FLAT=        # flat add-on
+WALLET_FUNDING_FEE_CAP=         # cap on the two combined; unset = uncapped
+```
+
+All three default to zero, so the shipped behaviour is "no fee" until a business
+decision sets one. The mechanism is the same either way.
+
+#### Where the fee is charged
+
+`WalletService::chargeFundingFee()`, called from every path that settles funding:
+
+| Path | Why it is there |
+| --- | --- |
+| `PaystackService::creditFunding()` | card funding — the webhook, the browser callback and `payments:reconcile` all settle through it |
+| `PaystackService::creditDedicatedAccountTransfer()` | virtual-account transfers, which have their own settlement path |
+| `Admin\BankTransferController::approve()` | a manually approved transfer is a funding like any other |
+| `Admin\TransactionController::forceSuccess()` | "force success" must not be a way to fund without the fee |
+
+#### The guarantees
+
+* **Once per funding.** The fee is a `transactions` row referenced
+  `FEE-<funding reference>`, and that reference is unique. A replayed webhook, a
+  second callback and the reconciliation sweep cannot take it twice.
+* **Never an overdraft.** It goes through the same locked movement path as every
+  other debit, so a balance that cannot cover it is refused. The funding credit
+  stands — it is the customer's.
+* **Never fatal.** `chargeFundingFee` catches its own errors and never throws. It
+  runs inside the settlement transaction, and an exception there would roll back a
+  credit the customer has already paid for. The fee gives way, not the funding.
+* **Never lost.** A refusal sets `meta.funding_fee_status = 'failed'` on the
+  funding row, which `payments:charge-funding-fees` retries hourly. The usual
+  cause is benign: the customer funded and spent within seconds.
+
+```
+php artisan payments:charge-funding-fees --dry-run
+php artisan payments:charge-funding-fees
+```
+
+The sweep selects on an explicit `failed` status, never on a *missing* one — a
+funding that settled before fees existed has no status at all, and charging it
+would bill a customer for something they were never told about.
+
+#### Gateway charges are not customer fees
+
+Paystack's own charge for taking the payment is a cost of doing business and is
+deducted by the gateway at settlement. It is deliberately **not** modelled as a
+customer fee and never passed on. `funding_fee` is ReUp's own charge; the two are
+separate, and nothing in the code derives one from the other.
+
 ### Funding by bank transfer without fixing an amount first
 
 `/wallet/virtual-account` shows the customer their own Paystack dedicated virtual

@@ -51,12 +51,17 @@ export function walletFunding(config) {
         min: Number(config.min ?? 0),
         max: Number(config.max ?? 0),
 
-        paystackPercentage: Number(config.paystackPercentage ?? 0),
-        paystackAdditional: Number(config.paystackAdditional ?? 0),
-        paystackCap: config.paystackCap === null || config.paystackCap === undefined
+        /*
+         * The service fee is charged to the *wallet* after funding settles, so
+         * it is disclosed here rather than added to anything. These come from
+         * `config('wallet.funding_fee')`, the same config the server charges
+         * from — the form only has to show the arithmetic, not own it.
+         */
+        feePercentage: Number(config.feePercentage ?? 0),
+        feeAdditional: Number(config.feeAdditional ?? 0),
+        feeCap: config.feeCap === null || config.feeCap === undefined
             ? null
-            : Number(config.paystackCap),
-        bankFixedFee: Number(config.bankFixedFee ?? 0),
+            : Number(config.feeCap),
 
         get numericAmount() {
             const n = parseFloat(this.amount);
@@ -64,19 +69,35 @@ export function walletFunding(config) {
             return Number.isFinite(n) && n > 0 ? n : 0;
         },
 
+        /** What will be taken from the wallet after the credit lands. */
         get fee() {
             if (this.numericAmount <= 0) return 0;
-            if (this.method === 'bank_transfer') return this.bankFixedFee;
 
-            let fee = (this.numericAmount * this.paystackPercentage / 100) + this.paystackAdditional;
+            let fee = (this.numericAmount * this.feePercentage / 100) + this.feeAdditional;
 
-            if (this.paystackCap !== null && fee > this.paystackCap) fee = this.paystackCap;
+            if (this.feeCap !== null && fee > this.feeCap) fee = this.feeCap;
 
-            return Math.round(fee * 100) / 100;
+            fee = Math.round(fee * 100) / 100;
+
+            // Never more than the customer just funded.
+            return Math.min(fee, this.numericAmount);
         },
 
+        /*
+         * The customer pays exactly what they chose — this used to be
+         * `amount + fee`, which is the checkout-side fee being removed.
+         */
         get total() {
-            return this.numericAmount + this.fee;
+            return this.numericAmount;
+        },
+
+        /** What the wallet is actually up once the fee has been taken. */
+        get netCredit() {
+            return Math.round((this.numericAmount - this.fee) * 100) / 100;
+        },
+
+        get hasFee() {
+            return this.fee > 0;
         },
 
         get outOfRange() {

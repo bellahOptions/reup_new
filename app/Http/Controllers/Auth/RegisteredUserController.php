@@ -39,9 +39,55 @@ class RegisteredUserController extends Controller
 
     public function store(Request $request)
     {
+        /*
+         * Normalise the phone number before validating it.
+         *
+         * A new required field will be pasted at least once as `+234 803 123
+         * 4567` or `0803-123-4567`. Stripping non-digits first means the regex
+         * judges the number rather than the punctuation someone copied.
+         *
+         * The `234` → `0` step matters more than it looks: stripping the
+         * punctuation from `+234 803 123 4567` leaves `2348031234567`, which is
+         * a perfectly good number that the Nigerian regex rejects for not
+         * starting with `0`. Accepting the international form and storing it the
+         * way every other part of the application expects is the difference
+         * between "we support +234" and "we reject it with a confusing message".
+         */
+        $digits = preg_replace('/\D/', '', (string) $request->input('phone'));
+
+        if (preg_match('/^234[7-9][0-9]{9}$/', $digits)) {
+            $digits = '0' . substr($digits, 3);
+        }
+
+        $request->merge(['phone' => $digits]);
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
+            /*
+             * Required, deliberately.
+             *
+             * Two things need it and neither works without it: Paystack will not
+             * issue a dedicated virtual account to a customer record with no
+             * phone number, so "fund by transfer" silently becomes unavailable;
+             * and there is no way to reach an account that has only an email
+             * address when something goes wrong.
+             *
+             * Collecting it here rather than at first use means every new account
+             * has one from the moment it exists, which is what retires the "add
+             * your phone number" prompt on the virtual-account page for new
+             * customers. The prompt remains for accounts created before this.
+             *
+             * The format follows `ProfileController::update()` exactly — one
+             * rule, two entry points — so a number cannot be valid here and
+             * invalid there.
+             */
+            'phone' => [
+                'required',
+                'string',
+                'regex:/^0[7-9][0-9]{9}$/',
+                'unique:users,phone',
+            ],
             // 8 is the platform floor; the reset flow enforces the same via
             // Rules\Password in NewPasswordController.
             'password' => ['required', 'confirmed', Rules\Password::min(8)],
@@ -51,6 +97,9 @@ class RegisteredUserController extends Controller
             'ref' => ['nullable', 'string', 'max:16'],
         ], [
             'terms.accepted' => 'You must accept the terms of service and privacy policy to continue.',
+            'phone.required' => 'We need your phone number to open your wallet.',
+            'phone.regex' => 'Enter a valid Nigerian phone number, for example 08012345678.',
+            'phone.unique' => 'That phone number is already registered to another account.',
         ]);
 
         // Resolve the referrer before creating the account, so a code that no
@@ -60,6 +109,7 @@ class RegisteredUserController extends Controller
         $user = User::create([
             'name' => $validated['name'],
             'email' => $validated['email'],
+            'phone' => $validated['phone'],
             'password' => Hash::make($validated['password']),
             // Set once, at sign-up, and only when it is not the user's own code.
             // The reward itself is paid much later, on qualifying funding; this

@@ -480,6 +480,24 @@ public function show(Request $request, Transactions $transaction)
                     metadata: ['admin_id' => $actorId],
                     actorId: $actorId,
                 );
+
+                /*
+                 * The service fee, so forcing a funding successful by hand
+                 * collects the same charge the automatic routes would. Without
+                 * this, "force success" would be a way to fund without the fee —
+                 * and `chargeFundingFee` is idempotent, so a row that already
+                 * paid it is correctly left alone.
+                 */
+                $feeResult = $this->wallets->chargeFundingFee($user, $locked);
+
+                $locked->forceFill([
+                    'meta' => array_merge($locked->meta ?? [], [
+                        'funding_fee' => $feeResult['fee'],
+                        'funding_fee_status' => $feeResult['status'],
+                        'funding_fee_transaction_id' => $feeResult['transaction']?->getKey(),
+                        'funding_fee_error' => $feeResult['message'],
+                    ]),
+                ])->save();
             }
 
             $locked->forceFill([

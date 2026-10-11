@@ -807,8 +807,93 @@ Two notes on trusting a check rather than a claim, both from this pass:
 * **MySQL had stopped.** It was killed abruptly at 09:41:17 along with the session and never restarted,
   so ten tests failed with `SQLSTATE[HY000] [2002]` — an environment fault, not a code one. The data
   directory was intact; restarting `mysqld` from the Laragon configuration brought the suite green.
+  It is now installed as an auto-start Windows service (`ReUpMySQL`), so a session reset cannot take
+  the development database with it again.
 * **The mojibake guard caught a file my own `Set-Content` had damaged minutes earlier.** A guard that
   fails within the hour of being written is the argument for having written it.
+
+---
+
+## 11. Wallet funding UX: the fee moves to the wallet (2026-03-01)
+
+**The behaviour being fixed:** a customer who typed ₦1,000 was asked for ₦1,035. The service fee was
+added to the checkout by `WalletController::calculateFee()`, so `total_amount` — the figure sent to the
+gateway and shown on the funding page — was `amount + fee`.
+
+**The behaviour now:** the customer pays exactly the amount they chose, is credited that amount in
+full, and the fee is taken from the wallet afterwards as a separate, recorded debit.
+
+```
+checkout               ₦1,000
+wallet credit         +₦1,000
+service fee              ₦10       (its own transaction row, its own ledger entry)
+net balance increase    ₦990
+```
+
+### What changed
+
+| # | Change |
+| --- | --- |
+| 1 | `config/wallet.php`: `fees.paystack` (1.5% + ₦20) and `fees.bank_transfer` are **replaced** by `funding_fee` (`WALLET_FUNDING_FEE_*`), defaulting to zero |
+| 2 | `WalletController::processFunding()`: `total = amount`. The fee is recorded in `meta`; the row's `service_fee` column stays `0.00`, because no fee is part of the payment |
+| 3 | `WalletService::chargeFundingFee()` — idempotent, non-overdrafting, non-throwing — plus `fundingFeeFor()` and the deterministic `FEE-<reference>` key |
+| 4 | The fee is charged from all four settlement paths: card/webhook, virtual-account transfer, manual bank-transfer approval, and admin "force success" |
+| 5 | `payments:charge-funding-fees`, hourly, retries fees that could not be collected |
+| 6 | Funding page: "You pay / We credit / Service fee / Net wallet increase", replacing "Amount to fund / Processing fee / Total to pay" |
+| 7 | History: the fee is its own row with its own icon, and the funding row names the fee and the net credited |
+| 8 | A migration adds `fee` to the `transactions.service_type` ENUM |
+
+### The four guarantees, and how each is enforced
+
+* **Once per funding** — the fee row's reference is derived from the funding reference and is unique. A
+  replayed webhook, a second callback and the reconciliation sweep cannot each take one.
+* **Never an overdraft** — it goes through the same locked movement path as every other debit.
+* **Never fatal** — `chargeFundingFee` catches its own errors and never throws. It runs *inside* the
+  settlement transaction, and an exception there would roll back a credit the customer has already paid
+  for, which is the one outcome worse than an uncollected fee.
+* **Never lost** — a refusal sets `meta.funding_fee_status = 'failed'`, which the sweep retries. It
+  selects on an explicit `failed` status and never on a *missing* one: funding that settled before fees
+  existed has no status at all, and charging that would bill a customer for something they were never
+  told about.
+
+### Gateway charges are not customer fees
+
+Paystack's own charge is deducted by the gateway at settlement and is a cost of taking the payment. It
+is deliberately not modelled as a customer fee and not passed on; `funding_fee` is ReUp's own charge,
+and nothing derives one from the other.
+
+### Defects found while doing it
+
+| Defect | Effect |
+| --- | --- |
+| `service_type` is an `ENUM`, not a free string | Writing `funding_fee` produced `Data truncated for column 'service_type'` — a MySQL **warning**, not an error, so the row was written with a mangled type and only the ledger would have noticed. Fixed by widening the ENUM properly rather than by reaching for a `VARCHAR` |
+| The fee's audit write was clobbered | `chargeFundingFee` wrote `meta.funding_fee_status`, then the settlement's own `forceFill` merged it away against a `meta` that predated it. The fee row was still created, so nothing failed — but the retry sweep, which selects on that key, could never have seen an outstanding fee. Only the *record* was lost, which is the version of this that reaches production |
+| A test passed for the wrong reason | A drain of ₦9 left ₦981, so a ₦10 fee succeeded and the assertion proved nothing. Corrected to a drain that actually leaves the wallet short |
+
+### `BachsFallbackTest` was asserting the old behaviour
+
+It pinned the Bachs checkout amount as `'5095.00'` — ₦5,000 plus 1.5% plus ₦20 — with a comment
+explaining the fee was payable on top. That assertion *is* the bug, so it now reads `'5000.00'`. A test
+that encodes the defect is worth more than one that merely fails.
+
+`FundingFeeTest` (18 cases) covers the checkout amount, the gateway figure in kobo, gross-credit-then-
+fee, both ledger entries, the audit trail, double settlement, double webhook delivery, an uncollectable
+fee, the retry sweep (including `--dry-run` and the "no fee status" case), and the fee arithmetic
+including the cap and the never-more-than-funded rule.
+
+### Phone number is now required at signup
+
+Separately, and for a reason found two passes earlier: Paystack will not issue a dedicated virtual
+account to a customer record with no phone number, so an account without one silently cannot fund by
+transfer. `RegisteredUserController` now requires it, validated with the same rule
+`ProfileController::update()` already used, and normalised first — including `+234 803 123 4567` →
+`08031234567`, which a naive digits-only strip turns into `2348031234567` and the Nigerian regex then
+rejects with a confusing message.
+
+`RegistrationTest` gained 9 cases, including a data provider for five typed formats. It is a provider
+rather than a loop inside one test because registration signs the account in, so a second pass in the
+same test is correctly redirected away by `guest` and creates nothing — the loop version failed on its
+second iteration for exactly that reason.
 
 
 

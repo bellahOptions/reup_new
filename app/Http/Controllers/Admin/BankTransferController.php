@@ -197,12 +197,35 @@ class BankTransferController extends Controller
                 ]),
             ])->save();
 
+            /*
+             * The service fee, on the same terms as an automatic settlement.
+             *
+             * A manually approved transfer is a funding like any other, and the
+             * customer was charged nothing extra for it — so the fee has to be
+             * taken here too, or this route would silently be the free one.
+             * `chargeFundingFee` is idempotent, never overdrafts and never
+             * throws, so it cannot turn a valid approval into a failed one.
+             */
+            $feeResult = $this->wallets->chargeFundingFee($locked->user, $locked);
+
+            $locked->forceFill([
+                'meta' => array_merge($locked->meta ?? [], [
+                    'funding_fee' => $feeResult['fee'],
+                    'funding_fee_status' => $feeResult['status'],
+                    'funding_fee_transaction_id' => $feeResult['transaction']?->getKey(),
+                    'funding_fee_charged_at' => $feeResult['status'] === 'charged' ? now()->toDateTimeString() : null,
+                    'funding_fee_error' => $feeResult['message'],
+                ]),
+            ])->save();
+
             AdminLog::log(Auth::id(), 'approve_bank_transfer', [
                 'transaction_id' => $locked->id,
                 'user_id' => $locked->user_id,
                 'amount' => $amount->toDecimalString(),
                 'balance_before' => $movement['balance_before'],
                 'balance_after' => $movement['balance_after'],
+                'service_fee' => $feeResult['fee'],
+                'service_fee_status' => $feeResult['status'],
                 'remarks' => $validated['remarks'] ?? null,
             ]);
 
@@ -213,9 +236,16 @@ class BankTransferController extends Controller
             return back()->with('error', 'That transfer has already been actioned.');
         }
 
+        $credited = $outcome['transaction'];
+
         return redirect()->route('admin.bank-transfers.index')->with(
             'success',
-            'Transfer approved. ' . Money::fromDatabase($outcome['transaction']->amount)->format() . ' credited.'
+            'Transfer approved. ' . Money::fromDatabase($credited->amount)->format() . ' credited'
+            // Surfaced rather than swallowed: an uncollected fee is a real
+            // operational fact, and `payments:charge-funding-fees` will retry it.
+            . (($credited->fresh()->meta['funding_fee_status'] ?? null) === 'failed'
+                ? ' — the service fee could not be collected and is queued for retry.'
+                : '.')
         );
     }
 

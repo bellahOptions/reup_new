@@ -8,8 +8,10 @@ use App\Models\Wallet;
 use App\Models\WalletLedger;
 use App\Support\Money;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Throwable;
 
 /**
  * The only approved application-level path for moving wallet value.
@@ -177,6 +179,184 @@ class WalletService
     }
 
     /**
+     * Take the funding service fee, after the funding itself is credited.
+     *
+     * ## Why the fee is here and not on the checkout
+     *
+     * The customer pays the amount they chose and is credited that amount, in
+     * full. The service fee is then a separate, recorded debit, so the *net*
+     * increase is the amount minus the fee and nothing the customer is asked to
+     * pay is ever larger than the figure they typed.
+     *
+     * ## Contract
+     *
+     *   * **Idempotent.** The fee is a `transactions` row of its own, keyed by a
+     *     reference derived from the funding row, and that reference is unique.
+     *     A webhook replay, a browser callback and the reconciliation sweep can
+     *     all arrive for the same funding and exactly one fee is taken — the
+     *     second caller is told `already_charged` because the row is there.
+     *   * **Never overdrafts.** The debit goes through the same locked path as
+     *     every other movement, so a balance that cannot cover the fee is refused
+     *     rather than driven negative. The funding credit is *not* rolled back:
+     *     see the return value.
+     *   * **Fails soft.** Anything that goes wrong is caught, recorded on the
+     *     funding row and returned as `failed` — never thrown. This runs inside
+     *     the settlement transaction, and an exception here would roll back a
+     *     credit the customer has already paid for. That is the one outcome worse
+     *     than an uncollected fee, so the fee is the thing that gives way.
+     *   * **Recoverable.** A failure sets `meta.funding_fee_status = 'failed'`,
+     *     which `payments:charge-funding-fees` retries. The fee is not silently
+     *     lost.
+     *
+     * @param  array<string,mixed>  $metadata
+     * @return array{status:string,fee:string,transaction:?Transactions,message:?string}
+     *         status: charged | already_charged | none | failed
+     */
+    public function chargeFundingFee(User $user, Transactions $funding, array $metadata = []): array
+    {
+        $fee = $this->fundingFeeFor(Money::fromDatabase($funding->amount));
+
+        if (! $fee->isPositive()) {
+            return ['status' => 'none', 'fee' => '0.00', 'transaction' => null, 'message' => null];
+        }
+
+        $reference = self::fundingFeeReference((string) $funding->reference);
+
+        // Serialise against a concurrent settlement of the same funding. The
+        // unique index on `reference` is the structural guarantee; this is what
+        // turns a duplicate-key race into the ordinary `already_charged` answer.
+        $existing = Transactions::where('reference', $reference)->lockForUpdate()->first();
+
+        if ($existing) {
+            return ['status' => 'already_charged', 'fee' => (string) $existing->amount, 'transaction' => $existing, 'message' => null];
+        }
+
+        try {
+            $feeTransaction = Transactions::create([
+                'user_id' => $user->id,
+                'reference' => $reference,
+                'type' => 'debit',
+                /*
+                 * Its own service type, so the statement reads as "service fee"
+                 * rather than as a purchase. It is not `funding`, because that
+                 * would make the fee look like money the customer added, and it
+                 * is not a bill type, because nothing was vended.
+                 *
+                 * `fee` is a widened value on the `transactions.service_type`
+                 * ENUM — see the migration that adds it. Writing anything not in
+                 * that list is silently *truncated* by MySQL rather than
+                 * rejected, which is why the list is extended rather than
+                 * bypassed.
+                 */
+                'service_type' => 'fee',
+                'description' => 'Service fee on wallet funding',
+                'amount' => $fee->toDecimalString(),
+                'service_fee' => '0.00',
+                'total_amount' => $fee->toDecimalString(),
+                'recipient' => 'ReUp',
+                'provider' => 'reup',
+                // Not a gateway payment: this is our own charge, settled from the
+                // balance the funding above just created. Marking it `paystack`
+                // would invite a future reconciliation sweep to go looking for it
+                // at the gateway.
+                'payment_method' => 'wallet',
+                'payment_status' => 'success',
+                'status' => 'success',
+                'paid_at' => now(),
+                'completed_at' => now(),
+                'meta' => array_merge($metadata, [
+                    'kind' => 'funding_service_fee',
+                    'funding_transaction_id' => $funding->getKey(),
+                    'funding_reference' => $funding->reference,
+                    'funded_amount' => (string) $funding->amount,
+                    'charged_at' => now()->toDateTimeString(),
+                ]),
+            ]);
+
+            $movement = $this->debit(
+                user: $user,
+                amount: $fee,
+                entryType: WalletLedger::ENTRY_DEBIT,
+                description: 'Service fee on wallet funding',
+                transaction: $feeTransaction,
+                metadata: [
+                    'kind' => 'funding_service_fee',
+                    'funding_transaction_id' => $funding->getKey(),
+                ],
+            );
+
+            $feeTransaction->forceFill([
+                'balance_before' => $movement['balance_before'],
+                'balance_after' => $movement['balance_after'],
+                'meta' => array_merge($feeTransaction->meta ?? [], [
+                    'ledger_entry_id' => $movement['ledger']->id,
+                ]),
+            ])->save();
+
+            return ['status' => 'charged', 'fee' => $fee->toDecimalString(), 'transaction' => $feeTransaction, 'message' => null];
+        } catch (Throwable $e) {
+            /*
+             * Almost always "insufficient balance": the customer funded and then
+             * spent the money before the fee was collected. The funding credit
+             * stands — it is theirs — and the fee is marked for the retry sweep.
+             *
+             * The fee row is removed first: it was written before the debit
+             * succeeded, and leaving a successful-looking debit for money that
+             * never moved would make the statement lie.
+             */
+            if (isset($feeTransaction)) {
+                $feeTransaction->forceFill(['status' => 'failed', 'payment_status' => 'failed', 'status_message' => $e->getMessage()])->save();
+            }
+
+            Log::warning('Funding service fee could not be collected', [
+                'user_id' => $user->id,
+                'funding_transaction_id' => $funding->getKey(),
+                'fee' => $fee->toDecimalString(),
+                'error' => $e->getMessage(),
+            ]);
+
+            return ['status' => 'failed', 'fee' => $fee->toDecimalString(), 'transaction' => null, 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * The service fee for a funded amount, in exact kobo.
+     *
+     * `percentage` is taken of the amount, `additional` is flat, `cap` bounds
+     * their sum. Capped at the funded amount as well: a fee larger than the
+     * credit would take money the customer did not just add.
+     *
+     * Public so the funding page can disclose the same figure it will be charged
+     * — a preview computed by a second implementation is a preview that will
+     * eventually be wrong.
+     */
+    public function fundingFeeFor(Money $amount): Money
+    {
+        $config = config('wallet.funding_fee', []);
+
+        $fee = $amount->percentage((float) ($config['percentage'] ?? 0))
+            ->plus(Money::fromDatabase($config['additional'] ?? 0));
+
+        if (isset($config['cap']) && $config['cap'] !== null) {
+            $fee = $fee->min(Money::fromDatabase($config['cap']));
+        }
+
+        return $fee->min($amount);
+    }
+
+    /**
+     * The deterministic reference a funding row's fee will use.
+     *
+     * Derived rather than random, because the whole idempotency guarantee rests
+     * on the same funding always producing the same fee reference. A random one
+     * would let two callers each create a fee for the same funding.
+     */
+    public static function fundingFeeReference(string $fundingReference): string
+    {
+        return 'FEE-' . $fundingReference;
+    }
+
+    /**
      * Compensating credit for a failed purchase.
      *
      * Recorded as REFUND, not CREDIT, so a statement distinguishes money the
@@ -184,8 +364,7 @@ class WalletService
      *
      * @param  array<string,mixed>  $metadata
      */
-    public function refund(
-        User $user,
+    public function refund(        User $user,
         $amount,
         ?string $description = null,
         ?Transactions $transaction = null,

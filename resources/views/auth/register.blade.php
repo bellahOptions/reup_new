@@ -61,6 +61,29 @@
                 </div>
 
                 <div>
+                    <label for="phone" class="label">Phone number</label>
+                    <input
+                        id="phone"
+                        name="phone"
+                        type="tel"
+                        value="{{ old('phone') }}"
+                        required
+                        inputmode="numeric"
+                        autocomplete="tel"
+                        placeholder="08012345678"
+                        class="input mt-1.5 @error('phone') input-error @enderror">
+                    @error('phone')
+                        <p class="field-error">{{ $message }}</p>
+                    @else
+                        {{-- Says why we are asking. A required field with no reason
+                             is one people fill in with something false. --}}
+                        <p class="mt-1.5 text-xs text-muted-foreground">
+                            Your wallet and personal account number are tied to this number.
+                        </p>
+                    @enderror
+                </div>
+
+                <div>
                     <label for="password" class="label">Password</label>
                     <input
                         id="password"

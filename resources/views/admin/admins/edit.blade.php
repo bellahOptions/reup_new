@@ -1,4 +1,4 @@
-﻿@extends('admin.layouts.app')
+@extends('admin.layouts.app')
 
 @section('title', 'Edit Admin - ' . $admin->name)
 @section('page-title', 'Edit Administrator Account')

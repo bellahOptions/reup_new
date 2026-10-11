@@ -457,10 +457,49 @@ class PaystackService
          * callback and the payments:reconcile sweep all pass through here.
          * It is idempotent and swallows its own duplicate-key races, so a
          * failure here cannot cost the customer their credit.
+         *
+         * It reads `wallet.total_funded`, which the fee debit does not touch
+         * (`countsAsFunding: false`), so the qualifying amount is the gross the
+         * customer funded rather than the net after our charge.
          */
         $this->rewardReferrer($user, $locked);
 
+        /*
+         * The fee audit trail goes on LAST, and that ordering is load-bearing.
+         *
+         * Writing it before the `forceFill` above meant the `array_merge` there
+         * merged the fee keys back into a `meta` that predated them — so the row
+         * ended up with no `funding_fee_status` at all, and the retry sweep (which
+         * selects on exactly that key) could never see a fee it needed to collect.
+         * The fee row was still written; only the record of it was lost, which is
+         * the failure mode that would have gone unnoticed in production.
+         */
+        $this->chargeFundingFee($user, $locked);
+
         return ['status' => 'settled', 'transaction' => $locked];
+    }
+
+    /**
+     * Collect the funding service fee and record the outcome on the funding row.
+     *
+     * The row's `meta` is the audit trail: it says whether the fee has been
+     * taken, how much, which transaction took it, and — when it could not be
+     * taken — why, so `payments:charge-funding-fees` can retry it and support can
+     * answer "was I charged?" from the row alone.
+     */
+    private function chargeFundingFee(User $user, Transactions $funding): void
+    {
+        $result = $this->wallets->chargeFundingFee($user, $funding);
+
+        $funding->forceFill([
+            'meta' => array_merge($funding->meta ?? [], [
+                'funding_fee' => $result['fee'],
+                'funding_fee_status' => $result['status'],
+                'funding_fee_transaction_id' => $result['transaction']?->getKey(),
+                'funding_fee_charged_at' => $result['status'] === 'charged' ? now()->toDateTimeString() : null,
+                'funding_fee_error' => $result['message'],
+            ]),
+        ])->save();
     }
 
     /**
@@ -1024,6 +1063,17 @@ class PaystackService
                 // The provider reference is an identifier, not a credential.
                 'reference' => $providerReference,
             ]);
+
+            /*
+             * The service fee, on the same terms as card funding.
+             *
+             * A virtual-account transfer settles here rather than in
+             * `creditFunding`, so the fee has to be collected in both places —
+             * that is a consequence of the DVA having no per-transaction lookup
+             * and therefore its own settlement path. `chargeFundingFee` is
+             * idempotent, so the two can never both charge for one funding.
+             */
+            $this->chargeFundingFee($user, $transaction);
 
             // Bank transfers are a first-class funding route, so they qualify
             // for the referral reward exactly like a card payment.

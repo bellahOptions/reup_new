@@ -1,4 +1,4 @@
-﻿@extends('layouts.main')
+@extends('layouts.main')
 
 @section('title', 'One wallet for everything digital')
 @section('meta_description', 'Pay bills, buy data, get gift cards, top up international numbers, activate eSIMs and grow your social presence — all from one simple ReUp wallet.')

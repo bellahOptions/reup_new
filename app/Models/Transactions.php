@@ -128,6 +128,10 @@ class Transactions extends Model
             'airtime' => 'badge-primary',
             'data' => 'badge-info',
             'funding' => 'badge-success',
+            // Our own charge on a funding, not money the customer added. A
+            // neutral chip keeps it visually distinct from the funding row it
+            // belongs to, which is the whole point of recording it separately.
+            'fee' => 'badge-neutral',
             'cable-tv' => 'badge-warning',
             'electricity' => 'badge-warning',
             'exam' => 'badge-neutral',

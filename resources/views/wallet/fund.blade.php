@@ -6,8 +6,9 @@
     |--------------------------------------------------------------------------
     | Fund wallet
     |--------------------------------------------------------------------------
-    | WalletController::fund() passes $wallet, $bank_details, $paystack_fee,
-    | $bank_fee, $min_amount, $max_amount, $recent_funding and $paystack_enabled.
+    | WalletController::fund() passes $wallet, $bank_details,
+    | $funding_fee_config, $min_amount, $max_amount, $recent_funding and
+    | $paystack_enabled.
     |
     | Two things changed structurally:
     |
@@ -24,10 +25,16 @@
     |    target are unchanged.
     */
     $balance = (float) ($wallet->balance ?? 0);
-    $paystackPercentage = (float) ($paystack_fee['percentage'] ?? 0);
-    $paystackAdditional = (float) ($paystack_fee['additional'] ?? 0);
-    $paystackCap = $paystack_fee['cap'] ?? null;
-    $bankFixedFee = (float) ($bank_fee['fixed'] ?? 0);
+
+    /*
+     * The service fee is taken from the wallet *after* funding, so the form
+     * discloses it rather than adding it. Mirrors `config('wallet.funding_fee')`,
+     * which is also what `WalletService::chargeFundingFee()` charges from.
+     */
+    $feePercentage = (float) ($funding_fee_config['percentage'] ?? 0);
+    $feeAdditional = (float) ($funding_fee_config['additional'] ?? 0);
+    $feeCap = $funding_fee_config['cap'] ?? null;
+    $hasFundingFee = $feePercentage > 0 || $feeAdditional > 0;
 
     $quickAmounts = [500, 1000, 2000, 5000, 10000];
     $amountOutOfRange = $errors->has('amount');
@@ -49,7 +56,8 @@
         <header class="mb-8 md:mb-10">
             <h1 class="mt-2 text-2xl font-semibold md:text-3xl">Fund your wallet</h1>
             <p class="mt-2 max-w-2xl text-sm text-muted-foreground md:text-base">
-                Add money by card or bank transfer. The fee is calculated before you pay, never after.
+                Add money by card or bank transfer. You pay exactly the amount you enter — any ReUp
+                service fee is taken from your balance after the money lands, never added to your payment.
             </p>
         </header>
 
@@ -98,10 +106,9 @@
                         quick: @js($quickAmounts),
                         min: @js((float) $min_amount),
                         max: @js((float) $max_amount),
-                        paystackPercentage: @js($paystackPercentage),
-                        paystackAdditional: @js($paystackAdditional),
-                        paystackCap: @js($paystackCap !== null ? (float) $paystackCap : null),
-                        bankFixedFee: @js($bankFixedFee)
+                        feePercentage: @js($feePercentage),
+                        feeAdditional: @js($feeAdditional),
+                        feeCap: @js($feeCap !== null ? (float) $feeCap : null)
                      })">
 
                     {{-- The component itself lives in
@@ -288,22 +295,48 @@
                                 </p>
                             </fieldset>
 
-                            {{-- Summary --}}
+                            {{-- Summary.
+                                 The customer pays the amount they typed, full
+                                 stop. The service fee is taken from the wallet
+                                 afterwards, so it is shown as a *consequence* of
+                                 funding rather than an addition to the total —
+                                 which is the whole point of this layout: nothing
+                                 here is ever larger than the figure above. --}}
                             <dl class="space-y-3 rounded-lg border border-border bg-surface p-4 text-sm">
                                 <div class="flex items-center justify-between gap-3">
-                                    <dt class="text-muted-foreground">Amount to fund</dt>
-                                    <dd class="font-medium tabular-nums" x-text="format(numericAmount)"></dd>
+                                    <dt class="text-muted-foreground">You pay</dt>
+                                    <dd class="font-medium tabular-nums" x-text="format(total)"></dd>
                                 </div>
                                 <div class="flex items-center justify-between gap-3">
-                                    <dt class="text-muted-foreground">Processing fee</dt>
-                                    <dd class="font-medium tabular-nums" x-text="format(fee)"></dd>
+                                    <dt class="text-muted-foreground">We credit to your wallet</dt>
+                                    <dd class="font-medium tabular-nums" x-text="format(total)"></dd>
                                 </div>
-                                <div class="flex items-center justify-between gap-3 border-t border-border pt-3">
-                                    <dt class="font-medium">Total to pay</dt>
-                                    <dd class="text-lg font-semibold tabular-nums text-brand-700" x-text="format(total)"></dd>
-                                </div>
+                                @if($hasFundingFee)
+                                    <div class="flex items-center justify-between gap-3" x-show="hasFee" x-cloak>
+                                        <dt class="text-muted-foreground">
+                                            ReUp service fee
+                                            <span class="block text-xs">taken from your wallet after funding</span>
+                                        </dt>
+                                        <dd class="font-medium tabular-nums text-muted-foreground"
+                                            x-text="'\u2212 ' + format(fee)"></dd>
+                                    </div>
+                                    <div class="flex items-center justify-between gap-3 border-t border-border pt-3"
+                                         x-show="hasFee" x-cloak>
+                                        <dt class="font-medium">Net wallet increase</dt>
+                                        <dd class="text-lg font-semibold tabular-nums text-brand-700"
+                                            x-text="format(netCredit)"></dd>
+                                    </div>
+                                @endif
                                 <p class="text-xs text-muted-foreground">
-                                    Fees are capped where a percentage is used, so large top-ups stay reasonable.
+                                    @if($hasFundingFee)
+                                        The fee is our charge for the service, deducted from your balance.
+                                        Any charge from your bank or card provider is separate and is not passed
+                                        on to you.
+                                    @else
+                                        There is no ReUp fee on wallet funding — the full amount you pay is
+                                        added to your balance. Any charge from your bank or card provider is
+                                        separate and is not passed on to you.
+                                    @endif
                                 </p>
                             </dl>
 
@@ -355,23 +388,54 @@
                     </ol>
                 </section>
 
-                {{-- Fees --}}
+                {{-- Fees.
+                     Deliberately not "applied at checkout": this card used to say
+                     that, and it was the checkout-side fee this change removes. --}}
                 <section class="card">
                     <div class="card-header">
-                        <h2 class="card-title">Processing fees</h2>
-                        <p class="card-description">Applied automatically at checkout.</p>
+                        <h2 class="card-title">Service fee</h2>
+                        <p class="card-description">Deducted from your balance, not added to your payment.</p>
                     </div>
                     <dl class="card-content space-y-3 text-sm">
-                        <div class="flex items-center justify-between gap-3">
-                            <dt class="text-muted-foreground">Card payment</dt>
-                            <dd class="font-medium tabular-nums">
-                                {{ rtrim(rtrim(number_format($paystackPercentage, 2), '0'), '.') }}%
-                                + &#8358;{{ number_format($paystackAdditional, 2) }}
-                            </dd>
-                        </div>
-                        <div class="flex items-center justify-between gap-3">
-                            <dt class="text-muted-foreground">Bank transfer</dt>
-                            <dd class="font-medium tabular-nums">&#8358;{{ number_format($bankFixedFee, 2) }}</dd>
+                        @if($hasFundingFee)
+                            <div class="flex items-start justify-between gap-3">
+                                <dt class="text-muted-foreground">
+                                    ReUp service fee
+                                    <span class="mt-0.5 block text-xs">The same rate for card and bank transfer.</span>
+                                </dt>
+                                <dd class="shrink-0 text-right font-medium tabular-nums">
+                                    @if($feePercentage > 0)
+                                        {{ rtrim(rtrim(number_format($feePercentage, 2), '0'), '.') }}%
+                                    @endif
+                                    @if($feePercentage > 0 && $feeAdditional > 0) + @endif
+                                    @if($feeAdditional > 0)
+                                        &#8358;{{ number_format($feeAdditional, 2) }}
+                                    @endif
+                                    @if($feeCap !== null)
+                                        <span class="mt-0.5 block text-xs font-normal text-muted-foreground">
+                                            capped at &#8358;{{ number_format((float) $feeCap, 2) }}
+                                        </span>
+                                    @endif
+                                </dd>
+                            </div>
+                            <p class="text-xs text-muted-foreground">
+                                Funding &#8358;1,000 credits &#8358;1,000 and then takes the fee, so your balance
+                                rises by the difference.
+                            </p>
+                        @else
+                            <div class="flex items-start justify-between gap-3">
+                                <dt class="text-muted-foreground">ReUp service fee</dt>
+                                <dd class="font-medium tabular-nums">None</dd>
+                            </div>
+                            <p class="text-xs text-muted-foreground">
+                                We do not charge for funding. Your full &#8358;1,000 reaches your balance.
+                            </p>
+                        @endif
+                        <div class="border-t border-border pt-3">
+                            <p class="text-xs text-muted-foreground">
+                                Your bank or card provider may charge you separately. That is their fee, not
+                                ours, and it is not deducted here.
+                            </p>
                         </div>
                     </dl>
                 </section>

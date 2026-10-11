@@ -1,4 +1,4 @@
-﻿
+
 {{-- `data-transaction-reference` is read by viewTransactionDetails() to fill the
      shell's subtitle. Without it the header stayed on "Loading…" forever,
      because nothing replaced it once the content arrived. --}}

@@ -17,6 +17,9 @@
         'electricity' => 'bolt',
         'exam' => 'academic-cap',
         'funding' => 'credit-card',
+        // Our own charge on a funding. Its own icon so the fee is never mistaken
+        // for the funding it belongs to — the two are separate rows on purpose.
+        'fee' => 'receipt-percent',
         'wallet_funding' => 'credit-card',
         'refund' => 'arrow-path',
         'transfer' => 'arrows-up-down',
@@ -217,9 +220,24 @@
                                                     class="mt-0.5 h-4 w-4 shrink-0 text-ink-500" />
                                             <span class="min-w-0">
                                                 <span class="block text-sm font-medium">
-                                                    {{ $transaction->description ?: ucfirst((string) $transaction->service_type) }}
+                                                    {{-- A fee row is named for what it is, so the
+                                                         statement never reads as though the
+                                                         customer funded more than they did. --}}
+                                                    {{ $transaction->service_type === 'fee'
+                                                        ? 'Service fee on funding'
+                                                        : ($transaction->description ?: ucfirst((string) $transaction->service_type)) }}
                                                 </span>
-                                                @if($transaction->recipient)
+                                                @if($transaction->service_type === 'funding' && $fundingFees->has($transaction->id))
+                                                    {{-- The fee, named on the funding it belongs
+                                                         to as well as on its own row. A customer
+                                                         who sees ₦1,000 in and ₦1,000 out an hour
+                                                         later should not have to guess why. --}}
+                                                    <span class="mt-0.5 block text-xs text-muted-foreground">
+                                                        Service fee &#8358;{{ number_format((float) $fundingFees[$transaction->id]['fee'], 2) }}
+                                                        &middot; net credited
+                                                        &#8358;{{ number_format((float) $transaction->amount - (float) $fundingFees[$transaction->id]['fee'], 2) }}
+                                                    </span>
+                                                @elseif($transaction->recipient)
                                                     <span class="mt-0.5 block text-xs text-muted-foreground">
                                                         {{-- The network the customer bought, never the
                                                              upstream provider's name. --}}

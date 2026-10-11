@@ -93,6 +93,24 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping();
 
         /*
+         * Collect funding service fees that could not be taken at settlement.
+         *
+         * The fee is charged to the wallet *after* the funding credit, and it is
+         * refused rather than allowed to overdraw — so a customer who funds and
+         * then spends within seconds leaves an uncollected fee behind. That is a
+         * normal state rather than an error, and it resolves itself as soon as
+         * the balance allows, which is what this sweep is for.
+         *
+         * Hourly is enough: the fee is small and capped, the retry is idempotent,
+         * and no customer's money depends on how quickly it is collected. The
+         * command's own `--minutes=5` leaves the immediate paths — webhook,
+         * browser callback, admin approval — their chance to collect it first.
+         */
+        $schedule->command('payments:charge-funding-fees')
+            ->hourly()
+            ->withoutOverlapping();
+
+        /*
          * Bill reminders.
          *
          * A reminder notifies; it never debits. `reminders:dispatch` writes a

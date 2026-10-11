@@ -218,11 +218,13 @@ class BachsFallbackTest extends TestCase
             // Bachs takes decimal strings, never minor units — the opposite of
             // Paystack's integer kobo. Getting this wrong under-charges by 100x.
             //
-            // The amount asked for is the transaction TOTAL (amount + our
-            // processing fee), not the top-up the customer typed: the funding
-            // page quotes the fee as payable on top.
+            // The amount is what the customer chose, and nothing else. The
+            // service fee is no longer added here: it is taken from the wallet
+            // after the funding lands, so checkout and credit are the same
+            // figure. This assertion used to read '5095.00' (₦5,000 + 1.5% + ₦20)
+            // — the checkout-side fee that was removed.
             return $body['pricing']['currency'] === 'NGN'
-                && $body['pricing']['amount'] === '5095.00'
+                && $body['pricing']['amount'] === '5000.00'
                 && $body['payment_method_types'] === ['NGN_CARD']
                 && $body['customer']['email'] === 'ada@example.com'
                 && ! empty($body['reference']);
