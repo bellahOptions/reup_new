@@ -377,6 +377,65 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentFilter = 'all';
     let currentNetworkId = '';
 
+    /*
+     * Which rail the customer chose, read from the form control itself.
+     *
+     * Read live rather than cached, and from the control rather than from a mirrored
+     * flag: the select is the thing that decides what the server charges, so anything
+     * that gates a submission on the rail has to read the same value the server will.
+     */
+    function payingByCard() {
+        return document.querySelector('[name="payment_method"]')?.value === 'paystack';
+    }
+
+    /*
+     * Undo the balance gate: remove the warning panel and re-enable the button.
+     *
+     * Shared by both forms because both had their own copy of the same six lines, and
+     * the copy is where the card-rail guard would have been forgotten.
+     */
+    function clearBalanceGate(form, warningId, label) {
+        document.getElementById(warningId)?.remove();
+
+        const submitBtn = form?.querySelector('button[type="submit"]');
+
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            submitBtn.querySelector('span:first-child').textContent = label;
+        }
+    }
+
+    /*
+     * Re-evaluate the gate whenever the rail changes.
+     *
+     * Choosing "Card or bank transfer" has to clear a warning the wallet rail put
+     * there, and choosing the wallet again has to bring it back — otherwise the
+     * button stays dead (or stays live when it should not) until something else
+     * happens to re-run the check.
+     */
+    document.querySelectorAll('[name="payment_method"]').forEach(rail => {
+        rail.addEventListener('change', function () {
+            if (this.value === 'paystack') {
+                clearBalanceGate(airtimeForm, 'airtimeBalanceWarning', 'Buy Airtime Now');
+                clearBalanceGate(dataForm, 'dataBalanceWarning', 'Buy Data Now');
+
+                return;
+            }
+
+            const airtimeAmount = parseFloat(amountInput?.value) || 0;
+            const dataAmount = parseFloat(planPriceInput?.value) || 0;
+
+            if (airtimeAmount > 0) {
+                checkAirtimeBalance(airtimeAmount);
+            }
+
+            if (dataAmount > 0) {
+                checkDataBalance(dataAmount);
+            }
+        });
+    });
+
     // Panel visibility and the toggle's pressed styling are owned by Alpine
     // (see x-data on the page grid); the ids are kept for the balance checks
     // below. The old script toggled a `.hidden` class that Alpine would have
@@ -399,6 +458,21 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Function to check airtime balance
     function checkAirtimeBalance(amount) {
+        /*
+         * The wallet balance only limits a purchase paid *from the wallet*.
+         *
+         * Without this guard the page disabled its own submit button — and replaced
+         * its label with "Insufficient Balance" — the moment an amount exceeded the
+         * balance, even with "Card or bank transfer" selected. A customer with an
+         * empty wallet could choose the card rail and find the button dead, which made
+         * the card rail unusable for exactly the customers it exists for.
+         */
+        if (payingByCard()) {
+            clearBalanceGate(airtimeForm, 'airtimeBalanceWarning', 'Buy Airtime Now');
+
+            return;
+        }
+
         // The customer pays the amount. No fee is added, so the total is the amount.
         const totalAmount = amount;
 
@@ -646,6 +720,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Function to check data balance
     function checkDataBalance(amount) {
+        /*
+         * Same guard as airtime, for the same reason: a card purchase is not limited
+         * by the wallet, so the balance must not gate the button on that rail.
+         */
+        if (payingByCard()) {
+            clearBalanceGate(dataForm, 'dataBalanceWarning', 'Buy Data Now');
+
+            return;
+        }
+
         /*
          * The quoted bundle price is the amount the engine charges, so the check is
          * against the plan price alone. The old `+ 2%` here applied the *airtime*

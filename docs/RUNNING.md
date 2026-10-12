@@ -1090,6 +1090,7 @@ php tools/show-escaping.php      # how Blade encodes a name, in an attribute and
 php tools/check-names.php        # the name rule against real and junk names, and every stored name
 php tools/rename-migration.php --list   # migration rows whose file is missing
 php tools/check-encoding.php     # UTF-8, BOM and mojibake, for the touched files
+php tools/check-inline-js.php --all  # every inline <script> on every page, through Node's parser
 php tools/find-mojibake.php      # the whole-tree mojibake sweep (see the note below)
 ```
 
@@ -1100,6 +1101,12 @@ bill of health when it means "nothing to report among the files that happened to
 decode". `check-encoding.php` is the narrower check, and `tools/encoding-targets.txt`
 lists the files it looks at when given no arguments. Add a file there when it
 starts carrying a `₦`, a dash or an accented character.
+
+`check-inline-js.php` is the one to run after touching any page with a `<script>`
+block. Blade compiles before the browser sees the file, so an edit that leaves a
+function unbalanced still renders, still returns 200, and still passes every
+server-side test — the only symptom is a control that stops responding. It renders
+each page for real and hands every inline script to `node --check`.
 
 #### Customer names
 
@@ -1132,6 +1139,21 @@ Laravel 8 has no `@vite` directive; it arrived in Laravel 9.19. `App\Support\Vit
 resolves the tags and `AppServiceProvider` registers the directive. If you ever
 upgrade to Laravel 9+, remove that registration — the framework will provide its
 own, and having both would be ambiguous.
+
+### The test suite pins its own configuration
+
+`phpunit.xml` sets the test database with `force="true"` on every value, and that word matters. A PHPUnit
+`<server>` element only *sets* a variable — it does not override one already in the environment. On a
+machine where another project has exported `DB_DATABASE`, `DB_USERNAME` or `SESSION_DRIVER` process-wide,
+those values win silently and the suite runs against the wrong database — or against one shared with that
+project, which alters its tables mid-run and reports `Table definition has changed, please retry
+transaction` from inside a test that has nothing to do with it.
+
+If `php artisan test` ever fails with `Access denied for user '<some other project>'` or that table
+definition error, check what the shell is exporting before suspecting the code. The `force="true"` flags
+mean those variables can no longer affect the suite. They do still affect ad-hoc scripts that boot the
+application, which is why `tools/check-inline-js.php` may need `SESSION_DRIVER=file` when the development
+database has no `sessions` table.
 
 ### Composer scripts can appear to hang
 

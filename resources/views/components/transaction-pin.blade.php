@@ -7,16 +7,22 @@
 
     ## Not required when the card rail is chosen
 
-    `<x-payment-method>` announces the chosen rail with a `payment-method` event. When
-    that rail is the gateway, the PIN is both `required`-less in the markup and
-    `disabled` — because a disabled input is not submitted at all, which is what makes
-    the server's `required_unless:payment_method,paystack` rule agree with what the
-    browser allowed. Requiring a PIN *and* sending the customer to their bank would be
-    two authorisations for one payment.
+    The rail is read from the `payment_method` control the form already carries, so
+    this component and `<x-payment-method>` cannot disagree about which rail is
+    selected. When it is the gateway the PIN is `disabled`, because a disabled input is
+    not submitted at all — which is what makes the server's
+    `required_unless:payment_method,paystack` rule agree with what the browser
+    permitted. Requiring a PIN *and* sending the customer to their bank would be two
+    authorisations for one payment.
 
-    The `required` attribute is bound rather than toggled so that a browser with
-    JavaScript disabled keeps the original, safe behaviour: the wallet rail is the
-    default, and its PIN is enforced exactly as before.
+    ## `required` is in the markup, and only *removed* by Alpine
+
+    It was `:required="! cardRail"` for a while, which looks equivalent and is not: a
+    bound attribute is absent from the served HTML, so with JavaScript disabled or
+    still loading the field was simply not required, and a wallet submission skipped the
+    browser's own validation. Static `required` plus a `x-bind` that removes it means
+    the *safe* case is the one that does not depend on JavaScript having run, and the
+    relaxation is the thing that has to be earned.
 
     `idempotency_key` accompanies it so a double submit — double click, refresh of a
     POST, flaky network retry — returns the original result instead of charging twice.
@@ -34,7 +40,11 @@
 
 <div class="space-y-1.5"
      x-data="{ cardRail: false }"
-     @payment-method.window="cardRail = $event.detail.method === 'paystack'">
+     x-init="
+        const rail = $el.closest('form')?.querySelector('[name=payment_method]');
+        cardRail = rail?.value === 'paystack';
+        rail?.addEventListener('change', () => { cardRail = rail.value === 'paystack'; });
+     ">
     <label for="{{ $id }}" class="label" x-text="cardRail ? '{{ $label }} (not needed)' : '{{ $label }}'">{{ $label }}</label>
 
     <div class="relative" x-data="{ show: false }">
@@ -46,8 +56,9 @@
             autocomplete="off"
             pattern="[0-9]{4}"
             maxlength="4"
-            :required="! cardRail"
-            :disabled="cardRail"
+            required
+            x-bind:required="! cardRail"
+            x-bind:disabled="cardRail"
             @if($model) x-model="{{ $modelVar }}" @endif
             @input="$event.target.value = $event.target.value.replace(/\D/g, '').slice(0, 4)"
             placeholder="4 digits"

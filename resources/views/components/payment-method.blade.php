@@ -18,81 +18,67 @@
         **nothing is vended until that payment settles**. A customer who closes the tab
         is charged nothing and receives nothing.
 
-    ## Why it announces itself
+    ## A real `<select>`, and three earlier attempts that were wrong
 
-    The PIN field and the submit button are outside this component, so the choice has
-    to reach them. Two earlier attempts were wrong in ways worth recording:
+    The rail is one form control with a value, so it is a `<select>`. Three previous
+    shapes each broke something, and all three failures were invisible to the tests
+    that only posted to the endpoint:
 
-      * putting `x-data` on a wrapper here scopes the flag to this element, so the PIN
-        input outside it stays `required` and silently blocks the submit — the customer
-        is told no PIN is needed and then cannot proceed;
-      * using `x-model` across two Alpine scopes is not a binding at all, so the same
-        thing happens with no error anywhere.
+      * **`<input type="hidden" :value="method" value="wallet">`** — a static `value`
+        *and* a bound one. The static attribute wins in the DOM, so the form always
+        submitted `wallet`: the card rail was unselectable, and choosing it left the
+        PIN disabled and the submit rejected. A silent, total failure of the feature;
+      * **radios with `x-model` across two scopes** — not a binding at all, so the
+        flag never reached the PIN field outside the component;
+      * **radios driving a hidden input via `$dispatch`** — worked, but needed a
+        listener outside the component and left the no-JavaScript path depending on
+        which radio the browser happened to submit.
 
-    The radios therefore write the value into a **hidden input** — which is also what
-    makes the form work with JavaScript disabled, because that input is then simply
-    absent and the server defaults to the wallet — and dispatch `payment-method`
-    upward for the PIN field and the button to listen to. One value, announced once.
+    A `<select>` has none of those problems: it is one control, its value is simply
+    submitted, and `selected` marks the default in plain HTML so a browser without
+    JavaScript submits `wallet` exactly as before. The `x-model` is a convenience for
+    anything that wants to read the choice; the form itself does not depend on it.
 --}}
 @props([
     'wallet' => null,
+    'name' => 'payment_method',
 ])
 
-<div class="space-y-3"
-     x-data="{
-        method: 'wallet',
-        choose(value) {
-            this.method = value;
-            this.$dispatch('payment-method', { method: value });
-        },
-     }">
-    <span class="label">Pay with</span>
+@php
+    $rails = [
+        'wallet' => [
+            'label' => 'My wallet balance',
+            'hint' => 'Balance: ₦' . number_format((float) ($wallet ?? 0), 2),
+        ],
+        'paystack' => [
+            'label' => 'Card or bank transfer',
+            'hint' => 'Pay the exact amount — no PIN needed',
+        ],
+    ];
+@endphp
 
-    <input type="hidden" name="payment_method" :value="method" value="wallet">
+{{--
+    No `@error` block, deliberately.
 
-    <div class="grid grid-cols-2 gap-3">
-        <label class="cursor-pointer">
-            <input type="radio" name="payment_rail" value="wallet" class="sr-only"
-                   :checked="method === 'wallet'" @change="choose('wallet')">
-            <span class="flex flex-col gap-1 rounded-xl border border-border bg-surface p-3.5 transition-colors"
-                  :class="method === 'wallet' ? 'border-brand-400 bg-accent' : 'hover:border-brand-300'">
-                <span class="flex items-center gap-2 text-sm font-semibold">
-                    <x-icon name="wallet" class="h-4 w-4" />
-                    Wallet
-                </span>
-                @if($wallet !== null)
-                    <span class="text-xs text-muted-foreground tabular-nums">
-                        Balance: &#8358;{{ number_format((float) $wallet, 2) }}
-                    </span>
-                @endif
-            </span>
-        </label>
+    There is no validation message this field could ever carry: its rule is
+    `nullable|in:wallet,paystack`, and a `<select>` with exactly two options cannot
+    submit a third value. An error display that can never appear is dead markup — and
+    it is worse than dead here, because `@error` reads the `$errors` view variable,
+    which Laravel shares only with views rendered through the HTTP stack. Rendering
+    this component in isolation (as several tests do) threw
+    `Undefined variable $errors` on a line that could never have shown anything.
 
-        <label class="cursor-pointer">
-            <input type="radio" name="payment_rail" value="paystack" class="sr-only"
-                   :checked="method === 'paystack'" @change="choose('paystack')">
-            <span class="flex flex-col gap-1 rounded-xl border border-border bg-surface p-3.5 transition-colors"
-                  :class="method === 'paystack' ? 'border-brand-400 bg-accent' : 'hover:border-brand-300'">
-                <span class="flex items-center gap-2 text-sm font-semibold">
-                    <x-icon name="credit-card" class="h-4 w-4" />
-                    Card or transfer
-                </span>
-                <span class="text-xs text-muted-foreground">Pay the exact amount</span>
-            </span>
-        </label>
-    </div>
+    The hint text carries the information instead, which is the part a customer
+    actually needs: what each rail costs them and whether a PIN is involved.
+--}}
+<div class="space-y-2" x-data="{ rail: @js(old($name, 'wallet')) }">
+    <label for="{{ $name }}-rail" class="label">Pay with</label>
 
-    {{--
-        Says what happens next. "Card or transfer" on a page that usually spends your
-        balance is exactly the kind of choice a customer hesitates over, and a
-        hesitation at the payment step is a lost sale.
-    --}}
-    <p class="text-xs text-muted-foreground" x-show="method === 'paystack'" x-cloak>
-        You will be taken to a secure page to pay the amount shown. Your order is sent
-        the moment the payment is confirmed &mdash; you are not charged until then.
-    </p>
-
-    <p class="text-xs text-muted-foreground" x-show="method === 'wallet'">
-        Paid from your wallet balance, authorised with your transaction PIN.
-    </p>
+    <select id="{{ $name }}-rail" name="{{ $name }}" class="select" x-model="rail">
+        @foreach($rails as $value => $rail)
+            <option value="{{ $value }}" @selected(old($name, 'wallet') === $value)>
+                {{ $rail['label'] }} — {{ $rail['hint'] }}
+            </option>
+        @endforeach
+    </select>
 </div>

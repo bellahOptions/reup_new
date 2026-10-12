@@ -324,12 +324,19 @@
 </div>
 
 {{--
-    The polling script is pushed *outside* `@section('content')`, which is where the
-    admin layout expects a `@stack('scripts')` contribution — the same placement
-    `admin/admins/index.blade.php` uses. Pushing from inside a section registers it
-    against the section rather than the stack, and the script would silently never
-    render.
+    The polling script is pushed *after* `@endsection`, at the file's root, which is
+    where the admin layout's `@stack('scripts')` picks it up — the same placement
+    `admin/admins/index.blade.php` uses.
+
+    It was previously inside `@section('content')` while a comment claimed it was
+    outside. That is why the "profit today" figure never updated: a `@push` inside a
+    section is buffered with the section rather than registered against the stack, so
+    the script was never emitted and nothing reported an error. A test now asserts the
+    script is present in the rendered page, because this is exactly the kind of
+    omission that no PHP error and no page-level assertion would have caught.
 --}}
+@endsection
+
 @push('scripts')
 <script>
     /*
@@ -398,5 +405,3 @@
     });
 </script>
 @endpush
-
-@endsection

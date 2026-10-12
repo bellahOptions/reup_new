@@ -52,27 +52,73 @@ class PaymentMethodPickerTest extends TestCase
     {
         $html = (string) $this->blade('<x-payment-method :wallet="1234.5" />');
 
-        $this->assertStringContainsString('value="wallet"', $html);
-        $this->assertStringContainsString('value="paystack"', $html);
-        $this->assertStringContainsString('Wallet', $html);
-        $this->assertStringContainsString('Card or transfer', $html);
+        /*
+         * Asserted on the option values, not on the visible wording. The labels are
+         * customer-facing copy and will change; the submitted values are the contract
+         * with the endpoint, and a test that pins the copy fails for a reason
+         * unrelated to behaviour — which is exactly what happened here.
+         */
+        $this->assertStringContainsString('<option value="wallet"', $html);
+        $this->assertStringContainsString('<option value="paystack"', $html);
+        $this->assertStringContainsString('My wallet balance', $html);
+        $this->assertStringContainsString('Card or bank transfer', $html);
     }
 
     public function test_the_picker_submits_the_wallet_rail_by_default(): void
     {
         /*
          * The default matters more than it looks. The form must work with JavaScript
-         * disabled, and Alpine has not run yet when the browser evaluates the
-         * `required` attributes — so the markup itself has to declare the wallet rail,
-         * which is the one that requires a PIN. Defaulting to the gateway rail instead
-         * would let a no-JavaScript submit reach the server without a PIN.
+         * disabled, and Alpine has not run when the browser decides what to submit — so
+         * the markup itself has to declare the wallet rail, which is the one a PIN
+         * authorises. Defaulting to the gateway rail would let a no-JavaScript submit
+         * reach the server expecting no PIN.
          */
         $html = (string) $this->blade('<x-payment-method :wallet="0" />');
 
         $this->assertMatchesRegularExpression(
-            '/<input[^>]*type="hidden"[^>]*name="payment_method"[^>]*value="wallet"/',
+            '/<select[^>]*name="payment_method"/',
             $html,
-            'The hidden payment_method input must default to wallet in the markup.'
+            'The rail must be a real form control that submits its own value.'
+        );
+
+        $this->assertMatchesRegularExpression(
+            '/<option value="wallet"[^>]*selected/',
+            $html,
+            'The wallet rail must be marked selected in the served HTML, not only by Alpine.'
+        );
+
+        $this->assertDoesNotMatchRegularExpression(
+            '/<option value="paystack"[^>]*selected/',
+            $html
+        );
+    }
+
+    public function test_the_picker_has_exactly_one_value_bearing_control(): void
+    {
+        /*
+         * The bug this guards, and it shipped: the rail was
+         * `<input type="hidden" :value="method" value="wallet">` — a static `value`
+         * *and* a bound one. The static attribute wins in the DOM, so the form always
+         * submitted `wallet`. Choosing "Card or transfer" disabled the PIN, submitted
+         * the wallet rail, and had the submission rejected — the card feature was
+         * entirely unusable, and every endpoint-level test still passed because they
+         * posted the payload a *working* form would have sent.
+         *
+         * Asserting on the rendered control is the only way to catch that class of bug:
+         * the endpoint cannot see how the value was produced.
+         */
+        $html = (string) $this->blade('<x-payment-method :wallet="0" />');
+
+        $this->assertSame(
+            1,
+            preg_match_all('/name="payment_method"/', $html),
+            'There must be exactly one control named payment_method.'
+        );
+
+        $this->assertStringNotContainsString(
+            ':value=',
+            $html,
+            'A bound value alongside a static one cannot win, so the static one silently decides.'
         );
     }
 
@@ -94,17 +140,20 @@ class PaymentMethodPickerTest extends TestCase
         $this->assertStringContainsString('0.00', $html);
     }
 
-    public function test_the_picker_announces_the_choice_for_the_pin_field(): void
+    public function test_the_pin_field_reads_the_rail_from_the_form_it_sits_in(): void
     {
         /*
-         * The PIN input lives outside this component, so the choice has to reach it.
-         * The dispatch is the mechanism — without it the PIN stays `required` and
-         * silently blocks a card submission, which is the bug a wrapper-scoped
-         * `x-data` caused the first time.
+         * The PIN input lives outside the picker, so the choice has to reach it. Two
+         * earlier mechanisms were tried and both were fragile — a wrapper-scoped
+         * `x-data` that never reached the input, then an `$dispatch` plus a window
+         * listener. This is now a plain `change` listener on the real control, which is
+         * one hop instead of an event bus and cannot be missed because the element is
+         * in the same form.
          */
         $html = (string) $this->blade('<x-payment-method :wallet="0" />');
 
-        $this->assertStringContainsString("dispatch('payment-method'", $html);
+        $this->assertStringContainsString('name="payment_method"', $html);
+        $this->assertStringContainsString('x-model="rail"', $html);
     }
 
     /* =====================================================================
@@ -127,30 +176,36 @@ class PaymentMethodPickerTest extends TestCase
 
         $html = $this->actingAs($user)->get(route('airtime-data.index'))->assertOk()->getContent();
 
-        $this->assertStringContainsString('@payment-method.window', $html);
-        $this->assertStringContainsString(':required="! cardRail"', $html);
-        $this->assertStringContainsString(':disabled="cardRail"', $html);
         $this->assertStringContainsString('name="pin"', $html);
         $this->assertStringContainsString('name="payment_method"', $html);
+        $this->assertStringContainsString('x-bind:required="! cardRail"', $html);
+        $this->assertStringContainsString('x-bind:disabled="cardRail"', $html);
     }
 
-    public function test_the_pin_field_does_not_hard_code_required(): void
+    public function test_the_pin_field_carries_static_required_in_the_served_html(): void
     {
         /*
-         * `required` is bound rather than literal, so the card rail is not blocked by
-         * an attribute the browser enforces before Alpine can remove it. The server
-         * does not rely on the browser either way — the endpoint carries
-         * `required_unless:payment_method,paystack`, which
-         * `PaystackAirtimeTest` exercises from both sides.
+         * The opposite of what an earlier version asserted, and the correction is the
+         * point.
+         *
+         * `required` was bound (`:required="! cardRail"`), which is **absent from the
+         * served HTML** — so with JavaScript disabled, or still loading on a slow
+         * connection, the field was not required at all and a wallet submission skipped
+         * the browser's own validation. The server still refused it, but the customer
+         * got a round trip and a page reload instead of the browser stopping them.
+         *
+         * Static `required` plus `x-bind` inverts that: the safe case is the one that
+         * does not depend on JavaScript having run, and the relaxation is what has to
+         * be earned.
          */
         $user = $this->customer();
 
         $html = $this->actingAs($user)->get(route('airtime-data.index'))->assertOk()->getContent();
 
-        $this->assertDoesNotMatchRegularExpression(
+        $this->assertMatchesRegularExpression(
             '/<input[^>]*name="pin"[^>]*\srequired[\s>]/',
             $html,
-            'A hard-coded required would block the card rail entirely.'
+            'The PIN must be required in the markup; Alpine removes it for the card rail.'
         );
     }
 
@@ -166,7 +221,7 @@ class PaymentMethodPickerTest extends TestCase
             ->get(route('airtime-data.index'))
             ->assertOk()
             ->assertSee('name="payment_method"', false)
-            ->assertSee('Card or transfer', false);
+            ->assertSee('Card or bank transfer', false);
     }
 
     public function test_the_airtime_page_shows_the_customers_own_balance(): void
@@ -211,8 +266,6 @@ class PaymentMethodPickerTest extends TestCase
         $response->assertSee('Revenue &amp; profit', false)
             ->assertSee('Pricing', false)
             ->assertSee('Providers', false)
-            ->assertSee('Provider costs', false)
-            ->assertSee('Margin watchlist', false)
             ->assertSee('Payments', false);
 
         // And the ones that were already there, so this is a menu and not a rewrite.
@@ -239,7 +292,7 @@ class PaymentMethodPickerTest extends TestCase
         $response->assertDontSee('Revenue &amp; profit', false)
             ->assertDontSee('Margin watchlist', false)
             ->assertDontSee('Provider costs', false)
-            ->assertDontSee('Pricing', false);
+            ->assertDontSee('>Pricing<', false);
 
         /*
          * And it does see the modules its permissions allow. Asserted against the
@@ -293,5 +346,52 @@ class PaymentMethodPickerTest extends TestCase
                 ->get(route($route))
                 ->assertOk();
         }
+    }
+
+    public function test_only_one_sidebar_link_is_marked_active_per_page(): void
+    {
+        /*
+         * The bug this guards: "Pricing" carried the pattern `admin.pricing.*` and
+         * "Provider costs" carried `admin.pricing.costs`, so on the costs page
+         * **both** links lit up. The active state is `routeIs($pattern)`, and a
+         * sub-page listed at the top level overlaps its own section by construction.
+         *
+         * A sidebar that highlights two things at once reads as broken, and no error
+         * is raised anywhere — it is purely visual, which is exactly why nothing caught
+         * it.
+         */
+        $admin = User::factory()->superAdmin()->create();
+
+        foreach (['admin.dashboard', 'admin.pricing.costs', 'admin.profit.watchlist', 'admin.users.index'] as $route) {
+            $html = $this->actingAs($admin)->get(route($route))->assertOk()->getContent();
+
+            $this->assertSame(
+                1,
+                substr_count($html, 'sidebar-link-active'),
+                "Exactly one sidebar item should be active on {$route}."
+            );
+        }
+    }
+
+    public function test_the_profit_page_actually_emits_its_polling_script(): void
+    {
+        /*
+         * The bug this guards, and it shipped: the page's `@push('scripts')` was
+         * inside `@section('content')` while a comment claimed it was outside. A
+         * `@push` inside a section is buffered with the section instead of being
+         * registered against the stack, so the script was **never emitted** and the
+         * live "profit today" figure never moved. No PHP error, no failed request,
+         * nothing in the log — the page simply did less than it claimed.
+         *
+         * Asserting the rendered page contains the script is the only thing that
+         * catches it. This is why "the test posts to the endpoint" is not the same as
+         * "the page works".
+         */
+        $admin = User::factory()->superAdmin()->create();
+
+        $html = $this->actingAs($admin)->get(route('admin.profit.index'))->assertOk()->getContent();
+
+        $this->assertStringContainsString("Alpine.data('profitLive'", $html);
+        $this->assertStringContainsString('profitLive({', $html, 'The component must also be mounted.');
     }
 }

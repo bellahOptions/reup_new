@@ -45,6 +45,16 @@
         // teaches an administrator to distrust the menu, and a menu that omits a
         // module teaches them it does not exist. Both are worse than a short menu
         // that is exactly right.
+        //
+        // ## One entry per module, and the pattern decides the highlight
+        //
+        // Provider costs and the margin watchlist are *pages inside* Pricing and
+        // Revenue & profit, and were briefly listed here as well. That broke the
+        // sidebar in a way worth recording: the active state is `routeIs($pattern)`,
+        // so "Pricing" (`admin.pricing.*`) and "Provider costs" (`admin.pricing.costs`)
+        // both matched on the costs page and **two links lit up at once**, while the
+        // watchlist appeared in two different groups. A sub-page is reached from its
+        // own section, not from the top level.
         $navGroups = [
             [
                 'label' => null,
@@ -73,8 +83,6 @@
                 'label' => 'Commercial',
                 'items' => [
                     ['Pricing', 'admin.pricing.index', 'admin.pricing.*', 'banknotes', 'view_pricing', null],
-                    ['Provider costs', 'admin.pricing.costs', 'admin.pricing.costs', 'banknotes', 'view_pricing', null],
-                    ['Margin watchlist', 'admin.profit.watchlist', 'admin.profit.watchlist', 'eye', 'view_profit', null],
                     ['Providers', 'admin.providers.index', 'admin.providers.*', 'server-stack', 'manage_providers', null],
                 ],
             ],

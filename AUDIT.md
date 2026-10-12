@@ -1287,6 +1287,101 @@ The last test in the file is the one that makes the menu honest: it walks every 
 and asserts a super admin gets a 200 from each. A menu is a promise, and a typo in a route name or a
 permission that does not match its route now fails there rather than in front of an administrator.
 
+## 15. Four UI defects from §14, and one that hid the tests (2026-10-11)
+
+§14 was verified by tests that posted to endpoints. None of them rendered a page, and four user-visible
+defects were sitting behind that gap. Each is recorded with the reason it was invisible.
+
+### 15.1 The card rail could not be selected at all
+
+`<input type="hidden" name="payment_method" :value="method" value="wallet">` — a static `value` **and** a
+bound one on the same element. **The static attribute wins in the DOM**, so the form always submitted
+`wallet`. Choosing "Card or bank transfer" disabled the PIN (the `change` handler had run), then submitted
+the wallet rail, and the submission was rejected for a missing PIN.
+
+The feature was completely unusable and every endpoint test passed, because those tests posted the payload
+a *working* form would have sent. The endpoint cannot see how a value was produced, so this class of bug is
+only reachable by asserting on the rendered control. The rail is now a plain `<select>` — one control, one
+value, `selected` marking the default in real HTML — and the regression test asserts that exactly one
+control carries `name="payment_method"` and that no bound value sits beside a static one.
+
+### 15.2 The wallet-balance gate blocked card purchases
+
+`checkAirtimeBalance()` disabled the submit button and relabelled it "Insufficient Balance" whenever the
+amount exceeded the wallet balance, regardless of the rail. A customer with an empty wallet could choose
+"Card or bank transfer" and find the button dead: the card rail was broken for precisely the customers it
+exists for. The data form had its own copy of the same gate, which is where a guard gets forgotten, so the
+warning and button handling is now one shared `clearBalanceGate()` and both checks return early on the card
+rail. The rail's `change` event re-evaluates, so switching back to the wallet restores the gate.
+
+### 15.3 `required` had been removed from the PIN field
+
+It was `:required="! cardRail"`, which is **absent from the served HTML**. With JavaScript disabled or
+still loading on a slow connection the field was simply not required, so a wallet submission skipped the
+browser's own validation and got a round trip and a page reload instead of being stopped in place. The
+server still refused it, which is why no test noticed. Static `required` plus `x-bind` inverts the default:
+the safe case is the one that does not depend on JavaScript having run.
+
+### 15.4 Two sidebar links lit up at once
+
+"Pricing" carried the pattern `admin.pricing.*` and a newly added "Provider costs" carried
+`admin.pricing.costs`, so on the costs page **both** were marked active — the active state is
+`routeIs($pattern)`, and a sub-page listed at the top level overlaps its own section by construction. The
+margin watchlist was listed in two groups for the same reason. Both sub-pages are reached from their own
+section, not from the top level, and a test now asserts exactly one `sidebar-link-active` per page.
+
+### 15.5 The profit page's polling script was never emitted
+
+`@push('scripts')` sat **inside** `@section('content')` while a comment claimed it was outside. A `@push`
+inside a section is buffered with the section instead of registered against the stack, so the script never
+reached the page and the live "profit today" figure never moved. No PHP error, no failed request, nothing
+in the log — the page simply did less than it claimed.
+
+That one is worth dwelling on, because the comment asserting the opposite is what made it invisible to
+review. The fix moves the push after `@endsection`, and the test asserts the rendered page contains
+`Alpine.data('profitLive'` — the only assertion that can catch a script that does not exist.
+
+### 15.6 A component that could not be rendered in isolation
+
+`@error` reads the `$errors` view variable, which Laravel shares only with views rendered through the HTTP
+stack. Two components read it, so `$this->blade('<x-… />')` threw `Undefined variable $errors` — a fact
+about the test harness rather than the component, and it pushed the assertions onto real pages where they
+belong. The new picker has **no** `@error` block at all: its rule is `nullable|in:wallet,paystack` and a
+two-option select cannot violate it, so the block was dead markup.
+
+### 15.7 The environment, which hid the results rather than causing the defect
+
+`php artisan test` began failing with `Access denied for user 'highway_fresh'` and `Table definition has
+changed, please retry transaction`. Neither was this project's code. A **sibling checkout** running
+`composer run dev` had exported `DB_DATABASE`, `DB_USERNAME`, `SESSION_DRIVER`, `QUEUE_CONNECTION`,
+`MAIL_MAILER` and `APP_URL` **machine-wide**, and a PHPUnit `<server>` element does not override a variable
+that already exists — it only sets one. So the suite ran against the wrong database, shared with the other
+project, which then had its tables altered mid-run.
+
+Pinning the test configuration with `force="true"` on every `<server>` is the fix, and it is right
+independently of this machine: a test suite whose database can be changed by whatever the developer's shell
+happens to export is not isolated. Verified with no environment overrides at all — 1139 passing.
+
+### The tool this produced
+
+`tools/check-inline-js.php` extracts every inline `<script>` from *rendered* pages and hands each to Node's
+own parser. It exists because 15.2 was introduced by an edit that left a function unbalanced: the page still
+rendered, every server-side test still passed, and the only symptom was a dead button partway down a page.
+32 scripts across 11 pages check clean.
+
+```
+SESSION_DRIVER=file php tools/check-inline-js.php --all
+```
+
+### The lesson, stated plainly
+
+Every defect in this section was found by rendering a page rather than by calling a service. The tests in
+§14 were thorough about *behaviour* and blind to *presentation*, and the gap between the two is where all
+four bugs lived. `PaymentMethodPickerTest` now asserts on rendered output for the contract the JavaScript
+depends on — the submitted control, the attributes the browser enforces, the script that must exist — and
+`tools/check-inline-js.php` covers what no assertion can read.
+
+
 
 
 
