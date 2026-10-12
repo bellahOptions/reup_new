@@ -20,6 +20,7 @@ use App\Http\Controllers\TermsController;
 use App\Http\Controllers\WaecPinController;
 use App\Http\Controllers\AffiliateController;
 use App\Http\Controllers\TipsController;
+use App\Http\Controllers\LifecycleUnsubscribeController;
 use App\Http\Controllers\WalletController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -376,6 +377,22 @@ Route::get('/profile/avatar/{user}/{file}', [ProfileController::class, 'avatar']
 // Public pricelist browsing (read-only).
 Route::get('/pricelist', [PricelistController::class, 'index'])->name('pricelist');
 Route::get('/pricelist/api', [PricelistController::class, 'api'])->name('pricelist.api');
+
+/*
+|--------------------------------------------------------------------------
+| Marketing unsubscribe
+|--------------------------------------------------------------------------
+| Reached from an email, so it cannot require a session. The `signed` middleware is
+| what makes that safe: the link names a customer and carries a signature, so an
+| opt-out cannot be forged for somebody else or triggered by guessing an id.
+|
+| Marketing only. Transactional and security email is not consent-based and is not
+| affected by an opt-out here.
+*/
+Route::middleware('signed')->prefix('email')->name('lifecycle.')->group(function () {
+    Route::get('/unsubscribe/{user}', [LifecycleUnsubscribeController::class, 'show'])->name('unsubscribe');
+    Route::post('/unsubscribe/{user}', [LifecycleUnsubscribeController::class, 'unsubscribe'])->name('unsubscribe.confirm');
+});
 
 /*
 |--------------------------------------------------------------------------

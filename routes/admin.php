@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\BankTransferController;
 use App\Http\Controllers\Admin\ContactController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\LifecycleController;
 use App\Http\Controllers\Admin\NotificationController;
 use App\Http\Controllers\Admin\PricingController;
 use App\Http\Controllers\Admin\ProfitController;
@@ -263,6 +264,69 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'admin'])->group(fun
         Route::get('/', [ProfitController::class, 'index'])->name('index');
         Route::get('/data', [ProfitController::class, 'data'])->middleware('throttle:60,1')->name('data');
         Route::get('/watchlist', [ProfitController::class, 'marginWatchlist'])->name('watchlist');
+    });
+
+    /* ---- Customer lifecycle messaging --------------------------------
+     | Templates, automations, the delivery log and the marketing kill switch.
+     |
+     | `view_lifecycle` gates the group; the write actions additionally require
+     | `manage_lifecycle` and are re-checked in the controller, because a route
+     | registered without its middleware would otherwise be an endpoint that edits
+     | content going to every customer. Same shape as the pricing group.
+     |
+     | A support lead holds `view_lifecycle` and can answer "did this customer get
+     | their email?" from the delivery log. Only a super admin can author a template or
+     | pause marketing platform-wide — those change what the platform does for every
+     | customer at once.
+     */
+    Route::prefix('lifecycle')->name('lifecycle.')->middleware('admin:view_lifecycle')->group(function () {
+        Route::get('/', [LifecycleController::class, 'index'])->name('index');
+
+        Route::post('/marketing-toggle', [LifecycleController::class, 'toggleMarketing'])
+            ->middleware('admin:manage_lifecycle')->name('marketing-toggle');
+
+        // Static segments before `{template}` so the model binding cannot swallow them.
+        Route::get('/templates', [LifecycleController::class, 'templates'])->name('templates');
+        Route::get('/templates/create', [LifecycleController::class, 'createTemplate'])
+            ->middleware('admin:manage_lifecycle')->name('templates.create');
+        Route::post('/templates', [LifecycleController::class, 'storeTemplate'])
+            ->middleware('admin:manage_lifecycle')->name('templates.store');
+        Route::get('/templates/{template}/edit', [LifecycleController::class, 'editTemplate'])->name('templates.edit');
+        Route::put('/templates/{template}', [LifecycleController::class, 'storeTemplate'])
+            ->middleware('admin:manage_lifecycle')->name('templates.update');
+        Route::post('/templates/{template}/duplicate', [LifecycleController::class, 'duplicateTemplate'])
+            ->middleware('admin:manage_lifecycle')->name('templates.duplicate');
+        Route::get('/templates/{template}/preview', [LifecycleController::class, 'previewTemplate'])
+            ->middleware('throttle:60,1')->name('templates.preview');
+        Route::post('/templates/{template}/test', [LifecycleController::class, 'testTemplate'])
+            ->middleware(['admin:send_lifecycle', 'throttle:10,1'])->name('templates.test');
+        Route::post('/templates/{template}/status', [LifecycleController::class, 'toggleTemplate'])
+            ->middleware('admin:manage_lifecycle')->name('templates.status');
+        Route::post('/templates/{template}/rollback/{version}', [LifecycleController::class, 'rollbackTemplate'])
+            ->middleware('admin:manage_lifecycle')->name('templates.rollback');
+
+        Route::get('/automations', [LifecycleController::class, 'automations'])->name('automations');
+        Route::get('/automations/create', [LifecycleController::class, 'createAutomation'])
+            ->middleware('admin:manage_lifecycle')->name('automations.create');
+        Route::post('/automations', [LifecycleController::class, 'storeAutomation'])
+            ->middleware('admin:manage_lifecycle')->name('automations.store');
+        Route::get('/automations/{automation}/edit', [LifecycleController::class, 'editAutomation'])->name('automations.edit');
+        Route::put('/automations/{automation}', [LifecycleController::class, 'storeAutomation'])
+            ->middleware('admin:manage_lifecycle')->name('automations.update');
+        Route::post('/automations/{automation}/status', [LifecycleController::class, 'toggleAutomation'])
+            ->middleware('admin:manage_lifecycle')->name('automations.status');
+        Route::post('/automations/{automation}/test', [LifecycleController::class, 'testAutomation'])
+            ->middleware('throttle:30,1')->name('automations.test');
+
+        Route::get('/deliveries', [LifecycleController::class, 'deliveries'])->name('deliveries');
+        Route::post('/deliveries/{message}/retry', [LifecycleController::class, 'retryDelivery'])
+            ->middleware('admin:send_lifecycle')->name('deliveries.retry');
+
+        Route::get('/suppressions', [LifecycleController::class, 'suppressions'])->name('suppressions');
+        Route::post('/suppressions', [LifecycleController::class, 'storeSuppression'])
+            ->middleware('admin:manage_lifecycle')->name('suppressions.store');
+        Route::delete('/suppressions/{suppression}', [LifecycleController::class, 'destroySuppression'])
+            ->middleware('admin:manage_lifecycle')->name('suppressions.destroy');
     });
 
     /* ---- Providers: health, float, alerts and routing ------------------

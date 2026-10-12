@@ -1381,6 +1381,158 @@ four bugs lived. `PaymentMethodPickerTest` now asserts on rendered output for th
 depends on — the submitted control, the attributes the browser enforces, the script that must exist — and
 `tools/check-inline-js.php` covers what no assertion can read.
 
+## 16. Customer lifecycle messaging (2026-10-12)
+
+A Super Admin module that sends email across the life of an account: a welcome, funding and
+first-transaction nudges, a referral invitation and a re-engagement after inactivity. Templates,
+automations, a durable event outbox, per-message delivery tracking, suppressions and consent.
+
+### 16.1 The sender identity
+
+`LIFECYCLE_FROM_NAME` (default **"Olumuyiwa from ReUp"**) is the display name on engagement mail. The
+*address* is never configured here — it is `MAIL_FROM_ADDRESS`, the one ReUp has verified with its mail
+provider. Nothing invents an address: a send with an unverified From is rejected by most providers and
+damages the sending domain every other email depends on, including password resets. A template may
+override the display name per campaign, which keeps a named human sender a choice an author makes rather
+than something applied to a receipt.
+
+### 16.2 The five recommended automations, all created disabled
+
+`php artisan db:seed --class=LifecycleSeeder` creates five templates and five automations, **every one a
+draft**. A migration would run on every deploy, and an *activating* migration would start mailing customers
+as a side effect of a deploy; a seeder is run deliberately, once, by a person who has read the copy.
+
+| Automation | Trigger | Delay | Condition |
+| --- | --- | --- | --- |
+| Welcome | `user.registered` | none | — |
+| Funding reminder | `user.registered` | 24h | not funded |
+| First-transaction reminder | `user.registered` | 6h | no successful transaction |
+| Referral invitation | `transaction.succeeded` | 1h | ≥1 successful transaction |
+| Re-engagement | `user.became_inactive` | none | ≥14 inactive days **and** ≥1 transaction |
+
+The welcome carries the brief's subject and preview text, introduces ReUp as a product of Bellah Options,
+and has the three buttons: **Fund My Wallet** (primary), Explore ReUp and Invite Friends.
+
+### 16.3 The outbox: why triggers write a row instead of dispatching a job
+
+`user.registered`, `wallet.funded`, `transaction.succeeded` and `referral.reward_earned` all fire inside
+money paths — inside database transactions, and for funding inside a row lock. Dispatching a queued job
+from there lets a worker pick it up **before the commit**, so it reads a customer who has not been
+credited and sends "you have funded your wallet" for a payment that then rolls back.
+
+So the trigger writes one row to `lifecycle_events`, in the same transaction, and `lifecycle:process`
+turns those rows into scheduled messages afterwards. A queue that is down when the event happens delays
+the email instead of losing it. `(name, user_id, dedupe_key)` is unique, so a replayed webhook is one row.
+
+Recording never throws: every trigger site is a customer-facing operation, and a messaging table problem
+must not fail a payment.
+
+### 16.4 Idempotency is a database constraint, not a cache lock
+
+`UNIQUE (automation_id, user_id, dedupe_key)` on `lifecycle_messages`. A cache lock is advisory — it
+expires, it is per-store, and two app servers with separate caches both acquire it. The brief asks for
+database-enforced uniqueness and this is it; the index is asserted directly in the tests rather than
+trusted.
+
+The event is claimed with a conditional `UPDATE ... WHERE processed_at IS NULL`, which is atomic across
+processes, and the message is claimed with a conditional status update — so two workers holding the same
+job send once, despite the queue's at-least-once delivery.
+
+### 16.5 Eligibility is re-checked immediately before sending
+
+A delayed reminder is scheduled when the trigger fires and sent hours later, so the fact it depends on can
+have changed. A customer who funds twenty minutes before the 24-hour reminder is due must not be told they
+have not funded it — there is no recovering from having sent that.
+
+`LifecycleEligibility` re-evaluates the automation's conditions, status, window and template at send time,
+inside `LifecycleDispatcher::attempt()`, which is the only place a message is ever sent. If the answer is
+no the message is **cancelled** — terminal, so the sweep does not re-enqueue it.
+
+### 16.6 Accepted is not delivered
+
+| State | Means |
+| --- | --- |
+| `scheduled` / `queued` / `sending` | Claimed or waiting. Nothing sent. |
+| `accepted` | The transport took it. **Not** confirmation that a mailbox received it. |
+| `delivered` / `bounced` | A provider said so. `delivered_at` has no other writer. |
+| `suppressed` / `cancelled` | Must not send, or stopped being worth sending. |
+| `failed` | Every attempt was refused. |
+
+Laravel 8 sends through SwiftMailer and the transport returns no message id, so the dispatcher sets an
+`X-ReUp-Message-Id` correlation header it controls and records it as `provider_message_id`.
+`confirmDelivery()` and `confirmBounce()` match on that id, so a provider webhook cannot mark an unrelated
+row as delivered. A bounce also suppresses the address: a hard bounce means the mailbox does not exist, and
+the next send only costs sending reputation.
+
+### 16.7 The security boundaries
+
+* **Conditions are data, interpreted by an allowlist.** Fields and operators are looked up in fixed lists
+  and values compared as scalars. Nothing builds a query, a string or a fragment; there is no `eval`, no
+  dynamic method name, no path from a condition to application code. A condition that cannot be evaluated
+  is refused **on save**, because the evaluator treats an unknown field as false and storing one would
+  silently widen an audience.
+* **Template HTML is sanitised on save, not on send** — an allowlist of tags and attributes, so what an
+  author previews is what a customer receives and a dangerous tag never reaches the database. Script and
+  style tags are removed *with their contents*; unwrapping them would leave the source visible.
+* **Customer values are escaped on substitution.** A template is administrator markup and a customer's name
+  goes into it; unescaped, a name becomes markup in an email client and in the admin preview.
+* **CTA URLs are validated by scheme**, on save and at render: `javascript:` and `data:` are refused, and a
+  button whose URL fails is dropped rather than rendered.
+* **No wallet or transaction figure is printable.** There is no balance variable — a balance in an email is
+  forwarded, screenshotted and read over a shoulder. Conditions may *read* a balance because that decision
+  never leaves the server.
+* **Four permissions**, re-checked in the controller: `view_lifecycle` (the log), `manage_lifecycle`
+  (templates, automations, the kill switch — super-admin only), `send_lifecycle` (test sends and retries).
+  Activation, template changes, kill-switch changes and manual suppressions are audited via `AdminLog`.
+
+### 16.8 Marketing and transactional are separate, and the kill switch proves it
+
+Pausing marketing must never disable a security or payment email. The check lives in the dispatcher, where
+the message's category is known, so it cannot catch a receipt. Tests assert both directions: with marketing
+paused and with a customer opted out, a marketing message is blocked and a transactional one is sent.
+
+An unsubscribe blocks marketing only; a bounce or complaint suppresses everything, because the address
+itself is unusable. The unsubscribe link is signed and expires, so an opt-out cannot be forged for somebody
+else. Marketing mail carries `List-Unsubscribe` and transactional mail does not.
+
+### 16.9 Two defects found by these tests
+
+| Defect | Effect |
+| --- | --- |
+| The condition cache was not keyed to the automation | Evaluating a *second* automation through the same instance returned the **first** automation's conditions, so a message was scheduled on somebody else's criteria. Invisible in production (one instance per resolution, one automation per event) and not invisible to any caller that loops — and "mostly invisible" is not a property a rule about who gets emailed should have |
+| The value cache was keyed by field alone | The same instance answering for a second customer returned the *first* customer's balance and counts. The consequence is a wallet reminder going to somebody who has funded, on the strength of a stranger's balance |
+
+Both are keyed now, and the second is why there is a test that evaluates two customers through one
+instance in the order that would have leaked.
+
+One test-only finding: `LifecycleEligibility` briefly checked suppression as well as the dispatcher, which
+made a suppressed address report `cancelled` rather than `suppressed`. `suppressed` means the platform must
+not mail the address; `cancelled` means the message stopped being worth sending. One owner each, because
+conflating them makes the delivery log unable to distinguish "we chose not to" from "we are not allowed to".
+
+### 16.10 Verification
+
+```
+php artisan test --filter=LifecycleMessagingTest      # 55 cases
+php artisan test                                      # 1194 passed, 1 skipped
+php artisan db:seed --class=LifecycleSeeder --force
+php artisan lifecycle:process --dry-run
+php tools/check-inline-js.php                         # lifecycle screens included
+php tools/check-encoding.php
+```
+
+### 16.11 Not done
+
+* **No provider webhook endpoint.** `confirmDelivery()` and `confirmBounce()` are implemented, tested and
+  matched on our own correlation id, but nothing calls them: the platform's `MAIL_MAILER` is SMTP, which
+  emits no delivery report. `delivered` therefore stays unset in production until an API-based mailer or a
+  provider webhook is wired up. `accepted` is what the log will show, and that is the truthful answer.
+* **Only the five recommended triggers.** No drag-and-drop builder, no branching journeys, no A/B testing.
+* **Email only.** SMS and push are not implemented; the schema would carry a channel column.
+* **The `lifecycle` queue needs a worker.** Until `queue:work --queue=lifecycle,default` runs, jobs the tick
+  enqueues are never consumed. See docs/RUNNING.md.
+
+
 
 
 

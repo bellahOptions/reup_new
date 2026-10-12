@@ -41,3 +41,16 @@ tools/check-names.php
 tools/show-escaping.php
 tools/show-names.php
 tools/db-snapshot.php
+app/Lifecycle/HtmlSanitizer.php
+app/Lifecycle/LifecycleConditionEvaluator.php
+app/Lifecycle/LifecycleDispatcher.php
+app/Lifecycle/LifecycleEligibility.php
+app/Lifecycle/LifecycleRecorder.php
+app/Lifecycle/LifecycleScheduler.php
+app/Lifecycle/LifecycleTrigger.php
+app/Lifecycle/LifecycleVariables.php
+app/Http/Controllers/Admin/LifecycleController.php
+app/Mail/LifecycleMessageMail.php
+database/seeders/LifecycleSeeder.php
+tests/Feature/LifecycleMessagingTest.php
+config/lifecycle.php

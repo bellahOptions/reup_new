@@ -64,6 +64,13 @@ if ($paths === ['--all']) {
         '/admin/pricing',
         '/admin/pricing/costs',
         '/admin/providers',
+        '/admin/lifecycle',
+        '/admin/lifecycle/templates',
+        '/admin/lifecycle/templates/create',
+        '/admin/lifecycle/automations',
+        '/admin/lifecycle/automations/create',
+        '/admin/lifecycle/deliveries',
+        '/admin/lifecycle/suppressions',
     ];
 }
 

@@ -171,6 +171,31 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping();
 
         /*
+         * Customer lifecycle messaging.
+         *
+         * Every minute. This identifies due messages and **enqueues** them; it does not
+         * send. Sending from here would block this single-threaded scheduler — which
+         * also runs payment reconciliation — behind an SMTP handoff, and would lose
+         * every message in a batch if the scheduler were restarted mid-run.
+         *
+         * A scheduler entry does not replace a queue worker: this needs both. The
+         * `lifecycle` queue must be in the worker's `--queue` list or these jobs are
+         * never consumed, so the queue worker is part of the required production setup
+         * alongside the cron entry.
+         *
+         * Every minute rather than every five: the module's whole value is timeliness
+         * ("24 hours after funding"), and a tick is four indexed queries that usually
+         * match nothing. `withoutOverlapping` plus the command's own cache lock keeps
+         * two ticks off the same rows.
+         *
+         * Not `runInBackground`: the tick cannot block — it dispatches, it does not
+         * send — and backgrounding it would make a crash invisible to the scheduler.
+         */
+        $schedule->command('lifecycle:process')
+            ->everyMinute()
+            ->withoutOverlapping();
+
+        /*
          * Bill reminders.
          *
          * A reminder notifies; it never debits. `reminders:dispatch` writes a

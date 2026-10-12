@@ -32,6 +32,22 @@ class Permissions
         'view_profit',
         'manage_providers',
         'manage_catalogue',
+        /*
+         * Lifecycle messaging.
+         *
+         * `view_lifecycle` reads the overview and the delivery log; `manage_lifecycle`
+         * writes templates, automations and the marketing kill switch; `send_lifecycle`
+         * fires a test send and retries a failure.
+         *
+         * Split because they are different risks. Reading a delivery log is an
+         * operational task a support lead can be trusted with. Writing a template is
+         * authoring content that goes to every customer, and flipping the kill switch
+         * changes what the platform sends to everybody — those belong with the people
+         * who already control pricing and margins.
+         */
+        'view_lifecycle',
+        'manage_lifecycle',
+        'send_lifecycle',
     ];
 
     /**
@@ -53,6 +69,14 @@ class Permissions
         'view_profit',
         'manage_providers',
         'manage_catalogue',
+        /*
+         * The kill switch and template authoring are super-admin only, for the same
+         * reason pricing is: they change what the platform does for every customer at
+         * once. `view_lifecycle` is deliberately *not* here — a support lead needs the
+         * delivery log to answer "did this customer get their email?", and reading is
+         * not the risky half.
+         */
+        'manage_lifecycle',
     ];
 
     /** Permissions that expose internal provider cost or margin figures. */
@@ -83,6 +107,9 @@ class Permissions
         'view_profit' => 'View revenue, provider cost and profit analytics',
         'manage_providers' => 'Configure providers, credentials and routing priority',
         'manage_catalogue' => 'Review, publish and withdraw services for sale',
+        'view_lifecycle' => 'View lifecycle automations, templates and delivery logs',
+        'manage_lifecycle' => 'Author templates and automations, and pause marketing platform-wide',
+        'send_lifecycle' => 'Send test emails and retry failed deliveries',
     ];
 
     /**

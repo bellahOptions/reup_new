@@ -506,7 +506,58 @@ class PaystackService
          */
         $this->vendFundedPurchase($locked);
 
+        /*
+         * Record the funding as a lifecycle event, **inside this transaction**.
+         *
+         * Inside is the point. The event and the credit it describes commit together
+         * or not at all, so a worker can never read a funding that was rolled back.
+         * Dispatching a queued job from here instead would allow exactly that: the
+         * worker runs before the commit and sends "you have funded your wallet" for a
+         * payment that then fails.
+         *
+         * Nothing is sent from here — a separate process turns these rows into
+         * scheduled messages. See `App\Lifecycle\LifecycleRecorder`.
+         */
+        $this->recordLifecycleEvent(
+            \App\Lifecycle\LifecycleTrigger::WALLET_FUNDED,
+            $user,
+            [
+                'amount_minor' => $amount->minor(),
+                'payment_method' => (string) $locked->payment_method,
+                'funding_count' => DB::table('transactions')
+                    ->where('user_id', $user->getKey())
+                    ->where('service_type', 'funding')
+                    ->where('status', 'success')
+                    ->where('type', 'credit')
+                    ->count(),
+            ],
+            // Keyed on the funding row, so a replayed settlement is one event.
+            dedupeKey: 'funding-' . $locked->getKey()
+        );
+
         return ['status' => 'settled', 'transaction' => $locked];
+    }
+
+    /**
+     * Write a lifecycle event as part of the current transaction.
+     *
+     * Never fatal. It runs inside the settlement transaction, where an exception would
+     * roll back a credit the customer has already paid for — the one outcome worse
+     * than a missing lifecycle event.
+     *
+     * @param  array<string,mixed>  $payload
+     */
+    private function recordLifecycleEvent(string $name, User $user, array $payload, string $dedupeKey): void
+    {
+        try {
+            app(\App\Lifecycle\LifecycleRecorder::class)->record($name, $user, $payload, $dedupeKey);
+        } catch (Throwable $e) {
+            Log::error('Could not record a lifecycle event', [
+                'event' => $name,
+                'user_id' => $user->getKey(),
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

@@ -91,6 +91,15 @@
                 'items' => [
                     ['Live chat', 'admin.chat.index', 'admin.chat.*', 'chat-bubble-left-right', 'chat', $pendingChats ?? 0],
                     ['Messages', 'admin.contact.index', 'admin.contact.*', 'envelope', 'view_contacts', $unreadContacts ?? 0],
+                    /*
+                     * Customer messaging sits under Support rather than Commercial,
+                     * because that is who uses it: the delivery log answers "did this
+                     * customer get their email?", which is a support question. Authoring
+                     * templates and pausing marketing need `manage_lifecycle`, which is
+                     * super-admin only — so a support lead sees the log and cannot
+                     * rewrite what goes out.
+                     */
+                    ['Customer messaging', 'admin.lifecycle.index', 'admin.lifecycle.*', 'paper-airplane', 'view_lifecycle', null],
                 ],
             ],
             [

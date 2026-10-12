@@ -912,6 +912,67 @@ class BillPaymentService
         ])->save();
 
         $this->recordProfit($transaction->fresh());
+
+        /*
+         * Record the successful purchase as a lifecycle event.
+         *
+         * Here rather than at each caller because `markSuccess()` is the single gate
+         * every successful settlement passes — the purchase pipeline, the provider
+         * webhook, the admin "force success" and `payments:auto-resolve` — so one call
+         * covers all four, and the fifth added later inherits it.
+         *
+         * Keyed on the transaction, so a re-settled purchase is one event rather than
+         * three. It never throws: this runs immediately after a delivery the customer
+         * has paid for, and a messaging failure must not fail that.
+         */
+        $this->recordLifecycleEvent($transaction->fresh());
+    }
+
+    /**
+     * Write `transaction.succeeded` for a vended purchase.
+     *
+     * The counts are computed here rather than left to a condition, so a condition on
+     * `transaction_count` reads a value the trigger actually supplied.
+     */
+    private function recordLifecycleEvent(Transactions $transaction): void
+    {
+        /*
+         * A fee debit is not a purchase. `transactions` carries `fee` rows for the
+         * funding service charge, and telling a customer their "transaction succeeded"
+         * because they were charged a fee would be both confusing and wrong.
+         */
+        if ($transaction->service_type === 'fee' || $transaction->type !== 'debit') {
+            return;
+        }
+
+        $user = $transaction->user;
+
+        if (! $user) {
+            return;
+        }
+
+        try {
+            app(\App\Lifecycle\LifecycleRecorder::class)->record(
+                \App\Lifecycle\LifecycleTrigger::TRANSACTION_SUCCEEDED,
+                $user,
+                [
+                    'service_type' => (string) $transaction->service_type,
+                    'amount_minor' => Money::fromDatabase($transaction->total_amount)->minor(),
+                    'transaction_count' => DB::table('transactions')
+                        ->where('user_id', $user->getKey())
+                        ->where('type', 'debit')
+                        ->where('status', 'success')
+                        ->where('service_type', '!=', 'fee')
+                        ->count(),
+                ],
+                dedupeKey: 'txn-' . $transaction->getKey()
+            );
+        } catch (Throwable $e) {
+            Log::error('Could not record the transaction lifecycle event', [
+                'transaction_id' => $transaction->getKey(),
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

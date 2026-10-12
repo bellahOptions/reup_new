@@ -62,6 +62,7 @@ everything under Composer.
 | hourly | `payments:charge-funding-fees` | Collects funding service fees that could not be taken at settlement (see §Funding fees below) |
 | every two minutes | `payments:vendor-funded-purchases` | Delivers purchases paid for by card that settled but were never vended |
 | every five minutes | `payments:send-funding-receipts` | Notifies the customer, with a receipt, for every wallet funding that has settled and has not been receipted |
+| every minute | `lifecycle:process` | Turns customer lifecycle events into queued emails. **Needs a queue worker as well — see below** |
 | every five minutes | `providers:check-balances` | Probes each provider's float and health, so a purchase is never sold against a vendor that cannot fund it |
 | every minute | *(heartbeat)* | Writes `scheduler:last_run`, which `schedule:health` reads |
 
@@ -1139,6 +1140,54 @@ Laravel 8 has no `@vite` directive; it arrived in Laravel 9.19. `App\Support\Vit
 resolves the tags and `AppServiceProvider` registers the directive. If you ever
 upgrade to Laravel 9+, remove that registration — the framework will provide its
 own, and having both would be ambiguous.
+
+#### Customer lifecycle messaging — needs a scheduler **and** a queue worker
+
+`/admin/lifecycle` sends the customer-lifecycle emails: a welcome, funding and
+first-transaction nudges, a referral invitation, and a re-engagement after inactivity.
+Templates and automations are created **disabled**; nothing is mailed until an operator
+activates an automation.
+
+```
+php artisan db:seed --class=LifecycleSeeder     # the five recommended examples, as drafts
+php artisan lifecycle:process --dry-run         # what is due, changing nothing
+php artisan lifecycle:process                   # one tick, by hand
+```
+
+**A scheduler entry does not replace a queue worker.** `lifecycle:process` runs every
+minute and only *enqueues*; the sending happens in `LifecycleSendMessage` jobs on the
+`lifecycle` queue. So production needs both:
+
+```
+* * * * * cd /path/to/app && php artisan schedule:run >> /dev/null 2>&1
+
+php artisan queue:work --queue=lifecycle,default --tries=3 --backoff=60
+```
+
+The queue worker **must list `lifecycle`**, or nothing is ever sent: the tick will
+happily enqueue jobs that no worker consumes, and the delivery log will show rows
+stuck at `queued`. `QUEUE_CONNECTION=sync` (the local default) runs each job inline,
+which works for development and is not a substitute for a worker in production.
+
+Why the split matters: the scheduler is a single process that also runs payment
+reconciliation. Sending mail from it would block reconciliation behind an SMTP
+handoff, and a restart mid-batch would lose every message in it. Enqueueing instead
+means a slow mail server delays emails and nothing else.
+
+**What to watch.** The overview shows active automations, sent today, queued, failed,
+bounces and the pending-event count. A bounce rate over
+`LIFECYCLE_BOUNCE_WARNING_BPS` (5% by default) raises a warning on the page — a high
+rate affects every email the platform sends, including password resets, because it is
+the sending domain's reputation that suffers.
+
+**Pausing marketing** is a switch on the overview, needs `manage_lifecycle`
+(super-admin only), and is audited. It stops marketing automations immediately and
+never stops a receipt, a funding confirmation or a security alert — that separation is
+enforced in `LifecycleDispatcher`, where the message's category is known.
+
+**Templates that carry an unsubscribe link** emit `List-Unsubscribe`, and the link is
+signed. Marketing only: adding it to a receipt would imply the customer can stop
+receiving receipts.
 
 ### The test suite pins its own configuration
 
