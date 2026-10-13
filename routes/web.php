@@ -196,6 +196,16 @@ Route::middleware(['auth', 'verified', 'customer'])->group(function () {
             ->middleware('throttle:20,1')->name('data.purchase');
         Route::get('/history', [AirtimeDataController::class, 'history'])->name('airtime-data.history');
         Route::get('/networks', [AirtimeDataController::class, 'networks'])->name('airtime-data.networks');
+        /*
+         * The network a number is probably on, for the page to pre-select.
+         *
+         * It makes **no provider request** — it reads `config/networks.php` — so it
+         * is free and instantaneous, and the page can call it when the customer
+         * finishes typing without spending a provider's rate limit. Throttled
+         * regardless, because a limit costs nothing.
+         */
+        Route::get('/detect-network', [AirtimeDataController::class, 'detectNetwork'])
+            ->middleware('throttle:60,1')->name('airtime-data.detect-network');
     });
 
     // Transaction outcome pages. Ownership is asserted in the controller.

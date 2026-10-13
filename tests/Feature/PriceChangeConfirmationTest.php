@@ -778,21 +778,42 @@ class PriceChangeConfirmationTest extends TestCase
         );
     }
 
-    public function test_the_network_key_is_resolved_from_the_catalogue_not_the_form(): void
+    /**
+     * A network the form claims that the bundle does not belong to is refused.
+     *
+     * ## This test used to assert a silent correction
+     *
+     * The previous behaviour recorded the catalogue's network and carried on, so a
+     * purchase that said "Airtel" was stored as MTN and dispatched as MTN. That is
+     * right about *which* network is authoritative and wrong about what to do when
+     * the two disagree: the customer had just told the page to send Airtel data, and
+     * the page was about to send MTN data instead without saying so.
+     *
+     * The bundle's own network is still authoritative — it is the plan that
+     * determines where the data can go — but a disagreement is now a refusal the
+     * customer can act on, which is the only outcome that cannot spend money on the
+     * wrong network.
+     */
+    public function test_a_bundle_from_another_network_is_refused_rather_than_silently_reassigned(): void
     {
         $user = $this->customer();
         $this->fakeVending();
 
         // The form claims Airtel; the catalogue row is MTN.
-        $this->actingAs($user)->post(route('data.purchase'), $this->purchasePayload([
+        $response = $this->actingAs($user)->postJson(route('data.purchase'), $this->purchasePayload([
             'data_network' => '04',
         ]));
 
-        $transaction = Transactions::where('user_id', $user->id)->latest('id')->firstOrFail();
+        $response->assertStatus(409);
+        $this->assertStringContainsString('different network', (string) $response->json('message'));
 
-        $this->assertSame('mtn', $transaction->network_code);
-        $this->assertSame('MTN', $transaction->network_name);
-        $this->assertSame('mtn', NetworkResolver::key($transaction->network_code));
+        // Nothing was bought and nothing was charged.
+        $this->assertSame(
+            0,
+            Transactions::where('user_id', $user->id)->count(),
+            'A mismatched network and bundle must not create a transaction'
+        );
+        $this->assertSame('5000.00', $this->balanceOf($user));
     }
 
     /* =====================================================================

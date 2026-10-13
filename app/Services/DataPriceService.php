@@ -97,6 +97,24 @@ class DataPriceService
      *     catalogue_age_seconds:?int
      * }
      */
+    /**
+     * Price one data bundle.
+     *
+     * ## `$networkKey` is the network the caller believes the bundle belongs to
+     *
+     * It is checked against the plan's **own** network, which is the authority: a
+     * plan's network is what decides where the data can be delivered, and a caller
+     * that names a different one has a stale or tampered form.
+     *
+     * The check lives here rather than only in the controller because this is the
+     * single place a bundle is priced, and the only place that can promise it. The
+     * controller previously passed a network and this method ignored it — so a
+     * mismatched pair was priced happily and stored under the plan's network, which
+     * is what let a purchase claim one network and dispatch another.
+     *
+     * A `null` key skips the check, which is what read-only callers (the price list,
+     * the admin preview) pass when they have no network claim to verify.
+     */
     public function quote(?string $planIdentifier, ?string $networkKey = null): array
     {
         $plan = $planIdentifier === null || $planIdentifier === ''
@@ -118,6 +136,28 @@ class DataPriceService
         }
 
         $resolvedKey = NetworkResolver::key((string) ($plan['network_code'] ?? ''), 'clubkonnect');
+
+        /*
+         * The caller's claim, checked against the plan's own network.
+         *
+         * Refused rather than corrected. The plan's network is authoritative for
+         * *where the data goes*, but silently sending a different network from the
+         * one the customer selected is how a purchase spends money on a bundle that
+         * never arrives — and the customer is the only one who can say whether the
+         * form was stale or the network was ported.
+         */
+        if ($networkKey !== null && $resolvedKey !== null && $networkKey !== $resolvedKey) {
+            return $this->outcome(
+                found: true,
+                plan: $plan,
+                quote: null,
+                networkKey: $resolvedKey,
+                networkName: NetworkResolver::displayName((string) ($plan['network_code'] ?? ''), 'clubkonnect'),
+                refusal: 'That data bundle belongs to a different network from the one selected. '
+                    . 'Please reselect the network and bundle.',
+                status: $status,
+            );
+        }
 
         $cost = $this->costs->forDataBundle($plan);
 

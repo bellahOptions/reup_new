@@ -243,6 +243,14 @@
                                 <input type="hidden" id="plan_price" name="plan_price">
                                 <input type="hidden" id="plan_type" name="plan_type">
                                 <input type="hidden" id="price_confirmation" name="price_confirmation" value="">
+                                {{--
+                                     Set when the customer accepts a network that
+                                     contradicts their number's prefix — a ported
+                                     number. It is the override the server requires,
+                                     so it is only ever written by the confirmation
+                                     dialog's continue button, never on a first
+                                     submit. --}}
+                                <input type="hidden" id="network_confirmation" name="network_confirmation" value="">
 
                                 <p id="planStaleNotice" class="mt-2 hidden items-center gap-1.5 text-xs text-amber-700">
                                     <x-icon name="exclamation-triangle" class="h-3.5 w-3.5" />
@@ -255,6 +263,20 @@
                                 <input type="tel" id="data_phone" name="phone" placeholder="08012345678"
                                        class="input mt-1.5" required maxlength="11" pattern="[0-9]{11}"
                                        inputmode="numeric" autocomplete="tel">
+                                {{--
+                                     The detection readout.
+
+                                     It is a live region because it changes as a
+                                     result of typing, and a customer using a screen
+                                     reader otherwise has no way to know that the
+                                     network was recognised. The network name and
+                                     logo are written by `applyDetectedNetwork()`.
+                                --}}
+                                <div id="dataNetworkDetect" class="mt-2 hidden items-center gap-2 text-sm" role="status" aria-live="polite">
+                                    <span id="dataNetworkDetectSpinner" class="hidden h-4 w-4 animate-spin rounded-full border-2 border-brand-500 border-t-transparent"></span>
+                                    <span id="dataNetworkDetectLogo" class="shrink-0"></span>
+                                    <span id="dataNetworkDetectText" class="text-muted-foreground"></span>
+                                </div>
                             </div>
 
                             <div id="planSummary" class="hidden rounded-xl border border-brand-200 bg-accent p-4">
@@ -395,7 +417,12 @@
                         <x-icon name="receipt-percent" class="h-5 w-5" />
                     </span>
                     <div class="min-w-0">
-                        <h2 id="priceChangeTitle" class="text-base font-semibold">Data bundle price updated</h2>
+                        {{-- One dialog, two decisions. A changed price and a network
+                             that contradicts the number are both "the server cannot
+                             decide this for you", so they share the panel and differ
+                             only in what they ask. --}}
+                        <h2 id="priceChangeTitle" class="text-base font-semibold"
+                            x-text="isNetworkMismatch ? 'Check your network' : 'Data bundle price updated'"></h2>
                         <p class="mt-1 text-sm text-muted-foreground" x-text="message"></p>
                     </div>
                 </div>
@@ -409,28 +436,44 @@
                         <dt class="text-muted-foreground">Network</dt>
                         <dd class="font-medium" x-text="product.network || '—'"></dd>
                     </div>
-                    <div class="flex items-center justify-between gap-3">
+                    <div class="flex items-center justify-between gap-3" x-show="!isNetworkMismatch">
                         <dt class="text-muted-foreground">Previous price</dt>
                         <dd class="tabular-nums line-through" x-text="previousPrice"></dd>
                     </div>
-                    <div class="flex items-center justify-between gap-3">
+                    <div class="flex items-center justify-between gap-3" x-show="!isNetworkMismatch">
                         <dt class="font-medium">New price</dt>
                         <dd class="text-base font-semibold tabular-nums" x-text="newPrice"></dd>
+                    </div>
+
+                    {{-- Network rows: the number as typed, and what we inferred. --}}
+                    <div class="flex items-center justify-between gap-3" x-show="isNetworkMismatch" x-cloak>
+                        <dt class="text-muted-foreground">Your number</dt>
+                        <dd class="font-medium tabular-nums" x-text="phoneFormatted || '—'"></dd>
+                    </div>
+                    <div class="flex items-center justify-between gap-3" x-show="isNetworkMismatch" x-cloak>
+                        <dt class="text-muted-foreground">Looks like</dt>
+                        <dd class="font-medium" x-text="detectedNetwork || '—'"></dd>
                     </div>
                 </dl>
 
                 {{-- A price that has gone up may no longer be affordable, and the
                      customer should learn that here rather than after accepting. --}}
-                <p class="mt-3 text-xs text-muted-foreground" x-show="balance" x-cloak>
+                <p class="mt-3 text-xs text-muted-foreground" x-show="balance && !isNetworkMismatch" x-cloak>
                     Wallet balance: <span class="font-medium tabular-nums" x-text="balance"></span>
                     <template x-if="!affordable">
                         <span class="text-red-700"> — not enough for the new price.</span>
                     </template>
                 </p>
 
-                <p class="mt-3 text-xs text-muted-foreground">
+                <p class="mt-3 text-xs text-muted-foreground" x-show="!isNetworkMismatch" x-cloak>
                     Nothing has been charged. This price is held for
                     <span x-text="expiresIn"></span>.
+                </p>
+
+                <p class="mt-3 text-xs text-muted-foreground" x-show="isNetworkMismatch" x-cloak>
+                    Nothing has been charged and your selection is kept. Sending a bundle to the
+                    wrong network would spend your money on data that never arrives, so we ask
+                    before charging — this is a check, not a refusal.
                 </p>
 
                 <p class="field-error mt-3" x-show="error" x-cloak x-text="error"></p>
@@ -441,7 +484,7 @@
                             :disabled="busy"
                             :class="busy ? 'opacity-60 cursor-not-allowed' : ''"
                             @click="confirm()">
-                        <span x-show="!busy">Continue at new price</span>
+                        <span x-show="!busy" x-text="isNetworkMismatch ? 'Use my selected network' : 'Continue at new price'"></span>
                         <span x-show="busy" x-cloak class="inline-flex items-center gap-2">
                             <span class="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent"></span>
                             Confirming…
@@ -514,8 +557,69 @@
             </div>
         @endif
 
-    </div>
-</main>
+        {{-- ============ No-JavaScript network confirmation ============
+             The same decision the dialog makes, in a plain form — so a customer
+             without JavaScript can still confirm a ported number rather than being
+             stuck on a refusal they cannot clear.
+
+             It posts the confirmation and nothing else. The network, plan and
+             number are the customer's own inputs, restored from `withInput()`. --}}
+        @if(session('network_mismatch'))
+            @php $mismatch = session('network_mismatch'); @endphp
+            <div class="container-page pb-6">
+                <div class="rounded-xl border border-amber-300 bg-amber-50 p-4" role="status">
+                    <h2 class="text-sm font-semibold text-amber-900">Check your network</h2>
+                    <p class="mt-1 text-sm text-amber-900">{{ $mismatch['message'] }}</p>
+
+                    <dl class="mt-3 space-y-1 text-sm text-amber-900">
+                        <div class="flex justify-between gap-4">
+                            <dt>Selected</dt>
+                            <dd class="font-medium">{{ $mismatch['selected_network_name'] ?? '—' }}</dd>
+                        </div>
+                        <div class="flex justify-between gap-4">
+                            <dt>Your number looks like</dt>
+                            <dd class="font-medium">{{ $mismatch['detected_network_name'] ?? 'unknown' }}</dd>
+                        </div>
+                        @if(! empty($mismatch['phone_formatted']))
+                            <div class="flex justify-between gap-4">
+                                <dt>Number</dt>
+                                <dd class="tabular-nums">{{ $mismatch['phone_formatted'] }}</dd>
+                            </div>
+                        @endif
+                    </dl>
+
+                    <p class="mt-2 text-xs text-amber-800">
+                        Nothing has been charged and your selection is kept. Choose cancel to pick a
+                        different network or plan instead.
+                    </p>
+
+                    <form method="POST"
+                          action="{{ old('data_plan') ? route('data.purchase', [], false) : route('airtime.purchase', [], false) }}"
+                          class="mt-3 flex flex-col gap-2 sm:flex-row">
+                        @csrf
+                        <input type="hidden" name="network_confirmation" value="1">
+                        @if(old('data_plan'))
+                            <input type="hidden" name="data_network" value="{{ old('data_network') }}">
+                            <input type="hidden" name="data_plan" value="{{ old('data_plan') }}">
+                            <input type="hidden" name="plan_name" value="{{ old('plan_name') }}">
+                            <input type="hidden" name="plan_price" value="{{ old('plan_price') }}">
+                            <input type="hidden" name="plan_type" value="{{ old('plan_type') }}">
+                        @else
+                            <input type="hidden" name="network" value="{{ old('network') }}">
+                            <input type="hidden" name="amount" value="{{ old('amount') }}">
+                        @endif
+                        <input type="hidden" name="phone" value="{{ old('phone') }}">
+                        <input type="hidden" name="payment_method" value="{{ old('payment_method', 'wallet') }}">
+                        <input type="hidden" name="pin" value="{{ old('pin') }}">
+                        <input type="hidden" name="idempotency_key" value="{{ old('idempotency_key') }}">
+
+                        <button type="submit" class="btn btn-primary btn-sm">Use my selected network</button>
+                        <a href="{{ route('airtime-data.index') }}" class="btn btn-outline btn-sm">Cancel transaction</a>
+                    </form>
+                </div>
+            </div>
+        @endif
+
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -526,6 +630,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const dataPlanSelect = document.getElementById('data_plan');
     const dataPlanLoader = document.getElementById('dataPlanLoader');
     const dataNetworkRadios = document.querySelectorAll('.network-radio-data');
+    const dataPhoneInput = document.getElementById('data_phone');
+    const networkConfirmationInput = document.getElementById('network_confirmation');
     const planNameInput = document.getElementById('plan_name');
     const planPriceInput = document.getElementById('plan_price');
     const planTypeInput = document.getElementById('plan_type');
@@ -953,6 +1059,16 @@ document.addEventListener('DOMContentLoaded', function() {
         radio.addEventListener('change', function() {
             currentNetworkId = this.value;
 
+            /*
+             * A deliberate choice here is a new decision about which network this
+             * is, so any confirmation the customer gave for the *previous* network
+             * no longer applies. Leaving it set would let a stale "yes" authorise a
+             * purchase on a network they did not confirm.
+             */
+            if (networkConfirmationInput && String(this.value) !== String(lastDetectedCode)) {
+                networkConfirmationInput.value = '';
+            }
+
             dataTypeFilters.forEach(btn => btn.classList.remove('active'));
             document.querySelector('[data-type="all"]').classList.add('active');
             currentFilter = 'all';
@@ -962,13 +1078,210 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     /*
+     * Detect the network from the phone number as the customer finishes typing.
+     *
+     * `input` rather than `blur`, because typing the last digit is the moment the
+     * answer becomes possible and waiting for a blur makes the page feel asleep.
+     * `scheduleDetection()` is what keeps that from meaning one request per digit —
+     * it does nothing until the number is complete.
+     */
+    if (dataPhoneInput) {
+        dataPhoneInput.addEventListener('input', scheduleDetection);
+    }
+
+    /*
+     * Network detection from the phone number.
+     *
+     * ## When it runs, and why not on every keystroke
+     *
+     * Only once the number is complete — eleven digits and a valid Nigerian mobile
+     * shape — and then a short debounce after the last keystroke. An eight-digit
+     * number has no network, so asking about one is a request per digit for an
+     * answer that cannot exist yet. The completeness test is deliberately the same
+     * rule the server applies, so the page does not ask a question the server will
+     * call malformed.
+     *
+     * ## What a detection is worth
+     *
+     * A prefix hint, not proof: Nigerian numbers can be ported while keeping their
+     * prefix. So this is used to *pre-select* the likely network and to show the
+     * customer what we inferred — it never submits on the customer's behalf, and the
+     * server independently refuses a purchase whose network contradicts the number
+     * unless the customer confirms. The message says "looks like" for that reason.
+     *
+     * The request goes to this application, never to a provider: there is no
+     * number-to-network endpoint in either integration, and the lookup is a config
+     * read. See `PhoneNumber::detect()`.
+     */
+    const LOCAL_MOBILE_RE = /^0[789][01]\d{8}$/;
+
+    let detectTimer = null;
+    let detectRequest = null;
+    let lastDetectedCode = null;
+
+    const detectBox = document.getElementById('dataNetworkDetect');
+    const detectSpinner = document.getElementById('dataNetworkDetectSpinner');
+    const detectLogo = document.getElementById('dataNetworkDetectLogo');
+    const detectText = document.getElementById('dataNetworkDetectText');
+
+    function showDetectState(state, message, logo) {
+        detectBox.classList.remove('hidden');
+        detectBox.classList.add('flex');
+
+        detectSpinner.classList.toggle('hidden', state !== 'loading');
+        detectLogo.innerHTML = logo || '';
+
+        detectText.textContent = message || '';
+        detectText.className = state === 'error'
+            ? 'text-amber-700'
+            : 'text-muted-foreground';
+    }
+
+    function hideDetectState() {
+        detectBox.classList.add('hidden');
+        detectBox.classList.remove('flex');
+        detectLogo.innerHTML = '';
+    }
+
+    /**
+     * Tick the network the number looks like it is on, and load its plans.
+     *
+     * `silent` is true when the customer has already chosen a network by hand and
+     * we are only telling them what we inferred. Auto-selecting over a deliberate
+     * choice would undo the very thing the override exists for.
+     */
+    function applyDetectedNetwork(detection) {
+        if (!detection || !detection.code) {
+            return;
+        }
+
+        // Already on this network: the plans are loaded and the selection stands.
+        if (String(currentNetworkId) === String(detection.code)) {
+            lastDetectedCode = detection.code;
+            return;
+        }
+
+        /*
+         * `querySelectorAll` gives a NodeList, which in older Safari has no
+         * `find()`. `Array.from` is not a style preference here — the alternative
+         * is a silent `undefined` on a phone that the customer is holding, and the
+         * symptom would be "the network was detected but nothing was selected".
+         */
+        const radio = Array.from(dataNetworkRadios)
+            .find(r => String(r.value) === String(detection.code));
+
+        if (!radio) {
+            return;
+        }
+
+        radio.checked = true;
+
+        /*
+         * Setting `checked` does not fire `change`, and the change handler is what
+         * loads the plans for a new network. Going through the same path keeps one
+         * code path for "a network was chosen" rather than two that can diverge.
+         */
+        radio.dispatchEvent(new Event('change'));
+
+        lastDetectedCode = detection.code;
+    }
+
+    async function detectNetworkFromPhone(phone) {
+        /*
+         * A new question invalidates the old answer. Cancelling matters more here
+         * than usual: without it, a slow response for an earlier number can arrive
+         * after a faster one for the current number and select the wrong network.
+         */
+        if (detectRequest) {
+            detectRequest.abort();
+        }
+
+        detectRequest = new AbortController();
+
+        showDetectState('loading', 'Checking which network this number is on…');
+
+        try {
+            const response = await fetch(
+                '{{ route('airtime-data.detect-network') }}?phone=' + encodeURIComponent(phone),
+                {
+                    headers: { 'Accept': 'application/json' },
+                    signal: detectRequest.signal,
+                }
+            );
+
+            if (!response.ok) {
+                throw new Error('Detection responded with ' + response.status);
+            }
+
+            const payload = await response.json();
+
+            if (!payload.valid) {
+                showDetectState('error', payload.reason || 'That phone number does not look right.');
+                return;
+            }
+
+            const detection = payload.detected;
+
+            if (!detection || !detection.key) {
+                // A valid number on a prefix we do not hold. Asking the customer to
+                // pick is the correct answer; guessing is not.
+                showDetectState('error', 'We could not tell which network this number uses. Please choose it below.');
+                return;
+            }
+
+            const logo = detection.logo
+                ? '<img src="' + detection.logo + '" alt="" class="h-6 w-6 rounded object-contain" loading="lazy">'
+                : '';
+
+            showDetectState(
+                'ok',
+                detection.name + ' number. ' + (detection.portable
+                    ? 'If you have ported this number, choose your network below.'
+                    : ''),
+                logo
+            );
+
+            applyDetectedNetwork(detection);
+        } catch (error) {
+            // An aborted request is a superseded one, not a failure to report.
+            if (error && error.name === 'AbortError') {
+                return;
+            }
+
+            // Detection is an assist. Failing it must not block the purchase — the
+            // customer can still choose a network and the server still checks.
+            showDetectState('error', 'We could not check that number just now. Please choose the network below.');
+        }
+    }
+
+    function scheduleDetection() {
+        if (detectTimer) {
+            clearTimeout(detectTimer);
+        }
+
+        const phone = (dataPhoneInput.value || '').replace(/\D+/g, '');
+
+        if (!LOCAL_MOBILE_RE.test(phone)) {
+            hideDetectState();
+            lastDetectedCode = null;
+            return;
+        }
+
+        // Long enough that typing at speed does not fire per digit, short enough
+        // that the network appears while the customer is still looking at the field.
+        detectTimer = setTimeout(function() {
+            detectNetworkFromPhone(phone);
+        }, 350);
+    }
+
+    /*
      * Re-read the prices periodically while the page is open.
      *
      * The interval is the *backend's* configured frontend refresh interval, handed
      * to the page by the API, so it is one setting rather than a number in a
      * template. The request goes to this application and never to the provider:
      * the catalogue is refreshed by the scheduled synchronisation, and a browser
-     * polling NelloBytes would spend the rate limit that purchases need.
+     * polling the provider would spend the rate limit that purchases need.
      *
      * It is deliberately a poll rather than a push: there is no websocket
      * infrastructure here, and a price list that is at most one interval old is
@@ -1185,6 +1498,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
 
+            if (payload.status === 'network_mismatch') {
+                /*
+                 * The number does not match the chosen network. Nothing was
+                 * charged; the dialog asks the customer to confirm, and confirming
+                 * is what sets `network_confirmation` for the resubmission.
+                 */
+                window.dispatchEvent(new CustomEvent('reup:network-mismatch', { detail: payload }));
+                return;
+            }
+
             if (payload.status === 'refused' || !response.ok) {
                 const message = payload.message || 'We could not complete that purchase. No money has left your wallet.';
 
@@ -1268,14 +1591,20 @@ document.addEventListener('alpine:init', () => {
         expiresIn: '',
         token: '',
         countdown: null,
+        /* Which decision the dialog is asking: a price, or a network. */
+        isNetworkMismatch: false,
+        phoneFormatted: '',
+        detectedNetwork: '',
 
         init() {
             window.addEventListener('reup:price-changed', (event) => this.show(event.detail));
+            window.addEventListener('reup:network-mismatch', (event) => this.showNetworkMismatch(event.detail));
         },
 
         show(payload) {
-            this.error = '';
-            this.busy = false;
+            this.reset();
+
+            this.isNetworkMismatch = false;
             this.message = payload.message || 'The price for your selected data bundle has changed. Would you like to continue at the updated price?';
             this.product = payload.product || {};
             this.previousPrice = payload.previous_price_formatted || '';
@@ -1291,6 +1620,46 @@ document.addEventListener('alpine:init', () => {
             // Move focus into the dialog so a keyboard user is placed at the
             // decision rather than left behind it.
             this.$nextTick(() => this.$refs.panel && this.$refs.panel.focus());
+        },
+
+        /**
+         * The network does not match the number.
+         *
+         * No countdown, because there is nothing to expire: the decision is about
+         * the customer's own SIM, not about a figure that can move. Counting down a
+         * question with no deadline would push them to answer a question about
+         * their own phone number faster than they can read it.
+         */
+        showNetworkMismatch(payload) {
+            this.reset();
+
+            this.isNetworkMismatch = true;
+            this.message = payload.message || 'That number looks like it belongs to a different network.';
+            this.product = payload.product || {};
+            this.phoneFormatted = payload.phone_formatted || '';
+            this.detectedNetwork = payload.detected_network_name || '';
+
+            this.open = true;
+            this.$nextTick(() => this.$refs.panel && this.$refs.panel.focus());
+        },
+
+        reset() {
+            this.error = '';
+            this.busy = false;
+            this.token = '';
+            this.expiresAt = 0;
+            this.expiresIn = '';
+            this.previousPrice = '';
+            this.newPrice = '';
+            this.balance = '';
+            this.affordable = true;
+            this.phoneFormatted = '';
+            this.detectedNetwork = '';
+
+            if (this.countdown) {
+                clearInterval(this.countdown);
+                this.countdown = null;
+            }
         },
 
         startCountdown() {
@@ -1327,27 +1696,49 @@ document.addEventListener('alpine:init', () => {
             this.error = '';
 
             const form = document.getElementById('dataForm');
-            const field = document.getElementById('price_confirmation');
+            const priceField = document.getElementById('price_confirmation');
+            const networkField = document.getElementById('network_confirmation');
 
-            if (!form || !field || !this.token) {
+            if (!form || !priceField || !networkField) {
                 this.busy = false;
-                this.error = 'That confirmation has expired. Please submit the purchase again to see the current price.';
+                this.error = 'That confirmation could not be applied. Please submit the purchase again.';
                 return;
             }
 
-            field.value = this.token;
+            /*
+             * Exactly one of the two confirmations is ever set, and the other is
+             * cleared — so accepting a price cannot also carry a stale network
+             * override from a dialog that was open earlier, and vice versa. The two
+             * are different claims about different things and must not travel
+             * together by accident.
+             */
+            if (this.isNetworkMismatch) {
+                priceField.value = '';
+                networkField.value = '1';
+            } else {
+                networkField.value = '';
+
+                if (!this.token) {
+                    this.busy = false;
+                    this.error = 'That confirmation has expired. Please submit the purchase again to see the current price.';
+                    return;
+                }
+
+                priceField.value = this.token;
+            }
 
             /*
-             * Re-submit the form. The submit handler sends it with the token, and
-             * the server re-validates the price, the rule and the expiry — so if
-             * the price moved again while the modal was open, a *new* modal opens
-             * with the latest figures instead of a purchase at an unagreed price.
+             * Re-submit the form. The submit handler sends it with the confirmation,
+             * and the server re-validates everything — the price, the rule, the
+             * expiry, the network against the number — so if the price moved again
+             * while the dialog was open, a *new* dialog opens with the latest
+             * figures instead of a purchase at an unagreed price.
              *
-             * The modal is closed here rather than left spinning. Every outcome
-             * replaces it: a success navigates to the receipt, a renewed price
-             * change re-opens it with the new figures, and a failure raises a
-             * message through the feedback channel. Leaving a spinner behind an
-             * error is how a customer concludes their money is in limbo.
+             * The dialog is closed here rather than left spinning. Every outcome
+             * replaces it: a success navigates to the receipt, a renewed conflict
+             * re-opens it with the new figures, and a failure raises a message
+             * through the feedback channel. Leaving a spinner behind an error is how
+             * a customer concludes their money is in limbo.
              */
             this.open = false;
             this.busy = false;
@@ -1360,12 +1751,18 @@ document.addEventListener('alpine:init', () => {
         },
 
         cancel() {
-            // No request, no debit, no change to the form. Clearing the token is
-            // the only state this touches, so the next submission is treated as a
-            // fresh one and the customer is asked again if the price moved.
-            const field = document.getElementById('price_confirmation');
-            if (field) {
-                field.value = '';
+            // No request, no debit, no change to the form inputs. Clearing both
+            // confirmations is the only state this touches, so the next submission is
+            // treated as a fresh one and the customer is asked again about whatever
+            // still applies.
+            const priceField = document.getElementById('price_confirmation');
+            if (priceField) {
+                priceField.value = '';
+            }
+
+            const networkField = document.getElementById('network_confirmation');
+            if (networkField) {
+                networkField.value = '';
             }
 
             if (this.countdown) {

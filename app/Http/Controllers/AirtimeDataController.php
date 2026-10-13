@@ -10,7 +10,9 @@ use App\Pricing\PricingEngine;
 use App\Services\BillPaymentService;
 use App\Services\ClubKonnectCatalogue;
 use App\Services\DataPriceService;
+use App\Services\NetworkBrand;
 use App\Services\NetworkResolver;
+use App\Services\PhoneNumber;
 use App\Services\ProviderCostResolver;
 use App\Services\SecurityService;
 use App\Services\WalletService;
@@ -98,6 +100,158 @@ class AirtimeDataController extends Controller
         return response()->json(self::NETWORKS);
     }
 
+    /**
+     * The network a phone number is probably on, for the page to pre-select.
+     *
+     * ## What this endpoint does not do
+     *
+     * It makes **no provider request**. Detection is a prefix hint resolved from
+     * `config/networks.php`, so it is free and instantaneous, and the page can call
+     * it whenever the customer finishes typing without spending a provider's rate
+     * limit on it. There is no provider endpoint to call — see
+     * `PhoneNumber::detect()`.
+     *
+     * ## Why the network code is returned as well as the name
+     *
+     * The page needs to tick a radio button, and the radios are keyed by the
+     * provider's code (`01`), not by our canonical key (`mtn`). Returning both
+     * keeps that translation on the server, where `config/networks.php` owns it,
+     * rather than teaching the browser a second mapping that could drift.
+     */
+    public function detectNetwork(Request $request)
+    {
+        $phone = (string) $request->query('phone', '');
+
+        $parsed = PhoneNumber::parse($phone);
+
+        if (! $parsed['valid']) {
+            return response()->json([
+                'valid' => false,
+                'reason' => $parsed['reason'],
+                'detected' => null,
+            ]);
+        }
+
+        $detection = PhoneNumber::detect($parsed['national']);
+        $networkKey = $detection['key'] ?? null;
+
+        return response()->json([
+            'valid' => true,
+            'reason' => null,
+            'formatted' => PhoneNumber::format($parsed['national']),
+            'international' => $parsed['international'],
+            'detected' => $detection === null ? null : [
+                'key' => $networkKey,
+                // The code the form posts, or null when the prefix matched nothing.
+                'code' => self::codeFor($networkKey),
+                'name' => $detection['name'],
+                /*
+                 * The brand mark, resolved through the one shared mapping. Sent so
+                 * the page can show the logo without holding a second copy of the
+                 * asset paths — the duplication `NetworkBrand` exists to prevent.
+                 */
+                'logo' => NetworkBrand::logoUrlFor($networkKey),
+                'confidence' => $detection['confidence'],
+                'source' => $detection['source'],
+                /*
+                 * The page words its own caveat from this, so the portability
+                 * warning travels with the answer rather than being something each
+                 * view has to remember to write.
+                 */
+                'portable' => $detection['confidence'] === PhoneNumber::CONFIDENCE_UNCERTAIN,
+            ],
+        ]);
+    }
+
+    /**
+     * The form code for a canonical network key.
+     *
+     * The inverse of `NetworkResolver::key($code, 'clubkonnect')`, derived from the
+     * same map so the two cannot disagree.
+     */
+    public static function codeFor(?string $key): ?string
+    {
+        if ($key === null) {
+            return null;
+        }
+
+        foreach (self::NETWORKS as $code => $label) {
+            if (NetworkResolver::key((string) $code, 'clubkonnect') === $key) {
+                return (string) $code;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Whether the customer's chosen network can be sent to this number.
+     *
+     * ## The rule, and why it is a refusal with an override rather than a warning
+     *
+     * A prefix hint is strong evidence and not proof: Nigerian numbers can be ported
+     * while keeping their prefix. When the chosen network contradicts the hint, the
+     * overwhelmingly likely explanation is that the wrong network is selected — and
+     * sending an MTN bundle to an Airtel number spends the customer's money on
+     * nothing that arrives.
+     *
+     * So the contradiction **stops the purchase before the wallet is debited** and
+     * asks the customer to confirm. Confirmation is the override for a genuinely
+     * ported number, and it is recorded as the customer's own statement rather than
+     * as a detection, so the receipt and the audit trail say who decided.
+     *
+     * A prefix we do not hold yields no candidate, so nothing is refused — the
+     * customer's choice stands. That asymmetry is deliberate: an unknown prefix must
+     * not block a sale.
+     *
+     * @return array{ok:bool,message:?string,detected:?string,detected_name:?string,formatted:?string}
+     */
+    private function networkAgreesWithNumber(string $phone, ?string $chosenKey, bool $confirmed): array
+    {
+        $parsed = PhoneNumber::parse($phone);
+
+        if (! $parsed['valid']) {
+            return ['ok' => false, 'message' => $parsed['reason'], 'detected' => null, 'detected_name' => null, 'formatted' => null];
+        }
+
+        $detection = PhoneNumber::detect($parsed['national']);
+
+        $result = [
+            'ok' => true,
+            'message' => null,
+            'detected' => $detection['key'] ?? null,
+            'detected_name' => $detection['name'] ?? null,
+            'formatted' => PhoneNumber::format($parsed['national']),
+        ];
+
+        // No candidate, or no chosen network to compare against: nothing to refuse.
+        if ($detection === null || $detection['key'] === null || $chosenKey === null) {
+            return $result;
+        }
+
+        if ($detection['key'] === $chosenKey) {
+            return $result;
+        }
+
+        /*
+         * The customer has already been asked and has said yes. Their statement
+         * wins — it is the only thing that can be right about a ported number.
+         */
+        if ($confirmed) {
+            return $result;
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'That number looks like a ' . $detection['name'] . ' number, but a '
+                . (NetworkResolver::labelFor($chosenKey) ?? $chosenKey) . ' bundle is selected. '
+                . 'Please confirm you want to continue.',
+            'detected' => $detection['key'],
+            'detected_name' => $detection['name'],
+            'formatted' => PhoneNumber::format($parsed['national']),
+        ];
+    }
+
     /* =====================================================================
      | Purchases
      |=================================================================== */
@@ -125,6 +279,7 @@ class AirtimeDataController extends Controller
             'payment_method' => 'nullable|string|in:wallet,paystack',
             'pin' => ['required_unless:payment_method,' . self::PAY_WITH_PAYSTACK, 'nullable', 'string', 'size:4'],
             'idempotency_key' => 'nullable|string|min:8|max:64',
+            'network_confirmation' => 'nullable|string|in:1,true,on,yes',
         ]);
 
         /*
@@ -137,6 +292,25 @@ class AirtimeDataController extends Controller
         $networkCode = (string) $validated['network'];
         $networkKey = NetworkResolver::key($networkCode, 'clubkonnect');
         $networkName = NetworkResolver::displayName($networkCode, 'clubkonnect');
+
+        /*
+         * Airtime is delivered to the same number a bundle is, so the same
+         * contradiction is refused for the same reason: top-up sent to the wrong
+         * network is money spent on nothing. See `networkAgreesWithNumber()`.
+         */
+        $agreement = $this->networkAgreesWithNumber(
+            (string) $validated['phone'],
+            $networkKey,
+            filled($validated['network_confirmation'] ?? null),
+        );
+
+        if (! $agreement['ok']) {
+            return $this->networkMismatchResponse($request, $validated, $agreement, [
+                'plan' => null,
+                'network_key' => $networkKey,
+                'network_name' => $networkName,
+            ]);
+        }
 
         /*
          * Integer kobo, exactly. This was `round((float) $validated['amount'], 2)`
@@ -330,22 +504,79 @@ class AirtimeDataController extends Controller
              * customer is accepting a changed price without re-submitting the form.
              */
             'price_confirmation' => 'nullable|string|max:120',
+            /*
+             * Set when the customer has explicitly accepted a network that
+             * contradicts their number's prefix — a ported number. It is the
+             * override for `networkAgreesWithNumber()`, and it is deliberately a
+             * separate field from the network itself so that "the customer chose
+             * Airtel" and "the customer confirmed Airtel for a number that looks
+             * like MTN" are not the same claim.
+             */
+            'network_confirmation' => 'nullable|string|in:1,true,on,yes',
         ]);
 
         $paysByCard = $request->input('payment_method') === self::PAY_WITH_PAYSTACK;
 
-        $priced = $this->dataPrices->quote(
-            (string) $validated['data_plan'],
-            NetworkResolver::key((string) $validated['data_network'], 'clubkonnect'),
-        );
+        /*
+         * The network the form claims, resolved once. `DataPriceService::quote()`
+         * checks it against the bundle's own network and refuses a mismatch, so a
+         * plan from another network cannot be priced at all — see that method for
+         * why the check lives there rather than here.
+         */
+        $selectedNetworkKey = NetworkResolver::key((string) $validated['data_network'], 'clubkonnect');
+
+        $priced = $this->dataPrices->quote((string) $validated['data_plan'], $selectedNetworkKey);
 
         if (! $priced['found']) {
             return $this->purchaseRefusal($request, $priced['refusal'], 404);
         }
 
         if ($priced['price_minor'] === null) {
+            /*
+             * Either the bundle's network does not match the selected one, or the
+             * engine could not price it. Both are refusals of the same kind — the
+             * bundle cannot be sold to this customer as selected — and the message
+             * says which, so it is 409 rather than 404.
+             */
             return $this->purchaseRefusal($request, $priced['refusal'], 409);
         }
+
+        /*
+         * The bundle is deliverable. Now: does the customer's *number* agree with
+         * the network they chose, or have they said so?
+         *
+         * This happens before the price is examined, because it is not a matter of
+         * price — a bundle sent to the wrong network arrives nowhere at any price.
+         */
+        $agreement = $this->networkAgreesWithNumber(
+            (string) $validated['phone'],
+            $priced['network_key'],
+            filled($validated['network_confirmation'] ?? null),
+        );
+
+        if (! $agreement['ok']) {
+            /*
+             * Answered as a structured 409 rather than a plain error, so the page
+             * can raise the confirmation dialog instead of a dead-end message. The
+             * shape mirrors the price-change response so the view has one pattern
+             * to render.
+             */
+            return $this->networkMismatchResponse($request, $validated, $agreement, $priced);
+        }
+
+        /*
+         * The agreement travels on `$validated` rather than as another parameter.
+         *
+         * There are three routes into `dispatchDataPurchase` — the ordinary one, the
+         * accepted-confirmation one, and the resubmission after a network override —
+         * and a parameter would have to be threaded through all of them, where
+         * missing one would silently record a confirmed network as a detection. As a
+         * field it is either present or visibly absent.
+         */
+        $validated['network_source'] = filled($validated['network_confirmation'] ?? null)
+            ? PhoneNumber::SOURCE_CUSTOMER
+            : PhoneNumber::SOURCE_PREFIX;
+        $validated['network_detected'] = $agreement['detected'];
 
         $presented = $this->dataPrices->presentedMinor($validated['plan_price'] ?? null);
 
@@ -551,6 +782,84 @@ class AirtimeDataController extends Controller
     }
 
     /**
+     * Ask the customer to confirm a network their number does not match.
+     *
+     * ## Why this reuses the price-change payload shape
+     *
+     * The view already renders a modal for a decision the server cannot make on the
+     * customer's behalf: two values, a continue button, a cancel button, and a
+     * hidden field carrying the decision back. A network conflict is the same shape
+     * of decision — the server cannot know whether a ported number is involved — so
+     * it travels in the same envelope with a different `status`. Two bespoke modals
+     * would drift; one pattern with two titles does not.
+     *
+     * ## It issues no confirmation token
+     *
+     * Deliberately. A price confirmation commits to a *figure* that may move again,
+     * so it must be recorded server-side. Confirming a network is a statement about
+     * the customer's own SIM, and the price is quoted fresh on the resubmission —
+     * so `network_confirmation=1` is the whole payload. Nothing here can be replayed
+     * to buy at a stale price, because it carries no price at all.
+     *
+     * @return \Illuminate\Http\JsonResponse|\Illuminate\Http\RedirectResponse
+     */
+    private function networkMismatchResponse(
+        Request $request,
+        array $validated,
+        array $agreement,
+        array $priced
+    ) {
+        $plan = $priced['plan'] ?? null;
+
+        /*
+         * Airtime has no bundle, so the "product" block describes the denomination
+         * instead. Sharing one payload shape means the view renders one modal; the
+         * only difference is what the summary line says.
+         */
+        $product = $plan === null
+            ? [
+                'plan_code' => null,
+                'plan_name' => 'Airtime ' . Money::fromNaira($validated['amount'] ?? 0)->format(),
+                'network' => $priced['network_name'],
+                'network_key' => $priced['network_key'],
+            ]
+            : [
+                'plan_code' => ClubKonnectCatalogue::planIdentifier($plan),
+                'plan_name' => $plan['plan_name'] ?? $validated['plan_name'],
+                'network' => $priced['network_name'],
+                'network_key' => $priced['network_key'],
+            ];
+
+        $payload = [
+            'status' => 'network_mismatch',
+            'product' => $product,
+            /*
+             * The number as the customer typed it, and as we read it. Showing both is
+             * how a customer notices a mistyped digit rather than concluding that
+             * detection is broken.
+             */
+            'phone_formatted' => $agreement['formatted'],
+            'selected_network_key' => $priced['network_key'],
+            'selected_network_name' => $priced['network_name'],
+            'detected_network_key' => $agreement['detected'],
+            'detected_network_name' => $agreement['detected_name'],
+            // The page words its caveat from this rather than assuming it.
+            'portable' => true,
+            'message' => $agreement['message']
+                . ' If your number was ported to '
+                . ($priced['network_name'] ?? 'this network')
+                . ', continue and the purchase will go ahead on the network you chose.',
+        ];
+
+        if ($request->wantsJson()) {
+            // 409 Conflict: the request was well-formed and the state was not.
+            return response()->json($payload, 409);
+        }
+
+        return back()->withInput()->with('network_mismatch', $payload);
+    }
+
+    /**
      * The refusal path, in whichever shape the caller can render.
      *
      * Nothing has been charged on any of these, and every message says so where
@@ -618,6 +927,18 @@ class AirtimeDataController extends Controller
                 'plan_code' => $plan['plan_code'] ?? null,
                 'plan_name' => $planName,
                 'plan_type' => $plan['plan_type'] ?? null,
+                /*
+                 * Who decided the network, and what the number suggested.
+                 *
+                 * Recorded because "the customer confirmed a network their number
+                 * does not match" and "we sent it to the network we detected" are
+                 * different claims, and only one of them is a detection. A support
+                 * question about a bundle that did not arrive needs to know which
+                 * happened — and the answer here is the only place it is kept, since
+                 * the number may be ported again by the time anybody asks.
+                 */
+                'network_source' => $validated['network_source'] ?? PhoneNumber::SOURCE_PREFIX,
+                'network_detected' => $validated['network_detected'] ?? null,
                 // Recorded so support can see that a changed price was shown and
                 // accepted, rather than inferring it from a mismatch.
                 'price_confirmed_at' => filled($validated['price_confirmation'] ?? null) ? now()->toDateTimeString() : null,

@@ -135,12 +135,30 @@ return [
     | ---------------------------------------------------------------------
     | Prefix inference
     | ---------------------------------------------------------------------
-    | A LAST RESORT display hint only. Nigerian mobile number portability means
-    | a prefix does not reliably indicate the serving network, so a prefix guess
-    | is never written to a transaction and never shown as fact. It is enabled
-    | only for advisory surfaces that label it as a hint.
+    | Nigerian mobile number portability means a prefix does **not** determine the
+    | serving network, so a prefix guess is never written to a transaction as a
+    | verified fact and is never presented as certain.
+    |
+    | It is on by default because it is the only detection available: neither
+    | integration ReUp holds publishes a number-to-network lookup, so turning this
+    | off means detection is simply absent. On, it does two useful things —
+    |
+    |   1. the page pre-selects the likely network, which is right for the large
+    |      majority of unported numbers and saves the customer a step;
+    |   2. a purchase whose *selected* network contradicts the prefix is stopped
+    |      before the wallet is debited instead of being sent to the wrong network.
+    |
+    | A ported number is the case this gets wrong, so the customer can always
+    | override the guess, and an override is recorded as the customer's own
+    | confirmation (`PhoneNumber::SOURCE_CUSTOMER`) rather than as a detection.
+    |
+    | The cost of a wrong prefix in this list is asymmetric and worth stating: a
+    | prefix we do **not** list means detection returns "no candidate", the customer
+    | picks, and nothing is auto-charged — which is safe. A prefix mapped to the
+    | *wrong* network would mislabel a purchase, so additions here need to be
+    | verified against the NCC allocation before they are made.
     */
-    'allow_prefix_inference' => (bool) env('NETWORK_ALLOW_PREFIX_INFERENCE', false),
+    'allow_prefix_inference' => (bool) env('NETWORK_ALLOW_PREFIX_INFERENCE', true),
 
     'prefix_hints' => [
         'mtn' => ['0803', '0806', '0703', '0706', '0813', '0816', '0810', '0814', '0903', '0906', '0913', '0916'],
