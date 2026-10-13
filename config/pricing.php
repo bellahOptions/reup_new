@@ -105,8 +105,155 @@ return [
     | assumption for the operator to replace with real commercial data, not a
     | recommendation — which is exactly why it is a seeded *rule* they can edit
     | rather than a constant in a service class.
+    |
+    | ## Markup is not margin
+    |
+    | This is a **markup on the verified provider cost**, and the two are not the
+    | same number for the same sale. On a ₦1,000 cost a 3% markup is ₦30, which is
+    | a 2.91% gross *margin* (profit ÷ the price the customer pays). Quoting the
+    | margin here instead would under-charge by that difference on every order.
+    |
+    |     selling price = provider cost × (1 + markup)
+    |
+    | The default is 3%, the top of the approved band, and `data_markup_bps_min` /
+    | `data_markup_bps_max` bound what a Super Admin may configure. The band is
+    | enforced when a data markup rule is saved, so "2–3%" is a rule the console
+    | keeps rather than a sentence in a brief — see
+    | `PricingRuleService::assertWithinDataMarkupBand()`.
+    |
+    | A rule already configured outside the band keeps working: the band governs
+    | new and edited rules, and silently re-pricing every existing bundle to fit it
+    | would change what customers are charged without anybody deciding to.
     */
     'data_default_rule_name' => 'Data bundles — default markup',
 
-    'data_default_markup_bps' => (int) env('DATA_DEFAULT_MARKUP_BPS', 1000),
+    'data_default_markup_bps' => (int) env('DATA_DEFAULT_MARKUP_BPS', 300),
+
+    'data_markup_bps_min' => (int) env('DATA_MARKUP_BPS_MIN', 200),
+
+    'data_markup_bps_max' => (int) env('DATA_MARKUP_BPS_MAX', 300),
+
+    /*
+    | ---------------------------------------------------------------------
+    | Data-bundle catalogue synchronisation
+    | ---------------------------------------------------------------------
+    | The catalogue customers buy data from is the provider's price list: it
+    | carries both the bundles and what each one costs ReUp, so a catalogue that
+    | is not refreshed is a set of prices derived from costs nobody has checked.
+    |
+    | ## The intervals, and why they differ
+    |
+    | `sync_interval_seconds` is the floor between two *provider* fetches. The
+    | catalogue endpoint returns a full price list — every bundle on every network
+    | — which makes it the most expensive read this application makes, so the
+    | floor is what keeps a scheduled sync from spending the rate limit that
+    | purchases need. It is also the provider's own refresh cadence: fetching
+    | faster than they republish cannot return anything newer.
+    |
+    | `stale_after_seconds` is when the catalogue is reported as stale rather than
+    | merely old. Three missed runs at the interval above: a provider problem
+    | rather than a hiccup, and short enough that a price derived from an
+    | out-of-date cost is visible to an operator rather than silently charged.
+    |
+    | `frontend_refresh_seconds` is how often a customer's open page re-reads the
+    | price list from *this application*, never from the provider. It exists so a
+    | customer watching the page sees a re-price without reloading, and it is
+    | deliberately not a per-interaction provider call: the backend catalogue is
+    | the authority and the scheduled sync is what refreshes it.
+    |
+    | `quote_ttl_seconds` is how long a price-change confirmation stays valid. A
+    | confirmation is "you showed me this figure and I accept it", and the figure
+    | is only meaningful while the cost and the pricing rule behind it are
+    | unchanged — so an old confirmation is refused rather than honoured.
+    */
+    'catalogue' => [
+        'sync_interval_seconds' => (int) env('CATALOGUE_SYNC_INTERVAL_SECONDS', 600),
+
+        'stale_after_seconds' => (int) env('CATALOGUE_STALE_AFTER_SECONDS', 1800),
+
+        'frontend_refresh_seconds' => (int) env('CATALOGUE_FRONTEND_REFRESH_SECONDS', 300),
+
+        'quote_ttl_seconds' => (int) env('DATA_PRICE_QUOTE_TTL_SECONDS', 300),
+
+        'timeout_seconds' => (int) env('CATALOGUE_SYNC_TIMEOUT_SECONDS', 30),
+
+        /*
+         * How many consecutive failures before the sync is treated as an outage
+         * rather than a bad minute. Three, matching the provider health monitor:
+         * alerting on a single dropped connection teaches an operator to ignore
+         * the alert.
+         */
+        'failures_before_alert' => (int) env('CATALOGUE_FAILURES_BEFORE_ALERT', 3),
+    ],
+
+    /*
+    | ---------------------------------------------------------------------
+    | Social Boost (SMM)
+    | ---------------------------------------------------------------------
+    | ## The mandatory floor, and why it is not a pricing rule
+    | ---------------------------------------------------------------------
+    | Every social-boost order must earn at least a 10% markup on the verified
+    | provider cost. That is a *business rule about the product*, not a
+    | preference an operator might set differently, so it is not expressed as a
+    | pricing rule that could be edited, overridden by a narrower scope, or
+    | forgotten on a new network.
+    |
+    | It is checked twice, deliberately:
+    |
+    |   * `SmmPricing` refuses a quote whose markup is below the floor, which is
+    |     what the customer sees and what the purchase path enforces;
+    |   * `PricingRuleService` refuses to *save* a social-boost rule below it, so
+    |     the console cannot be configured into a state that only fails later.
+    |
+    | A narrower rule (a specific service, a specific platform) can raise the
+    | markup above the floor and cannot lower it. `minimum_markup_bps` is the
+    | floor; there is deliberately no maximum, because the commercial ceiling on a
+    | service is a pricing decision rather than a safety control.
+    |
+    | ## Markup is not margin
+    | ---------------------------------------------------------------------
+    | A 10% markup on ₦1,000 costs the customer ₦1,100 and earns ₦100 — a 9.09%
+    | gross *margin* (profit ÷ price). Quoting the margin as 10% would under-charge
+    | by ₦10 on every order.
+    |
+    | ## Staleness
+    | ---------------------------------------------------------------------
+    | A provider rate that has not been re-confirmed within `rate_max_age_hours`
+    | is treated as unknown rather than as truth. Nitro improves rates
+    | automatically as monthly volume climbs, which means a stale rate is wrong in
+    | the direction that costs money: we would sell at yesterday's cost and buy at
+    | today's.
+    */
+    'smm' => [
+        'minimum_markup_bps' => (int) env('SMM_MINIMUM_MARKUP_BPS', 1000),
+
+        /*
+         * How long a synchronised provider rate stays usable. The catalogue sync
+         * runs hourly by default, so a day is a wide margin that still catches a
+         * sync that has been silently failing.
+         */
+        'rate_max_age_hours' => (int) env('SMM_RATE_MAX_AGE_HOURS', 24),
+
+        /*
+         * Whether a purchase may proceed when the provider rate is stale. Off by
+         * default: a stale rate is a guess with a timestamp on it, and the
+         * direction of the error is against us.
+         */
+        'allow_stale_rate' => (bool) env('SMM_ALLOW_STALE_RATE', false),
+
+        /*
+         * How many orders one reconciliation pass polls. Nitro documents 300
+         * requests per minute and a bulk `status` cap of 100 ids; the pass polls
+         * one order per request so each answer maps unambiguously to its order,
+         * and this bound is what keeps a backlog from spending the whole
+         * allowance in one tick.
+         */
+        'reconcile_batch' => (int) env('SMM_RECONCILE_BATCH', 50),
+
+        /*
+         * Seconds a social-boost price-change confirmation stays valid. Same
+         * contract as the data one: "you showed me this figure and I accept it".
+         */
+        'quote_ttl_seconds' => (int) env('SMM_PRICE_QUOTE_TTL_SECONDS', 300),
+    ],
 ];

@@ -189,6 +189,100 @@ php artisan providers:prune-health                 # retention
 Scheduled in `app/Console/Kernel.php`: balances every 5 minutes, catalogues hourly,
 international every 6 hours, gift cards daily, retention daily.
 
+### 6a. The data-bundle catalogue — a second, separate synchronisation
+
+`providers:sync-catalogues` above walks the Wave-1 adapter catalogues (Sogo, VTpass,
+VTUGate, Nitro) into `provider_products`. The bundles a **customer actually buys** come
+from a different endpoint — ClubKonnect/NelloBytes' `APIDatabundlePlansV2.asp` price
+list — which carries both the bundles and what each one costs ReUp. Nothing refreshed
+that on a schedule: the cache was re-filled by whichever customer request happened to
+arrive after it expired, which made the provider's rate limit a function of traffic and
+left a quiet hour with no refresh at all.
+
+```bash
+php artisan data:sync-catalogue              # fetch, respecting the configured interval
+php artisan data:sync-catalogue --force      # fetch now, ignoring the interval
+php artisan data:sync-catalogue --status     # report freshness; exit 1 when stale
+php artisan data:sync-catalogue --json
+```
+
+Scheduled every minute, and the **interval that matters is enforced inside the command**
+(`CATALOGUE_SYNC_INTERVAL_SECONDS`, default 600): a tick that is not yet due prints
+"Skipped" and exits 0 without touching the network. So the provider is read at most once
+per interval, from whichever tick finds the catalogue due, and a per-minute scheduler
+entry costs one cache read.
+
+**A failed fetch never replaces a working catalogue.** A timeout, a rate limit, an HTTP
+error, a malformed body or a body with no usable bundles all raise, are recorded as a
+failure, and leave the previous catalogue exactly as it was. The command exits non-zero,
+so a scheduler that only reads exit codes still learns about it. Three consecutive
+failures raise one `catalogue_unavailable` alert, shown on `/admin/providers` beside the
+provider health table — and resolved by the next success.
+
+The freshness is on `/admin/providers` and on `GET /pricelist/api` under `catalogue`, and
+the storefront marks a stale price rather than presenting it as current.
+
+**[VERIFY]** after a deploy:
+
+```bash
+php artisan data:sync-catalogue --status   # exit 0 once a sync has succeeded
+php artisan schedule:list | grep data:sync-catalogue
+```
+
+### 6b. Social Boost (SMM) — catalogue and reconciliation
+
+Social Boost is the one product family whose provider works **asynchronously**: Nitro's `add`
+action returns an order id and nothing else, and the outcome exists only in a later `status`
+poll. Two scheduled jobs cover it, and neither is optional.
+
+```bash
+php artisan smm:sync-catalogue              # sync the Nitro catalogue (hourly)
+php artisan smm:sync-catalogue --status     # report freshness; exit 1 when nothing is sellable
+php artisan smm:reconcile-orders            # resolve orders with an unknown outcome (every 5 min)
+php artisan smm:reconcile-orders --dry-run  # show what would be polled, without calling Nitro
+php artisan smm:reconcile-orders --order=SMM-...   # reconcile one order now
+```
+
+**Why reconciliation is mandatory, not an optimisation.** Without it every social-boost order
+stays unresolved forever holding the customer's money, and an order Nitro refunded is never
+refunded to the customer's wallet — Nitro settles with *ReUp*, and crediting the customer is a
+separate movement that only this sweep makes.
+
+**What it will not do.** It does not re-submit: a timeout is not evidence that the request
+failed, and re-sending is how a customer is charged twice for one order. It does not refund on
+an unknown outcome — only a terminal status the provider itself reported leads to a refund, and
+the refund is idempotent by the transaction's own `payment_status`, so running the sweep
+repeatedly credits once.
+
+**Rate limits.** Nitro documents 300 requests/minute and this sweep makes one request per order.
+`SMM_RECONCILE_BATCH` (default 50) is the only thing between a backlog and the allowance live
+purchases need. Bulk polling is deliberately **not** used: the documentation does not state that
+the batch response is index-aligned with the ids sent, and mapping the wrong entry onto the
+wrong order would apply one customer's outcome to another's. That is a throughput trade made in
+favour of correctness, and the honest one.
+
+**Queue configuration.** Social Boost needs no dedicated worker: nothing in the module enqueues
+a job, and both scheduled commands run inline so a failure reaches the scheduler rather than
+disappearing into a background process. The standard `queue:work` requirement from §5 stands for
+email and lifecycle only.
+
+**[VERIFY]** after a deploy:
+
+```bash
+php artisan schedule:list | grep -E 'smm:(sync-catalogue|reconcile-orders)'
+php artisan smm:sync-catalogue --status          # exit 0 once services are mapped and sellable
+php artisan smm:reconcile-orders --dry-run       # exit 0, listing anything still unresolved
+```
+
+Then open **Admin → Commercial → Social Boost** and confirm the provider shows a balance and a
+connection status. A missing `NITRO_KEY` is reported there as a configuration state rather than
+as an outage, so it is visible without reading a log.
+
+A catalogue of Nitro services arrives **staged, not sellable**: the sync never maps a provider's
+wording to one of our products, so an operator maps them in the Social Boost catalogue screen.
+The number awaiting mapping is on the overview, in `smm:sync-catalogue` output and in
+`smm:sync-catalogue --status`.
+
 ### What the sync does, and what it refuses to do
 
 It **updates costs** for products already mapped to a ReUp product. It **never creates a

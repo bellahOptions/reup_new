@@ -73,9 +73,18 @@
                                     older row resolves its network from the meta it
                                     stored at the time; a row that never captured one
                                     shows the neutral label rather than the provider.
+
+                                    The brand mark is resolved from the *key*
+                                    (`network_code`), not from the stored label, so a
+                                    row written before the 9mobile rebrand still shows
+                                    the T2mobile mark beside the name it recorded.
                                 --}}
                                 @if($transaction->hasResolvedNetwork())
-                                    <p class="mt-1 text-xs text-muted-foreground">{{ $transaction->network_display }}</p>
+                                    <span class="mt-1 flex items-center gap-1.5">
+                                        <x-network-logo :network="$transaction->network_code ?? $transaction->network_display"
+                                                        :size="'h-4 w-4'" />
+                                        <span class="text-xs text-muted-foreground">{{ $transaction->network_display }}</span>
+                                    </span>
                                 @endif
                             </td>
 

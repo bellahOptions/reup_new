@@ -1532,6 +1532,252 @@ php tools/check-encoding.php
 * **The `lifecycle` queue needs a worker.** Until `queue:work --queue=lifecycle,default` runs, jobs the tick
   enqueues are never consumed. See docs/RUNNING.md.
 
+## 17. Data pricing: the mismatch, the synchronisation, and the decision (2026-10-13)
+
+### 17.1 The mismatch, stated exactly
+
+A customer was shown ₦940.90, submitted, and was told *"the price for that bundle is now ₦864.90.
+Please confirm the new price and submit again — no money has left your wallet."*
+
+Two implementations of one calculation:
+
+| Surface | Priced by | When |
+| --- | --- | --- |
+| the price list and the page's bundle dropdown | `ClubKonnectCatalogue::customerPriceFor()`, frozen into a cached payload | whenever a request found the cache cold or expired |
+| the purchase (`AirtimeDataController::quoteData()`, `PricelistController::purchaseData()`) | `PricingEngine::quote()`, live | every submission |
+
+Between those two moments **anything that moved the answer moved it only on the second one**: the
+provider's cost after a synchronisation, a Super Admin editing the rule, or the cache's ten-minute TTL
+expiring. The customer's page held the first answer; the purchase computed the second.
+
+Two things made it worse than a mismatch:
+
+* the two routes answered *differently*. `PricelistController` ignored the posted price and charged the
+  new figure silently. `AirtimeDataController` refused and asked the customer to submit again — and
+  there was nothing to submit *with*: no token, no record, nothing that said they had seen and accepted
+  the new amount. The retry posted a figure the customer had produced themselves.
+* `plan_price` was `required|numeric` on the data form and read as the baseline, so the *client's*
+  number decided whether the server thought its own price had moved.
+
+**Fix.** One method decides what a bundle costs a customer — `DataPriceService::quote()` — and both
+surfaces call it. Display and charge cannot drift because they are no longer two implementations.
+
+### 17.2 The catalogue nothing was refreshing
+
+The bundles customers buy come from ClubKonnect/NelloBytes' `APIDatabundlePlansV2.asp` price list,
+which carries both the bundles and what each costs ReUp. `providers:sync-catalogues` does **not** touch
+it: that command walks the Wave-1 adapter catalogues (Sogo, VTpass, VTUGate, Nitro) into
+`provider_products`. The data catalogue was re-filled by whichever customer request happened to arrive
+after its ten-minute cache expired.
+
+That has two consequences, and both are the kind that look like nothing:
+
+* the provider's rate limit became a function of traffic — a quiet hour meant no refresh at all;
+* there was **no record of the last successful synchronisation anywhere**, so "is our price list
+  current" had no answer, and a stale price was indistinguishable from a fresh one.
+
+`data:sync-catalogue` now does it, scheduled every minute with the *interval* enforced inside the
+command (`CATALOGUE_SYNC_INTERVAL_SECONDS`, default 600). A tick that is not due prints "Skipped" and
+exits 0 without touching the network, so a per-minute entry costs one cache read and the refresh lands
+within a minute of becoming due.
+
+**A failed fetch never replaces a working catalogue.** `fetchOrFail()` returns a processed catalogue or
+throws; every cache write happens after. A timeout, a rate limit, an HTTP error, a malformed body, and
+a well-formed body with no usable bundles are all failures, all recorded, and all leave the previous
+catalogue exactly as it was. The empty case is the one that matters most: parsed naively it produces an
+empty catalogue, and an empty catalogue written over a working one takes every data bundle off sale.
+
+Three consecutive failures raise one `catalogue_unavailable` alert on `/admin/providers`, resolved by
+the next success. The freshness — last success, bundle count, age, last error and its HTTP status — is
+on that page and on `GET /pricelist/api`.
+
+### 17.3 The confirmation, and what makes it safe
+
+`PriceChangeQuote` issues an opaque, single-use, expiring, user-bound token. Confirming validates five
+things — that we issued it, that it is this user's, that it names this bundle, that the price it
+recorded is still the price, and that the *rule* that produced it is still the rule producing it. Only
+then is the token consumed and the purchase made, from a **fresh** quote rather than from the figures
+the token carries. The token proves the customer agreed to this bundle at this price; it never supplies
+the amount.
+
+The rule check is separate from the amount check on purpose. A rule edited between the two calls can
+produce the same amount — a rounding step, a fee removed and a markup raised can cancel out — and the
+confirmation was given for the old rule. Treating that as unchanged honours an agreement to something
+the customer was never shown.
+
+If the price moves again while the modal is open, the response carries a *new* token and asks again.
+That is the loop the brief is explicit about, and the alternative is worse in both directions: charging
+the second figure is charging an amount nobody agreed to, and erroring is the dead end this replaced.
+
+### 17.4 The markup, and the two numbers that are not the same
+
+Default 3%, bounded to the approved 2–3% band. Every figure is integer kobo and every percentage is
+integer basis points, and the profit is measured from the **rounded** price.
+
+    selling price = provider cost × (1 + markup)
+    gross margin  = profit ÷ price
+
+On ₦1,000 a 3% markup charges ₦1,030 — ₦30 of gross profit, which is a **2.91% margin**. The band is
+enforced when a global or network-scoped percentage rule is saved, and the refusal says so in those
+terms. Two things it deliberately does not do: it does not re-price rules that already exist outside
+it, and it does not refuse an edit that leaves the markup alone.
+
+**Which provider field is the cost.** ClubKonnect's payload publishes `PRODUCT_AMOUNT` per bundle,
+which the catalogue carries as `clubkonnect_price` and `ProviderCostResolver::forDataBundle()` reads as
+the effective cost. There is no second candidate: this endpoint publishes no discount rate, no
+commission and no separate list-versus-net pair, so nothing has to guess. Airtime is the product with
+two fields — a face value and a discounted cost — and it is priced `FACE_VALUE`, which the band excludes
+by type. `DataPriceMarkupTest` pins both directions.
+
+### 17.5 Five defects found while doing it
+
+| Defect | Effect |
+| --- | --- |
+| **A network-scoped `FACE_VALUE` airtime rule priced every data bundle at cost** | `PricingDefaultsSeeder` creates one `FACE_VALUE` rule per network for airtime, and a data quote carries a network — so the network-scoped lookup in `resolveRule()` matched the *airtime* rule on every bundle. With no face value to price, the strategy falls back to the base cost, so **every data bundle was sold at exactly what the provider charges: zero margin, on every sale, with nothing failing.** Found by pricing the live catalogue rather than by reading the code: a ₦25.00 bundle came out at ₦25.00. A `FACE_VALUE` rule is now ineligible for a product with no face value, so the lookup continues to the rule that can price it. Three tests in `DataPriceMarkupTest`, including that airtime is still priced by the same rule |
+| `$plan['your_price']` was a *float* recomputed per cache fill, and `plan_price` was compared to it with `abs(...) > 0.01` | Two rounding paths for one price. Replaced with `Money`/kobo and one `priceHasMoved()` threshold of one kobo — the smallest representable difference, so it cannot fire on representation noise |
+| `PricelistController::purchaseData` and `AirtimeDataController::purchaseData` disagreed about a moved price | The same bundle bought from two pages behaved differently at the same moment. One pricing path now, one answer |
+| The dashboard's recent-transactions widget printed `$transaction->provider` | "ClubKonnect" beside the customer's own phone number — the §5 defect, still live on a customer-facing surface |
+| `Http::fake()` in Laravel 8 **merges** stub callbacks and the first match wins | Re-faking mid-test silently keeps serving the first response, so a test that appeared to prove "the second catalogue is applied" proved nothing. Recorded in `DataCatalogueSyncTest::providerSequence()` |
+
+### 17.6 Network branding
+
+`NetworkBrand` is now the only thing that decides a network's label, asset and aliases, reading
+`config/networks.php`; `x-network-logo` is the only thing that renders one. The brand images
+(`mtn.jpeg`, `airtel.jpeg`, `glo.png`, `t2.png`) had been sitting unused in `public/` while placeholder
+monogram SVGs were rendered from a `config/bills.networks` map that each view re-keyed its own way —
+one by ClubKonnect's numeric code, one by canonical key.
+
+9mobile now displays as **T2mobile**. The *key* stays `9mobile`, because it is what a transaction
+stores and what a pricing rule is scoped to; `9mobile`, `9 Mobile`, `T2`, `T2mobile` and `etisalat` all
+resolve to it. Historical rows are untouched: the stored `network_name` wins for display, so a receipt
+printed before the rebrand still says what it said — pinned by
+`test_a_pre_rebrand_receipt_keeps_its_original_label`.
+
+Marks are now shown on the purchase page, the price list, airtime history, wallet history, the
+transaction success and failed pages, the dashboard widget, and the email receipt.
+
+## 18. Social Boost (SMM): the asynchronous order (2026-10-13)
+
+### 18.1 What existed, and what did not
+
+The Nitro integration was already built and already correct: `NitroSmmProvider` implements all
+six documented actions (`services`, `add`, `status`, `refill`, `balance`, `cancel`), parses the
+documented response shapes, maps Nitro's statuses onto ReUp's canonical set, and computes the
+charge with the documented `rate × quantity ÷ 1000` formula through one named divisor.
+`CatalogueSync::readNitro()` read the catalogue and `ServiceOrderService` was the money path.
+
+What did not exist was everything a customer or an operator touches. There was no way to see a
+service, price one, place an order, or watch it. And three defects were sitting in the seams:
+
+| Defect | Effect |
+| --- | --- |
+| `ServiceOrderService` read `$adapter->provider`, a **protected** property | A fatal error *after* the wallet was debited — the worst possible moment. `provider()` and `providerId()` exist precisely so this cannot be done by accident, and nothing had exercised the path |
+| `ServiceOrderService` never persisted `providerReference` for a PENDING order | `markProcessing()` does not take it, so the reference stayed null. `SmmOrders::reconcile()` refuses to ask about an order with no reference — so a PENDING order could **never** be resolved: it held the customer's money forever while the sweep reported "nothing to poll". Silent, and exactly the state this module exists to prevent |
+| No path credited the customer when Nitro refunded | Nitro refunds to **ReUp's wallet** and reports the order `Refunded`. That is the provider settling with us; it is not the customer being made whole, and nothing made the second movement |
+
+`ServiceOrderService::refundUnfulfilled()` also refused `REFUNDED` outright, on the reasonable
+reading that a refund had already happened. It had — to us, not to the customer. It now accepts
+it, and the customer's transaction's own `payment_status` is what makes a repeated sweep credit
+once.
+
+### 18.2 The charge, and the floor
+
+    provider_cost = rate × quantity ÷ 1000        (Nitro's documented model)
+    selling price = provider_cost × (1 + markup)  (through PricingEngine)
+
+Every social-boost order must earn at least **10% markup** over the verified provider cost. It is
+enforced twice on purpose: `PricingRuleService` refuses to *save* a social-boost rule below the
+floor, and `SmmPricing` refuses to *charge* below it — immediately before the wallet is debited.
+The second is the control; the first keeps the console from being configured into a state that
+only fails in front of a customer.
+
+It is a floor, not a band. Data bundles have an approved 2–3% band because the market sets the
+ceiling; social boost is the opposite, and a higher margin is a better price rather than a worse
+one.
+
+**Markup is not margin**, and both are reported: a 10% markup on ₦2,720 charges ₦2,992 and earns
+₦272, which is a **9.09% gross margin**. Reporting the markup as the margin would overstate the
+business by a tenth of its margin on every order.
+
+A rate that is missing, zero, or older than `SMM_RATE_MAX_AGE_HOURS` is treated as **unknown**,
+not as truth. Nitro improves rates automatically as monthly volume climbs, so the error is
+one-directional: a stale rate sells at yesterday's cost and buys at today's.
+
+### 18.3 The three things that make an async order safe
+
+**Accepted is not completed.** `add` returns an order id; every order starts unresolved, holds
+the customer's money, and is scheduled for reconciliation. Nothing in the module marks an order
+successful on the strength of the provider accepting it.
+
+**A timeout is UNKNOWN, and unknown is held.** It is not refunded — the order may have been
+delivered — and it is never re-submitted, because sending it twice is how a customer is charged
+twice for one order. Reconciliation asks what happened; only a terminal status the provider
+itself reported leads to a refund.
+
+**A double submit is one order.** `SmmOrders::idempotencyKey()` is *deterministic* — a hash of
+the user, service, target and quantity — so two clicks present the same key and the database's
+unique index turns the second into a replay of the first. A random key would make every double
+submit a new order. The short-window duplicate guard sits in front of it as a courtesy; the
+reservation is the control, and there is a test that clears the guard to prove it.
+
+### 18.4 What the customer can break, and why they cannot
+
+**The target.** A boost is the only purchase here that cannot be corrected: a mistyped meter
+number is rejected before delivery, a mistyped Instagram username is followed on somebody else's
+account. Targets are validated against per-platform shapes *before* the order is created, with
+`config/smm.php` supplying both the pattern and the example the form shows — so the help page
+cannot contradict the form. The patterns are permissive on purpose: too strict refuses a
+legitimate target and the customer cannot argue with a regex, while too loose lets the provider
+reject it, which is the behaviour without the check.
+
+**The price.** No price is accepted from the client. `plan_price`-style fields are compared
+against the server's own quote and never charged from, and a service the engine cannot price is
+not listed at all rather than listed and refused at checkout.
+
+**The provider.** No provider name, service id, order id or status string reaches a customer
+surface. The provider's own vocabulary is on the admin order screen, where it is needed to answer
+a support question.
+
+### 18.5 The pages
+
+Customer: landing (`/social-boost`), catalogue and configure (`/services`, `/services/{key}`),
+review (`POST /review`), purchase (`POST /purchase`), orders, order detail, and a help page whose
+per-platform link guidance is generated from the same config the form validates against.
+
+Admin (`Admin → Commercial → Social Boost`): overview (volume, revenue, provider cost, gross
+profit, margin, uncertain/failed/refunded counts, provider balance and connection), catalogue
+(rates, limits, markup and margin per service, publish/pause, last sync), a read-only pricing
+preview that reports cost, price, markup, margin and profit side by side, orders (search by ReUp
+reference, provider reference, customer or target), and provider health.
+
+The module is gated by one new permission, `view_social_boost`, in `Permissions::SUPER_ADMIN_ONLY`
+— it exposes provider cost and margin on every screen. The **write** actions keep their existing
+gates (`manage_catalogue` to publish, `manage_transactions` to reconcile or refund), so holding
+it opens the screens and not the money.
+
+### 18.6 The bug the tests found, and what it looked like
+
+`SmmOrders::place()` writes the offering onto the order — which provider service this order is
+for — but `ServiceOrderService::place()` creates the order and dispatches *inside one call*, and
+it is capability-agnostic, so it knows nothing about offerings. A closure that read
+`$order->providerProduct` therefore found `null` and sent Nitro **no service id at all**.
+
+The symptom is worth recording because it is the module's worst failure mode and it looks like
+nothing: the adapter returned UNKNOWN for a request that was never sent, so the order was held
+for reconciliation, the customer's money stayed debited, and the sweep would have polled a
+provider reference that did not exist. It was found because a test asserted the order's
+`provider_reference` rather than only its status. The offering is now captured by the closure and
+written to the order *before* the request goes out.
+
+Two smaller ones: `SyncSmmCatalogue` and the admin controller called
+`$provider->providerCatalogueItems()`, a relation that does not exist on `Provider` — the same
+class of mistake, caught the same way. And a third that was a test rather than the application:
+`Cache::forget('data_price_quote:' . $token)` stopped matching when the key became namespaced, so
+the "expired confirmation" test would have gone on passing while expiring nothing. The key is
+now obtained from `PriceChangeQuote::cacheKey()` instead of spelled out.
+
+
+
 
 
 

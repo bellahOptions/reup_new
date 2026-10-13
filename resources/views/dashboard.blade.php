@@ -333,8 +333,22 @@
                                                 </span>
                                             @endif
                                             @if($transaction->recipient)
-                                                <span class="mt-0.5 block text-xs text-muted-foreground">
-                                                    To {{ $transaction->recipient }}@if($transaction->provider) &middot; {{ $transaction->provider }}@endif
+                                                <span class="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                                                    {{--
+                                                        The mobile network, never the upstream
+                                                        provider. This printed `$transaction->provider`
+                                                        — the adapter's label — which put
+                                                        "ClubKonnect" on a customer's own dashboard
+                                                        next to their phone number. The network is
+                                                        the only thing here that is true about where
+                                                        the airtime went.
+                                                    --}}
+                                                    <span>To {{ $transaction->recipient }}</span>
+                                                    @if($transaction->hasResolvedNetwork())
+                                                        <x-network-logo :network="$transaction->network_code ?? $transaction->network_display"
+                                                                        :size="'h-3.5 w-3.5'" />
+                                                        <span>{{ $transaction->network_display }}</span>
+                                                    @endif
                                                 </span>
                                             @endif
                                         </span>

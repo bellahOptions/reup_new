@@ -84,6 +84,21 @@
                 'items' => [
                     ['Pricing', 'admin.pricing.index', 'admin.pricing.*', 'banknotes', 'view_pricing', null],
                     ['Providers', 'admin.providers.index', 'admin.providers.*', 'server-stack', 'manage_providers', null],
+                    /*
+                     * Social Boost sits with the commercial controls rather than in
+                     * its own group. Its overview shows provider cost and margin,
+                     * its catalogue writes service status, and its orders move
+                     * money back to customers — every one of them is a commercial
+                     * control, and each link carries the permission its route
+                     * already checks. The overview is the entry point.
+                     *
+                     * The sub-pages are deliberately *not* listed here as
+                     * well: the active state is `routeIs($pattern)`, so a
+                     * sub-page listed at the top level overlaps its own section and
+                     * lights two links at once. That mistake has already been made
+                     * in this sidebar once and is recorded above.
+                     */
+                    ['Social Boost', 'admin.social-boost.index', 'admin.social-boost.*', 'rocket-takeoff', 'view_social_boost', null],
                 ],
             ],
             [

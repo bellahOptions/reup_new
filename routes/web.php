@@ -16,6 +16,7 @@ use App\Http\Controllers\PairgateWebhookController;
 use App\Http\Controllers\PricelistController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ServiceCatalogueController;
+use App\Http\Controllers\SocialBoostController;
 use App\Http\Controllers\TermsController;
 use App\Http\Controllers\WaecPinController;
 use App\Http\Controllers\AffiliateController;
@@ -202,6 +203,83 @@ Route::middleware(['auth', 'verified', 'customer'])->group(function () {
         ->name('transactions.success');
     Route::get('/transactions/{reference}/failed', [AirtimeDataController::class, 'failed'])
         ->name('transactions.failed');
+
+    /*
+    |----------------------------------------------------------------------
+    | Social Boost (SMM)
+    |----------------------------------------------------------------------
+    | A separate customer surface from airtime and data, because a social-boost
+    | order is a different kind of purchase: the target cannot be corrected once
+    | delivery starts, the provider works asynchronously, and there is a review
+    | step between configuring and paying.
+    |
+    | The whole group is inside `auth` + `verified` + `customer`, so an
+    | administrator cannot buy through the customer application — exactly as
+    | every other purchase route works.
+    |
+    | `review` and `purchase` are POSTs because both carry a target and a
+    | quantity that should not end up in a URL, a browser history entry or a
+    | referrer header.
+    */
+    Route::prefix('social-boost')->name('social-boost.')->group(function () {
+        Route::get('/', [SocialBoostController::class, 'index'])->name('index');
+
+        Route::get('/services', [SocialBoostController::class, 'catalogue'])->name('catalogue');
+        Route::get('/services/{service}', [SocialBoostController::class, 'configure'])
+            ->where('service', '[A-Za-z0-9._\-]+')
+            ->name('configure');
+
+        /*
+         * The running estimate on the order form.
+         *
+         * Read-only and safe to expose: the figure it returns is never charged.
+         * The review step and the purchase each recompute the price from the
+         * catalogue, so this endpoint existing means a customer sees a total as
+         * they type — not that the browser has any authority over what they pay.
+         *
+         * Throttled generously because it is called while typing (the form
+         * debounces, but a slow typist is still several requests).
+         */
+        Route::get('/price-preview', [SocialBoostController::class, 'pricePreview'])
+            ->middleware('throttle:120,1')->name('price-preview');
+
+        Route::post('/review', [SocialBoostController::class, 'review'])
+            ->middleware('throttle:60,1')->name('review');
+
+        Route::post('/purchase', [SocialBoostController::class, 'place'])
+            ->middleware('throttle:20,1')->name('purchase');
+
+        Route::get('/orders', [SocialBoostController::class, 'orders'])->name('orders.index');
+        Route::get('/orders/{reference}', [SocialBoostController::class, 'show'])
+            ->where('reference', '[A-Za-z0-9\-]+')
+            ->name('orders.show');
+
+        /*
+         * The detail page's self-refresh.
+         *
+         * It reads ReUp's own copy of the order, never the provider, so a customer
+         * watching a progress bar cannot spend the rate limit that live purchases
+         * need. The reconciliation sweep is what asks Nitro.
+         */
+        Route::get('/orders/{reference}/status', [SocialBoostController::class, 'orderStatus'])
+            ->where('reference', '[A-Za-z0-9\-]+')
+            ->middleware('throttle:120,1')->name('orders.status');
+
+        /*
+         * Refill and cancel reach the provider and neither is idempotent the way a
+         * purchase is — a refill requested twice is two refills — so they are
+         * throttled harder than a purchase rather than the same.
+         */
+        Route::post('/orders/{reference}/refill', [SocialBoostController::class, 'refill'])
+            ->where('reference', '[A-Za-z0-9\-]+')
+            ->middleware('throttle:5,1')->name('orders.refill');
+
+        Route::post('/orders/{reference}/cancel', [SocialBoostController::class, 'cancel'])
+            ->where('reference', '[A-Za-z0-9\-]+')
+            ->middleware('throttle:5,1')->name('orders.cancel');
+
+        Route::get('/help', [SocialBoostController::class, 'help'])->name('help');
+    });
 
     /*
     |----------------------------------------------------------------------

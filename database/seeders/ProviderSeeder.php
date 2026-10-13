@@ -35,7 +35,23 @@ class ProviderSeeder extends Seeder
     public function run(): void
     {
         $order = (array) config('bills.provider_order', []);
-        $providers = (array) config('bills.providers', []);
+
+        /*
+         * Two sources, deliberately.
+         *
+         * `bills.providers` is the billing router's list — the providers
+         * `ProviderManager` routes between, built on the older `BillProvider`
+         * interface. `bills.smm_providers` is the Wave 1 list, whose routing goes
+         * through `ProviderRegistry` instead.
+         *
+         * Both need a `providers` row: every `provider_products` offering hangs off
+         * one, and the row carries the credential environment prefix. But only the
+         * first belongs in the router's config, because an entry there that the
+         * router has no adapter for is an upstream it will be asked about and
+         * cannot answer for.
+         */
+        $providers = (array) config('bills.providers', [])
+            + (array) config('bills.smm_providers', []);
 
         foreach ($providers as $slug => $definition) {
             $existing = Provider::where('slug', $slug)->first();
@@ -48,9 +64,21 @@ class ProviderSeeder extends Seeder
              */
             $attributes = [
                 'name' => (string) ($definition['label'] ?? ucfirst($slug)),
-                'driver' => (string) $slug,
+                /*
+                 * `driver` is the adapter's own slug, which is **not** always the
+                 * provider slug. The config key for Nitro NG is `nitro` because the
+                 * integration is called Nitro throughout the codebase, and
+                 * `ProviderRegistry` resolves the adapter by `driver` — so an
+                 * explicit key is read first and the slug remains the default, which
+                 * leaves every existing provider unchanged.
+                 *
+                 * Getting it wrong is not cosmetic: `hasAdapter()` would return
+                 * false, the provider would be invisible to every purchase path, and
+                 * nothing would say why.
+                 */
+                'driver' => (string) ($definition['driver'] ?? $slug),
                 'capabilities' => array_values((array) ($definition['products'] ?? [])),
-                'credential_env_prefix' => strtoupper((string) $slug),
+                'credential_env_prefix' => strtoupper((string) ($definition['env_prefix'] ?? $slug)),
             ];
 
             if ($existing) {

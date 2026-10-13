@@ -48,6 +48,23 @@ class Permissions
         'view_lifecycle',
         'manage_lifecycle',
         'send_lifecycle',
+        /*
+         * Social Boost (SMM).
+         *
+         * One permission gates the module's screens, because every one of them
+         * exposes a commercial figure or moves money and they belong to the same
+         * console: the overview shows provider cost and margin, the catalogue
+         * shows provider rates, and the order screen shows both plus a refund
+         * action.
+         *
+         * It is a permission of its own rather than a reuse of `view_profit`
+         * because the two answer different questions — "what did we earn" versus
+         * "is the boost module healthy" — and an operator may reasonably hold one
+         * without the other. The *write* actions inside keep their own gates
+         * (`manage_catalogue` to publish, `manage_transactions` to reconcile or
+         * refund), so holding this opens the screens and not the money.
+         */
+        'view_social_boost',
     ];
 
     /**
@@ -77,6 +94,14 @@ class Permissions
          * not the risky half.
          */
         'manage_lifecycle',
+        /*
+         * Social Boost is a commercial control: its overview reports provider cost
+         * and gross margin, and its order screen can refund a customer. Granting
+         * it is a commercial decision, so it is refused to a lesser role by
+         * default — the same reasoning as pricing, and the reason the sidebar link
+         * renders only for an account whose route would accept it.
+         */
+        'view_social_boost',
     ];
 
     /** Permissions that expose internal provider cost or margin figures. */
@@ -85,6 +110,7 @@ class Permissions
         'manage_pricing',
         'view_profit',
         'manage_providers',
+        'view_social_boost',
     ];
 
     /** Human-readable labels, for the admin management screens. */
@@ -110,6 +136,7 @@ class Permissions
         'view_lifecycle' => 'View lifecycle automations, templates and delivery logs',
         'manage_lifecycle' => 'Author templates and automations, and pause marketing platform-wide',
         'send_lifecycle' => 'Send test emails and retry failed deliveries',
+        'view_social_boost' => 'View Social Boost orders, catalogue, margin and provider health',
     ];
 
     /**

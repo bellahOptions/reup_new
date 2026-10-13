@@ -52,6 +52,47 @@ return [
              */
             'products' => ['airtime', 'data', 'cable_tv', 'electricity', 'waec', 'betting'],
         ],
+
+        /*
+         * Nitro NG is deliberately **not** in this list.
+         *
+         * `bills.providers` describes the providers `ProviderManager` routes
+         * between, and that class is built around `BillProvider` — the older
+         * airtime/data/bill interface. Nitro speaks the SMM interface
+         * (`AbstractProviderAdapter`, via `NitroSmmProvider`), so an entry here
+         * would advertise an upstream the billing router cannot construct, and
+         * `ProviderManager::byName('nitro')` would be asked for a label by a
+         * provider it does not hold.
+         *
+         * Its routing configuration lives in `config/providers.php` under `nitro`
+         * (endpoints, rate divisor, capabilities) and its provider row is created
+         * by `ProviderSeeder` from `bills.smm_providers` below. `ProviderRegistry`
+         * resolves SMM candidates from that row, which is the path a Social Boost
+         * order actually takes.
+         */
+    ],
+
+    /*
+    | ---------------------------------------------------------------------
+    | Wave 1 providers seeded into the `providers` table but not routed
+    | through ProviderManager
+    | ---------------------------------------------------------------------
+    | These are integrations built on `AbstractProviderAdapter`, whose routing
+    | goes through `ProviderRegistry` rather than `ProviderManager`. They still
+    | need a `providers` row — every `provider_products` offering hangs off one,
+    | and the row carries the credential environment prefix — so the seeder reads
+    | them from here.
+    |
+    | Keeping them out of `bills.providers` is what stops the billing router from
+    | offering an upstream it has no adapter for.
+    */
+    'smm_providers' => [
+        'nitro' => [
+            'label' => 'Nitro NG',
+            'driver' => 'nitro',
+            'env_prefix' => 'NITRO',
+            'products' => ['smm'],
+        ],
     ],
 
     /* ---------------------------------------------------------------------

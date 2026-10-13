@@ -284,15 +284,73 @@ class CatalogueSync
                 'category' => isset($row['category']) ? (string) $row['category'] : null,
                 'network' => null,
                 'denomination' => null,
+                /*
+                 * The **rate**, not a derived price, is what defines this service's
+                 * commercial terms: Nitro charges `rate × quantity ÷ 1000`, so the
+                 * cost of an order is a function of the quantity the customer
+                 * chooses and there is no single price to store.
+                 *
+                 * `provider_cost_minor` is therefore the cost of the *smallest*
+                 * order (one unit), which is what the storefront's "from ₦x" figure
+                 * is built on and what makes a service with no published rate
+                 * unsellable rather than mysteriously priced. The order path never
+                 * reads it — `SmmPricing::providerCost()` recomputes from the rate
+                 * — so it can never become the figure a customer is charged.
+                 */
                 'cost_minor' => is_numeric($rate) ? (int) round(((float) $rate) * 100 / $divisor) : null,
+                'provider_rate_minor' => is_numeric($rate) ? (int) round(((float) $rate) * 100) : null,
+                'rate_divisor' => $divisor,
                 'min_quantity' => isset($row['min']) && is_numeric($row['min']) ? (int) $row['min'] : null,
                 'max_quantity' => isset($row['max']) && is_numeric($row['max']) ? (int) $row['max'] : null,
+                // The platform the service belongs to. Nitro calls it `category`.
+                'platform' => isset($row['category']) ? mb_substr((string) $row['category'], 0, 64) : null,
+                // Nitro's input shape (`Default`, `Custom Comments`, `SEO`,
+                // `Package`), which decides which extra order fields apply.
+                'service_type' => isset($row['type']) ? mb_substr((string) $row['type'], 0, 64) : null,
+                /*
+                 * Refill and cancellation are per-service, not per-provider: Nitro
+                 * publishes both as flags on each service and the documentation is
+                 * explicit that they apply only where set. Absent means unsupported,
+                 * never "assume it works" — see `SmmOrders::refill()`.
+                 */
+                'supports_refill' => $this->flag($row['refill'] ?? null),
+                'supports_cancel' => $this->flag($row['cancel'] ?? null),
                 // Nitro instructs that `description` be read before selling: it
                 // carries setup the buyer must complete. Stored, not parsed.
                 'description' => isset($row['description']) ? (string) $row['description'] : null,
                 'raw' => $row,
             ];
         }, $rows)));
+    }
+
+    /**
+     * Read a provider boolean that may arrive as a real boolean or a string.
+     *
+     * Nitro documents `refill` and `cancel` as booleans and returns them as JSON
+     * booleans, but a reseller-facing API that returns `"yes"`, `"true"` or `1`
+     * for the same field is common enough that trusting the strict type would
+     * silently mark every service as unsupported — which fails safe, but in a way
+     * nobody would notice until a customer asked for a refill.
+     *
+     * Anything unrecognised is **false**. A capability is only granted by an
+     * affirmative value, because granting one by default would send a request the
+     * provider documents as unavailable for that service.
+     */
+    private function flag($value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_numeric($value)) {
+            return (int) $value === 1;
+        }
+
+        if (is_string($value)) {
+            return in_array(strtolower(trim($value)), ['true', 'yes', 'y', '1'], true);
+        }
+
+        return false;
     }
 
     /**
@@ -523,6 +581,31 @@ class CatalogueSync
         $offering->min_quantity = $item['min_quantity'] ?? $offering->min_quantity;
         $offering->max_quantity = $item['max_quantity'] ?? $offering->max_quantity;
         $offering->description = $item['description'] ?? $offering->description;
+
+        /*
+         * The volumetric and SMM-only facts.
+         *
+         * Every one is assigned **only when the item carries it**, and that
+         * restraint is deliberate: `$item['provider_rate_minor']` is absent for
+         * every non-volumetric provider, and assigning the missing key as null
+         * would erase a rate that a previous sync had recorded. The difference
+         * between "this provider does not publish a rate" and "the provider stopped
+         * publishing the rate it used to" is the difference between leaving a
+         * figure alone and withdrawing a service, and the two must not be
+         * conflated by a `??` in the wrong place.
+         */
+        foreach ([
+            'provider_rate_minor' => 'provider_rate_minor',
+            'rate_divisor' => 'rate_divisor',
+            'service_type' => 'service_type',
+            'platform' => 'platform',
+            'supports_refill' => 'supports_refill',
+            'supports_cancel' => 'supports_cancel',
+        ] as $itemKey => $column) {
+            if (array_key_exists($itemKey, $item)) {
+                $offering->{$column} = $item[$itemKey];
+            }
+        }
 
         $offering->last_seen_at = now();
         $offering->cost_synced_at = now();

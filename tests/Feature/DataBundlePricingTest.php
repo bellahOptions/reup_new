@@ -30,7 +30,9 @@ use Tests\TestCase;
  * The two rules that matter commercially:
  *
  *   * a data bundle is priced **cost-plus** — the customer pays the bundle's cost
- *     to ReUp plus a configured markup — unlike airtime, which is face value;
+ *     to ReUp plus a configured markup — unlike airtime, which is face value. A
+ *     `FACE_VALUE` rule is therefore **not** a candidate for a bundle at all; see
+ *     `test_a_face_value_rule_is_not_selected_for_a_data_bundle()`;
  *   * an airtime discount is **not** applied to data. A 3% airtime rate says
  *     nothing about a bundle's commercial terms, so a bundle's cost is the price
  *     the catalogue publishes for that exact bundle.
@@ -261,14 +263,23 @@ class DataBundlePricingTest extends TestCase
         $this->assertSame(10000, $quote->grossProfitMinor);
     }
 
-    public function test_a_face_value_rule_on_data_sells_that_bundle_at_cost(): void
+    /**
+     * A `FACE_VALUE` rule cannot price a bundle, and must not be selected for one.
+     *
+     * This test used to assert the opposite — that such a rule priced a bundle at
+     * its cost — and that assertion *was* the defect. `PricingDefaultsSeeder`
+     * creates one `FACE_VALUE` rule per network for airtime, and a data quote
+     * carries a network, so the network-scoped lookup matched the airtime rule on
+     * every bundle and sold the whole catalogue at cost with no markup at all.
+     *
+     * A `FACE_VALUE` rule is now ineligible for a product with no face value, so
+     * the lookup continues to the global data markup. `DataPriceMarkupTest` pins
+     * that transition in both directions; this pins the end of the old behaviour,
+     * because a rule that used to price a bundle and now does not is exactly the
+     * kind of change that ought to be stated in a test.
+     */
+    public function test_a_face_value_rule_is_not_selected_for_a_data_bundle(): void
     {
-        /*
-         * FACE_VALUE with no separate face value falls back to the base cost, which
-         * for a bundle is its price. That is the correct behaviour — a bundle has no
-         * face value distinct from its cost — and it is why data is given a markup
-         * rule in production.
-         */
         $this->markupRule(attributes: [
             'markup_type' => PricingRule::MARKUP_FACE_VALUE,
             'markup_percentage_bps' => 0,
@@ -277,8 +288,8 @@ class DataBundlePricingTest extends TestCase
 
         $quote = $this->quotePlan($this->plan(['clubkonnect_price' => 500.0]), 'mtn');
 
-        $this->assertSame(50000, $quote->customerPriceMinor);
-        $this->assertSame(0, $quote->grossProfitMinor);
+        $this->assertFalse($quote->isSellable(), 'Never priced at cost by a strategy that cannot mark up');
+        $this->assertStringContainsString('No active pricing rule', (string) $quote->refusalReason);
     }
 
     /* =====================================================================
@@ -329,18 +340,21 @@ class DataBundlePricingTest extends TestCase
      | Profitability protection
      | =================================================================== */
 
-    public function test_a_bundle_below_the_minimum_profit_is_blocked_by_default(): void
+    /**
+     * A floor that cannot be met is enforced as a *refusal*, never as a silent
+     * price rise.
+     *
+     * The floor lifts the markup when it can (the next test pins that). Here the
+     * ceiling caps the markup below the floor, so there is no price that satisfies
+     * both — and the engine refuses rather than choosing one of them for the
+     * operator. That is the difference between a control and a suggestion.
+     */
+    public function test_a_bundle_whose_floor_cannot_be_met_is_refused_not_re_priced(): void
     {
-        /*
-         * The floor is enforced as a *refusal* under FACE_VALUE, because the only
-         * other way to meet it would be to raise the price — and raising a face
-         * value is exactly what face-value pricing forbids. (Under a markup rule the
-         * floor instead lifts the markup, which the next test pins.)
-         */
         $this->markupRule(attributes: [
-            'markup_type' => PricingRule::MARKUP_FACE_VALUE,
-            'markup_percentage_bps' => 0,
-            'minimum_profit_minor' => 1000, // ₦10 floor, no discount to earn it from
+            'markup_percentage_bps' => 200,
+            'minimum_profit_minor' => 1000, // ₦10 floor
+            'maximum_markup_minor' => 100,  // ₦1 cap, so the floor can never be met
             'on_unprofitable' => PricingRule::ON_UNPROFITABLE_UNAVAILABLE,
         ]);
 
@@ -349,7 +363,8 @@ class DataBundlePricingTest extends TestCase
         $this->assertFalse($quote->isSellable(), 'A bundle under the profit floor must be refused');
         $this->assertNotNull($quote->refusalReason);
         // The price is reported for the audit trail but is not sold at.
-        $this->assertSame(50000, $quote->customerPriceMinor);
+        $this->assertSame(50100, $quote->customerPriceMinor);
+        $this->assertSame(100, $quote->grossProfitMinor);
     }
 
     public function test_a_profit_floor_lifts_a_markup_rather_than_blocking_the_sale(): void
@@ -438,7 +453,15 @@ class DataBundlePricingTest extends TestCase
         ]);
     }
 
-    /** Put a catalogue row where the controller will find it. */
+    /**
+     * Put a catalogue row where the controller will find it.
+     *
+     * The mock is of `ClubKonnectCatalogue` because that is the boundary the
+     * provider sits behind: everything above it — the pricing engine, the price
+     * the customer is shown, the price the purchase charges — is the real
+     * application code. `status()` is stubbed as *fresh* because that is the
+     * ordinary state; the stale-catalogue behaviour has its own tests.
+     */
     private function withCatalogue(array $plan, string $displayPrice): void
     {
         $this->mock(\App\Services\ClubKonnectCatalogue::class, function ($mock) use ($plan, $displayPrice) {
@@ -451,6 +474,16 @@ class DataBundlePricingTest extends TestCase
             // Cold cache: provider routing must not add an upstream round trip.
             $mock->shouldReceive('cachedPlans')->andReturn(null);
             $mock->shouldReceive('planPrice')->andReturn(null);
+            $mock->shouldReceive('status')->andReturn([
+                'last_success_at' => now()->toDateTimeString(),
+                'age_seconds' => 5,
+                'stale' => false,
+                'plan_count' => 1,
+                'consecutive_failures' => 0,
+                'error_type' => null,
+                'last_failure_at' => null,
+            ]);
+            $mock->shouldReceive('isStale')->andReturn(false);
         });
     }
 

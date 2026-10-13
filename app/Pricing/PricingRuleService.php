@@ -92,6 +92,8 @@ class PricingRuleService
 
         $this->assertScopeIsConsistent($attributes);
         $this->assertNoFallbackCycle($attributes, null);
+        $this->assertWithinDataMarkupBand($attributes, null);
+        $this->assertSmmMarkupFloor($attributes);
 
         return DB::transaction(function () use ($attributes, $actor, $reason) {
             $rule = PricingRule::create($attributes + [
@@ -159,6 +161,8 @@ class PricingRuleService
 
             $this->assertScopeIsConsistent($merged);
             $this->assertNoFallbackCycle($merged, $locked->getKey());
+            $this->assertWithinDataMarkupBand($merged, $locked);
+            $this->assertSmmMarkupFloor($merged, $locked);
 
             $locked->fill($changes);
             $locked->updated_by = $actor->getKey();
@@ -436,6 +440,278 @@ class PricingRuleService
                 );
             }
         }
+    }
+
+    /**
+     * A data markup must stay inside the approved band.
+     *
+     * ## Why a band rather than a free number
+     *
+     * The markup on a data bundle is the platform's entire commercial margin on
+     * that bundle, and the approved policy is 2–3% on the verified provider cost.
+     * Before this check the console accepted anything up to 1000%, so a mistyped
+     * field — `30` where `3` was meant — would multiply every bundle's price by
+     * nearly a third and nothing would object. A bound turns a typo into a
+     * validation error while leaving the decision of *where* inside the band with
+     * the operator, which is what makes the band a policy rather than a constant.
+     *
+     * ## What counts as a data markup rule
+     *
+     * A `network`- or `global`-scoped rule with a percentage markup. Airtime rules
+     * are `FACE_VALUE` and carry no markup at all, so they are excluded by type
+     * and the airtime pricing policy is untouched by this check.
+     *
+     * ## What it deliberately does not do
+     *
+     * It does not re-price rules that already exist outside the band, and it does
+     * not refuse an edit that leaves the markup alone. Changing a rule's name, its
+     * rounding step or its profit floor on a rule whose markup predates the policy
+     * must keep working: silently re-pricing live bundles to fit a band introduced
+     * afterwards would change what customers are charged without anybody deciding
+     * to, which is the opposite of a financial control.
+     *
+     * @param  array<string, mixed>  $attributes  the merged, prospective state
+     * @param  PricingRule|null  $existing  the rule as it stands, when editing
+     */
+    private function assertWithinDataMarkupBand(array $attributes, ?PricingRule $existing): void
+    {
+        if (! $this->isDataMarkupRule($attributes)) {
+            return;
+        }
+
+        $bps = (int) ($attributes['markup_percentage_bps'] ?? 0);
+
+        /*
+         * An edit that does not touch the markup is exempt. The band governs
+         * changes to the margin, not the existence of a rule that predates it.
+         */
+        if ($existing !== null && $bps === (int) $existing->markup_percentage_bps) {
+            return;
+        }
+
+        $min = max(0, (int) config('pricing.data_markup_bps_min', 200));
+        $max = max($min, (int) config('pricing.data_markup_bps_max', 300));
+
+        if ($bps >= $min && $bps <= $max) {
+            return;
+        }
+
+        throw new RuntimeException(sprintf(
+            'The data-bundle markup must be between %s%% and %s%% of the verified provider cost. '
+            . 'You entered %s%%. Markup is not margin: it applies to the cost, so a %s%% markup '
+            . 'on a ₦1,000 bundle charges ₦%s.',
+            $this->percent($min),
+            $this->percent($max),
+            $this->percent($bps),
+            $this->percent($max),
+            number_format(1000 * (1 + $max / 10000), 2),
+        ));
+    }
+
+    /**
+     * Whether a rule's markup is a data-bundle markup.
+     *
+     * ## What the band covers, and what it deliberately does not
+     *
+     * Scope and type are the only signals the schema carries, and together they
+     * are enough for the case the policy exists for — but they are **not** enough
+     * to claim the band covers every rule that could charge a data price, and it
+     * would be dishonest to pretend otherwise. What is covered:
+     *
+     *   * a `global` or `network` rule with a `percentage` markup — which is what
+     *     data bundles are priced by. The seeded default is exactly this shape, so
+     *     the rule that prices every data bundle on a fresh install is inside the
+     *     band.
+     *
+     * What is not:
+     *
+     *   * a `fixed` or `percentage_plus_fixed` markup. Those are deliberate
+     *     commercial choices rather than a margin stated as a percentage, and a
+     *     2–3% band says nothing about what a ₦50 handling fee ought to be.
+     *   * a `FACE_VALUE` rule, which carries no markup at all. Airtime is priced
+     *     by these, so the airtime policy is untouched by this check.
+     *   * a `product`, `provider` or `provider_product` scoped rule. Nothing in the
+     *     console distinguishes a data rule at those scopes from any other
+     *     product's, and refusing a legitimate markup there to catch a
+     *     hypothetical data rule is a worse trade than the narrow band below.
+     *
+     * The honest statement of this control is therefore: **the data default is
+     * bounded, and any percentage markup at the scope data is priced by is
+     * bounded.** A rule deliberately narrowed to one product is an operator's
+     * explicit decision about that product.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private function isDataMarkupRule(array $attributes): bool
+    {
+        $type = $attributes['markup_type'] ?? null;
+
+        if (! in_array($type, [
+            PricingRule::MARKUP_PERCENTAGE,
+            PricingRule::MARKUP_PERCENTAGE_PLUS_FIXED,
+        ], true)) {
+            return false;
+        }
+
+        return in_array($attributes['scope'] ?? null, [
+            PricingRule::SCOPE_NETWORK,
+            PricingRule::SCOPE_GLOBAL,
+        ], true);
+    }
+
+    private function percent(int $bps): string
+    {
+        return rtrim(rtrim(number_format($bps / 100, 2, '.', ''), '0'), '.') ?: '0';
+    }
+
+    /**
+     * A social-boost markup must meet the mandatory floor.
+     *
+     * ## Why this is a floor and not a band
+     *
+     * Data bundles have an approved *band* (2–3%): a price above it is as wrong
+     * as one below, because the commercial decision is "charge roughly what the
+     * market charges". Social boost is the opposite. The floor exists so the
+     * platform never sells engagement at or below what Nitro charges it, and a
+     * higher markup is simply a better price — so only the lower bound is a
+     * policy, and a ceiling would be a commercial decision rather than a control.
+     *
+     * ## Why it is enforced here *and* in `SmmPricing`
+     *
+     * This constrains what an operator may *type*. `SmmPricing` constrains what
+     * the platform may *charge*, immediately before the wallet is debited. The
+     * second is the control that matters — it catches a rule created by a seeder,
+     * a direct write, or a code path that never went through this service — and
+     * the first is what keeps the console from being configured into a state that
+     * only fails at checkout, in front of a customer.
+     *
+     * ## What it deliberately does not do
+     *
+     * It does not re-price rules that already exist below the floor, and it does
+     * not fire on an edit that leaves the markup alone. A rule that predates the
+     * policy keeps working until somebody edits it, at which point the floor
+     * applies — because silently re-pricing live services would change what
+     * customers are charged without anybody deciding to.
+     *
+     * @param  array<string, mixed>  $attributes  the merged, prospective state
+     * @param  PricingRule|null  $existing  the rule as it stands, when editing
+     */
+    private function assertSmmMarkupFloor(array $attributes, ?PricingRule $existing = null): void
+    {
+        if (($attributes['markup_type'] ?? null) === PricingRule::MARKUP_FACE_VALUE) {
+            return;
+        }
+
+        /*
+         * Only a percentage markup states a proportion of cost, which is what the
+         * floor is expressed in. A `none` rule charges cost exactly — refused by
+         * `SmmPricing` at the point of sale, and not caught here because a rule
+         * with no markup is a deliberate statement about a *different* product
+         * family and this check cannot tell which one it will price.
+         */
+        if (($attributes['markup_type'] ?? null) !== PricingRule::MARKUP_PERCENTAGE
+            && ($attributes['markup_type'] ?? null) !== PricingRule::MARKUP_PERCENTAGE_PLUS_FIXED) {
+            return;
+        }
+
+        if (! $this->isSocialBoostRule($attributes)) {
+            return;
+        }
+
+        $bps = (int) ($attributes['markup_percentage_bps'] ?? 0);
+
+        if ($existing !== null && $bps === (int) $existing->markup_percentage_bps) {
+            return;
+        }
+
+        $floor = max(1, (int) config('pricing.smm.minimum_markup_bps', 1000));
+
+        if ($bps >= $floor) {
+            return;
+        }
+
+        throw new RuntimeException(sprintf(
+            'A social-boost markup must be at least %s%% of the verified provider cost; you entered %s%%. '
+            . 'Markup is not margin: a %s%% markup on a ₦1,000 boost charges ₦%s and earns ₦%s — a %s%% gross margin.',
+            $this->percent($floor),
+            $this->percent($bps),
+            $this->percent($floor),
+            number_format(1000 * (1 + $floor / 10000), 2),
+            number_format(1000 * $floor / 10000, 2),
+            $this->percent((int) round(($floor / (10000 + $floor)) * 10000)),
+        ));
+    }
+
+    /**
+     * Whether a rule prices social boost.
+     *
+     * Scope is the signal the schema carries. A social-boost rule is scoped to the
+     * service category (`Group: social`), to a product inside it, or to one
+     * provider's offering of one — because that is how the catalogue is
+     * structured, and it is the only shape in which the console can express
+     * "this price is for a boost".
+     *
+     * A `global` rule is deliberately **not** treated as an SMM rule: it prices
+     * every product family, and applying a social-boost floor to it would refuse a
+     * perfectly valid global default for airtime and data. The mandatory floor is
+     * enforced unconditionally at the point of sale instead, which is where it can
+     * be enforced without guessing.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private function isSocialBoostRule(array $attributes): bool
+    {
+        $scopes = [
+            PricingRule::SCOPE_CATEGORY => 'category_id',
+            PricingRule::SCOPE_PRODUCT => 'service_product_id',
+            PricingRule::SCOPE_PROVIDER_PRODUCT => 'provider_product_id',
+        ];
+
+        foreach ($scopes as $scope => $column) {
+            if (($attributes['scope'] ?? null) !== $scope) {
+                continue;
+            }
+
+            $id = $attributes[$column] ?? null;
+
+            if ($id === null) {
+                return false;
+            }
+
+            /*
+             * A category-scoped rule names the category directly; a product- or
+             * offering-scoped one names a subject whose own category decides. Both
+             * resolve to "is this rule about the social category", which is the only
+             * question this check can answer without guessing which product family a
+             * rule will end up pricing.
+             */
+            return $this->belongsToSocialCategory($scope, (int) $id);
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether a rule's subject sits in the social category.
+     */
+    private function belongsToSocialCategory(string $scope, int $id): bool
+    {
+        $categoryId = match ($scope) {
+            PricingRule::SCOPE_CATEGORY => $id,
+            PricingRule::SCOPE_PRODUCT => \App\Models\ServiceProduct::whereKey($id)->value('category_id'),
+            PricingRule::SCOPE_PROVIDER_PRODUCT => \App\Models\ProviderProduct::whereKey($id)
+                ->with('serviceProduct')
+                ->first()?->serviceProduct?->category_id,
+            default => null,
+        };
+
+        if ($categoryId === null) {
+            return false;
+        }
+
+        return \App\Models\ServiceCategory::where('group', \App\Models\ServiceCategory::GROUP_SOCIAL)
+            ->whereKey($categoryId)
+            ->exists();
     }
 
     /**

@@ -24,7 +24,7 @@ use Illuminate\Database\Seeder;
  *     asked for: ₦200 costs ₦200, ₦1,000 costs ₦1,000. No customer fee is enabled,
  *     so `service_fee` is ₦0.00 and the total equals the amount. This is the whole
  *     point of the change — the previous 2% is gone, and nothing replaces it.
- *   * **Data, global, 10% markup.** Data is cost-plus in this business: the
+ *   * **Data, global, 3% markup.** Data is cost-plus in this business: the
  *     customer pays the bundle price plus a margin. A global rule is a starting
  *     point; scope a rule to one network when a network's margin needs to differ,
  *     and the more specific rule takes precedence automatically.
@@ -112,11 +112,29 @@ class PricingDefaultsSeeder extends Seeder
     /**
      * The default data-bundle markup.
      *
-     * 10% is a starting assumption, not a recommendation — the operator should set
-     * this from real cost and competitor data. It is higher than the 1.5% the
-     * catalogue previously hard-coded because that figure was almost certainly not
-     * a deliberate commercial decision: it was a constant in a service class that
-     * nobody could change without a deploy.
+     * **3% on the verified provider cost**, the top of the approved 2–3% band and
+     * therefore the starting point an operator should be moving *down* from where
+     * the market allows it — not a figure to be raised. The band is enforced by
+     * `PricingRuleService`, so a seeded rule cannot be edited outside it by
+     * accident.
+     *
+     * ## Markup, not margin
+     *
+     * These are different numbers for the same sale, and confusing them is how a
+     * margin target becomes a price cut. On a ₦1,000 bundle a 3% *markup* charges
+     * ₦1,030 — a ₦30 gross profit, which is a 2.91% *margin* (profit ÷ price).
+     * Pricing a 3% *margin* instead would charge ₦1,030.93, and would mean
+     * something different on every bundle.
+     *
+     * ## What a provider's catalogue price is
+     *
+     * The cost this markup applies to is the provider's own price for that exact
+     * bundle — the `PRODUCT_AMOUNT` ClubKonnect publishes, which the catalogue
+     * carries as `clubkonnect_price` and `ProviderCostResolver` reads as the
+     * effective cost. It is not a list price with a discount to be derived from it:
+     * this endpoint publishes no discount rate, no commission and no separate net
+     * price, so there is no second candidate for the true cost and nothing has to
+     * guess which field to use.
      */
     private function seedDataMarkupRule(User $actor): void
     {
@@ -132,7 +150,7 @@ class PricingDefaultsSeeder extends Seeder
             'name' => (string) config('pricing.data_default_rule_name', 'Data bundles — default markup'),
             'scope' => PricingRule::SCOPE_GLOBAL,
             'markup_type' => PricingRule::MARKUP_PERCENTAGE,
-            'markup_percentage_bps' => (int) config('pricing.data_default_markup_bps', 1000),
+            'markup_percentage_bps' => (int) config('pricing.data_default_markup_bps', 300),
             'markup_fixed_minor' => 0,
             /*
              * A one-kobo floor, so a bundle whose cost rounds to nearly nothing is

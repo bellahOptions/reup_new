@@ -26,23 +26,74 @@ return [
     | Canonical networks
     | ---------------------------------------------------------------------
     | The order here is the display order used by admin screens.
+    |
+    | ## `name` is the customer-facing label, `key` is the identifier
+    |
+    | The two are not the same thing and must not be conflated. The *key* is what
+    | a transaction stores, what a pricing rule is scoped to and what a provider's
+    | code resolves to; it is an identifier and changing it would orphan
+    | historical rows and per-network rules. The *name* is branding, and branding
+    | changes: 9mobile now trades as **T2mobile**, so the label says so while the
+    | key stays `9mobile` and every existing row, rule and provider code keeps
+    | resolving exactly as it did.
+    |
+    | ## `logo` is the brand mark
+    |
+    | These are the supplied assets, not the placeholder monograms that were
+    | rendered before. They live in `public/` because that is where they were
+    | provided; `fallback_logo` names the older vector monogram, which the
+    | component falls back to if the bitmap fails to load.
+    |
+    | `NetworkBrand` is the only thing that reads these keys — a template that
+    | reaches into this array directly is the duplication this was consolidated to
+    | remove. `NetworkBrandTest` asserts every configured path exists on disk, so a
+    | mark that would 404 fails the suite rather than the storefront.
     */
     'networks' => [
         'mtn' => [
             'name' => 'MTN',
+            'logo' => 'mtn.jpeg',
+            'fallback_logo' => 'images/networks/mtn.svg',
+            'colour' => '#FFCC00',
             'aliases' => ['mtn', 'mtn nigeria', 'mtnNg'],
         ],
         'airtel' => [
             'name' => 'Airtel',
+            'logo' => 'airtel.jpeg',
+            'fallback_logo' => 'images/networks/airtel.svg',
+            'colour' => '#E40000',
             'aliases' => ['airtel', 'airtel nigeria', 'zain', 'celtel'],
         ],
         'glo' => [
             'name' => 'Glo',
+            'logo' => 'glo.png',
+            'fallback_logo' => 'images/networks/glo.svg',
+            'colour' => '#00A651',
             'aliases' => ['glo', 'glo mobile', 'globacom', 'globacom nigeria'],
         ],
         '9mobile' => [
-            'name' => '9mobile',
-            'aliases' => ['9mobile', 'etisalat', 'emts', '9 mobile'],
+            /*
+             * The current brand. 9mobile was rebranded T2mobile; the canonical key
+             * above deliberately stays `9mobile` so stored `network_code` values,
+             * provider code maps and pricing rules continue to resolve.
+             */
+            'name' => 'T2mobile',
+            'logo' => 't2.png',
+            'fallback_logo' => 'images/networks/9mobile.svg',
+            'colour' => '#006F51',
+            /*
+             * Every spelling that has ever referred to this network, so a
+             * provider's wording, a legacy row or a customer's typing all land on
+             * the same entry. `9mobile` and `t2` are both listed because both are
+             * in live use — the provider still says 9MOBILE, the brand says
+             * T2mobile, and a value that resolved to nothing would render as
+             * "Network unavailable" on a receipt for a purchase that worked.
+             */
+            'aliases' => [
+                '9mobile', '9 mobile', '9mobile nigeria',
+                't2', 't2mobile', 't2 mobile', 't2mobile nigeria',
+                'etisalat', 'emts',
+            ],
         ],
     ],
 

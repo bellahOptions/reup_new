@@ -172,7 +172,12 @@ class AdminPricingTest extends TestCase
             'name' => 'SMM default',
             'scope' => 'global',
             'markup_type' => 'percentage',
-            'markup_percentage' => 20,
+            /*
+             * Within the data-bundle band (2–3%). This test is about versioning,
+             * not about the band, so it uses a markup the policy accepts — the
+             * band itself is pinned by `DataPriceMarkupBandTest`.
+             */
+            'markup_percentage' => 2.5,
             'rounding_mode' => 'nearest',
             'on_unprofitable' => 'unavailable',
             'reason' => 'Initial margin policy',
@@ -180,7 +185,7 @@ class AdminPricingTest extends TestCase
 
         $rule = PricingRule::where('name', 'SMM default')->firstOrFail();
 
-        $this->assertSame(2000, $rule->markup_percentage_bps);
+        $this->assertSame(250, $rule->markup_percentage_bps);
         $this->assertSame(1, PricingRuleVersion::where('pricing_rule_id', $rule->getKey())->count());
 
         // The privileged action is audited.
@@ -197,6 +202,11 @@ class AdminPricingTest extends TestCase
          * version 1. A rule created by a seeder or a direct `create()` has no
          * earlier state to record, and the first edit produces version 1
          * describing the state *before* that edit.
+         *
+         * The markups are inside the data-bundle band (2–3%) because a global
+         * percentage rule is what data bundles are priced by. This test is about
+         * versioning, so it stays inside the policy — the band is pinned
+         * separately by `DataPriceMarkupBandTest`.
          */
         $admin = $this->superAdmin();
 
@@ -204,7 +214,7 @@ class AdminPricingTest extends TestCase
             'name' => 'Global default',
             'scope' => PricingRule::SCOPE_GLOBAL,
             'markup_type' => PricingRule::MARKUP_PERCENTAGE,
-            'markup_percentage_bps' => 2000,
+            'markup_percentage_bps' => 200,
             'is_active' => true,
             'priority' => 100,
         ], $admin, 'Initial rule');
@@ -213,7 +223,7 @@ class AdminPricingTest extends TestCase
             'name' => $rule->name,
             'scope' => 'global',
             'markup_type' => 'percentage',
-            'markup_percentage' => 30,
+            'markup_percentage' => 3,
             'rounding_mode' => 'nearest',
             'on_unprofitable' => 'unavailable',
             'reason' => 'Provider raised its rates',
@@ -221,7 +231,7 @@ class AdminPricingTest extends TestCase
 
         $rule->refresh();
 
-        $this->assertSame(3000, $rule->markup_percentage_bps);
+        $this->assertSame(300, $rule->markup_percentage_bps);
         $this->assertSame($admin->getKey(), $rule->updated_by);
 
         $version = PricingRuleVersion::where('pricing_rule_id', $rule->getKey())
@@ -235,18 +245,18 @@ class AdminPricingTest extends TestCase
         // The diff names the field and both values.
         $changes = $version->changes;
         $this->assertArrayHasKey('markup_percentage_bps', $changes);
-        $this->assertSame(2000, (int) $changes['markup_percentage_bps']['from']);
-        $this->assertSame(3000, (int) $changes['markup_percentage_bps']['to']);
+        $this->assertSame(200, (int) $changes['markup_percentage_bps']['from']);
+        $this->assertSame(300, (int) $changes['markup_percentage_bps']['to']);
 
         // The version row keeps the state as it was *before* the change, so the
         // history is interpretable without reconstructing it from the diffs.
-        $this->assertSame(2000, (int) $version->snapshot['markup_percentage_bps']);
+        $this->assertSame(200, (int) $version->snapshot['markup_percentage_bps']);
 
         // And the human-readable summary says so.
         $summary = implode(' | ', $version->changeSummary());
         $this->assertStringContainsString('Markup %', $summary);
-        $this->assertStringContainsString('20.00%', $summary);
-        $this->assertStringContainsString('30.00%', $summary);
+        $this->assertStringContainsString('2.00%', $summary);
+        $this->assertStringContainsString('3.00%', $summary);
     }
 
     public function test_a_change_that_changes_nothing_writes_no_version(): void
@@ -257,7 +267,7 @@ class AdminPricingTest extends TestCase
             'name' => 'Global default',
             'scope' => PricingRule::SCOPE_GLOBAL,
             'markup_type' => PricingRule::MARKUP_PERCENTAGE,
-            'markup_percentage_bps' => 2000,
+            'markup_percentage_bps' => 250,
             'is_active' => true,
         ], $admin, 'Initial rule');
 
@@ -265,7 +275,7 @@ class AdminPricingTest extends TestCase
             'name' => $rule->name,
             'scope' => 'global',
             'markup_type' => 'percentage',
-            'markup_percentage' => 20, // unchanged
+            'markup_percentage' => 2.5, // unchanged
             'rounding_mode' => 'nearest',
             'on_unprofitable' => 'unavailable',
         ])->assertRedirect();
@@ -523,12 +533,14 @@ class AdminPricingTest extends TestCase
 
     public function test_the_history_screen_renders_the_version_diff(): void
     {
-        $rule = $this->globalRule();
+        // Inside the data-bundle band, because a global percentage rule is what
+        // data bundles are priced by and this test is about the history screen.
+        $rule = $this->globalRule(['markup_percentage_bps' => 200]);
         $admin = $this->superAdmin();
 
         app(PricingRuleService::class)->update(
             $rule,
-            ['markup_percentage_bps' => 3000],
+            ['markup_percentage_bps' => 300],
             $admin,
             'Rate increase',
         );
@@ -587,6 +599,13 @@ class AdminPricingTest extends TestCase
         $this->actingAs($this->superAdmin())->post(route('admin.pricing.store'), [
             'name' => 'Fixed fee rule',
             'scope' => 'global',
+            /*
+             * A `fixed` markup, deliberately: the 2–3% band bounds a *percentage*
+             * markup on the provider cost, and says nothing about what a flat
+             * handling fee in naira ought to be. Pinned by
+             * `DataPriceMarkupBandTest`, which asserts a fixed global rule is not
+             * refused by the band.
+             */
             'markup_type' => 'fixed',
             'markup_fixed' => '1500.50',
             'minimum_profit' => '100.25',
@@ -609,12 +628,17 @@ class AdminPricingTest extends TestCase
             'name' => 'Decimal markup',
             'scope' => 'global',
             'markup_type' => 'percentage',
-            // 1.5% must become exactly 150 bps, not 149 or 151.
-            'markup_percentage' => '1.5',
+            /*
+             * 2.5% must become exactly 250 bps, not 249 or 251. A decimal inside
+             * the data-bundle band, because a global percentage rule is what data
+             * bundles are priced by and the band refuses anything outside it —
+             * the band itself is pinned by `DataPriceMarkupBandTest`.
+             */
+            'markup_percentage' => '2.5',
             'rounding_mode' => 'nearest',
             'on_unprofitable' => 'unavailable',
         ])->assertRedirect();
 
-        $this->assertSame(150, (int) PricingRule::where('name', 'Decimal markup')->firstOrFail()->markup_percentage_bps);
+        $this->assertSame(250, (int) PricingRule::where('name', 'Decimal markup')->firstOrFail()->markup_percentage_bps);
     }
 }

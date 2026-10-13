@@ -3,11 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Transactions;
-use App\Pricing\PricingEngine;
 use App\Services\BillPaymentService;
 use App\Services\ClubKonnectCatalogue;
+use App\Services\DataPriceService;
 use App\Services\NetworkResolver;
-use App\Services\ProviderCostResolver;
 use App\Support\Money;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -18,52 +17,83 @@ class PricelistController extends Controller
     public function __construct(
         private readonly BillPaymentService $bills,
         private readonly ClubKonnectCatalogue $catalogue,
-        private readonly PricingEngine $pricing,
-        private readonly ProviderCostResolver $costs,
+        private readonly DataPriceService $dataPrices,
     ) {
     }
 
     public function index()
     {
-        return view('pricelist.index', ['data' => $this->catalogue->plans()]);
-    }
-
-    // API endpoint for AJAX calls
-    public function api()
-    {
-        return response()->json($this->catalogue->plans());
-    }
-
-    // Manual refresh endpoint
-    public function refresh()
-    {
-        $this->catalogue->forget();
-
-        return redirect()->route('pricelist')
-            ->with('success', 'Rates refreshed from the provider.');
-    }
-
-    // Get plan details for purchase
-    public function getPlan($planCode)
-    {
-        $plan = $this->findPlan($planCode);
-
-        return $plan
-            ? response()->json($plan)
-            : response()->json(['error' => 'Plan not found'], 404);
+        return view('pricelist.index', ['data' => $this->dataPrices->cataloguePayload()]);
     }
 
     /**
-     * Resolve a plan from the server-side catalogue by product code or id.
+     * API endpoint for AJAX calls.
      *
-     * This is the only authoritative price. A request must never be able to
-     * tell us what a plan costs — the pricelist markup previously carried
-     * `plan_price` from a data attribute and posted it back, so editing the
-     * page in devtools bought a ₦20,000 bundle for ₦1.
+     * The payload carries the same prices the purchase path will charge, because
+     * both read them from `DataPriceService`. It also carries the freshness of
+     * the catalogue it came from, so a page can show that a price is old without
+     * a second request — and so a client never has to guess whether it is looking
+     * at current data.
      */
-    private function findPlan(string $planCode): ?array
+    public function api()
     {
-        return $this->catalogue->plan($planCode);
+        $payload = $this->dataPrices->cataloguePayload();
+        $status = $this->catalogue->status();
+
+        return response()->json($payload + [
+            'catalogue' => [
+                'stale' => $status['stale'],
+                'age_seconds' => $status['age_seconds'],
+                'last_success_at' => $status['last_success_at'],
+                'last_failure_at' => $status['last_failure_at'],
+                'error_type' => $status['error_type'],
+                // How often a client should re-read *this* endpoint. Never the
+                // provider's: the scheduled synchronisation is what refreshes the
+                // catalogue, and the frontend only refreshes what it displays.
+                'refresh_seconds' => max(
+                    30,
+                    (int) config('pricing.catalogue.frontend_refresh_seconds', 300)
+                ),
+            ],
+        ]);
+    }
+
+    /**
+     * Manual refresh endpoint.
+     *
+     * Deliberately does not call the provider. The catalogue is refreshed on a
+     * schedule, and this button exists to drop a *stale local copy* so the next
+     * read re-derives prices from the current rule — an operator clicking it
+     * twice must not spend two provider requests, and must not be able to use it
+     * to exceed the provider's rate limit.
+     */
+    public function refresh()
+    {
+        $status = $this->catalogue->status();
+
+        if ($status['stale']) {
+            $this->catalogue->forget();
+        }
+
+        return redirect()->route('pricelist')
+            ->with('success', $status['stale']
+                ? 'Rates reloaded. The catalogue was stale, so it will be re-read from the provider.'
+                : 'Rates are already current.');
+    }
+
+    /**
+     * Plan details for a bundle, by product code or id.
+     *
+     * Read from the same service that prices and sells it, so a caller cannot be
+     * handed a row that the purchase path would resolve differently.
+     */
+    public function getPlan(string $planCode)
+    {
+        $priced = $this->dataPrices->quote($planCode);
+
+        return $priced['found']
+            ? response()->json($priced['plan'])
+            : response()->json(['error' => 'Plan not found'], 404);
     }
 
     /**
@@ -82,13 +112,27 @@ class PricelistController extends Controller
             'idempotency_key' => 'nullable|string|min:8|max:64',
         ]);
 
-        $plan = $this->findPlan($validated['plan_code']);
+        /*
+         * The plan and its price come from the same service the price list reads.
+         *
+         * This endpoint used not to check the customer's view at all: it ignored
+         * any posted price and simply charged the current one, so the same bundle
+         * bought from this page and from the airtime page behaved differently
+         * when a price had moved — one charged silently, the other refused and
+         * asked for a second submission. There is now one pricing path and one
+         * answer.
+         */
+        $priced = $this->dataPrices->quote($validated['plan_code']);
 
-        if (! $plan) {
-            return back()->withInput()
-                ->with('error', 'That data plan is no longer available. Please refresh the pricelist and try again.');
+        if (! $priced['found'] || $priced['price_minor'] === null) {
+            return back()->withInput()->with(
+                'error',
+                $priced['refusal'] ?? 'That data plan is no longer available. Please refresh the pricelist and try again.'
+            );
         }
 
+        $plan = $priced['plan'];
+        $quote = $priced['quote'];
         $networkCode = (string) ($plan['network_code'] ?? '');
 
         if ($networkCode === '') {
@@ -96,13 +140,8 @@ class PricelistController extends Controller
                 ->with('error', 'That data plan is missing its network. Please contact support.');
         }
 
-        /*
-         * The network is the catalogue's, resolved to a canonical key and its
-         * customer-facing name. The provider's name is never used as the network:
-         * that is what put "ClubKonnect" on customer receipts.
-         */
-        $networkKey = NetworkResolver::key($networkCode, 'clubkonnect');
-        $networkName = NetworkResolver::displayName($networkCode, 'clubkonnect');
+        $networkKey = $priced['network_key'] ?? NetworkResolver::key($networkCode, 'clubkonnect');
+        $networkName = $priced['network_name'] ?? NetworkResolver::displayName($networkCode, 'clubkonnect');
 
         $user = Auth::user();
 
@@ -112,46 +151,9 @@ class PricelistController extends Controller
          * each upstream what this bundle costs it, and comparing those answers
          * is what decides who vends.
          */
-        $providerParams = [
-            'network' => $networkCode,
-            'plan' => (string) ($plan['plan_id'] ?? $plan['plan_code']),
-            'phone' => $validated['phone'],
-        ];
-
-        /*
-         * The price comes from the central pricing engine, priced off the
-         * catalogue's verified provider cost. This replaced a hard-coded 1.5%
-         * margin inside the cached catalogue plus a flat ₦50 data fee here, so the
-         * margin on a bundle is now a configured rule per network rather than a
-         * constant in two files.
-         */
-        $cost = $this->costs->forDataBundle($plan);
-
-        if (! $cost) {
-            return back()->withInput()->with('error', $this->costs->unavailableMessage());
-        }
-
-        $quote = $this->pricing->quote(
-            providerCost: $cost->costMinor,
-            quantity: 1,
-            context: [
-                'network' => $networkKey,
-                'capability' => ProviderCostResolver::CAPABILITY_DATA,
-            ],
-            costMeta: $cost->toEngineMetadata(),
-        );
-
-        if (! $quote->isSellable()) {
-            return back()->withInput()
-                ->with('error', $quote->refusalReason ?? $this->costs->unavailableMessage());
-        }
+        $providerParams = $priced['provider_params'] + ['phone' => $validated['phone']];
 
         $quoted = Money::fromMinor($quote->customerPriceMinor);
-
-        if ($quoted->minor() <= 0) {
-            return back()->withInput()
-                ->with('error', 'That data plan has no valid price. Please contact support.');
-        }
 
         $result = $this->bills->purchase(
             user: $user,

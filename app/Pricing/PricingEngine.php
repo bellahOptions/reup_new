@@ -79,6 +79,16 @@ class PricingEngine
 
         $costMinor = $this->toMinor($providerCost);
 
+        /*
+         * The face value travels in the context as well as as its own argument.
+         *
+         * `resolveRule()` needs it to decide whether a `FACE_VALUE` rule is even a
+         * candidate: a product with a face value is priced by one, and a bundle
+         * with none must not be. Leaving it out of the context is what let an
+         * airtime rule price a data bundle at cost — see `resolveRule()`.
+         */
+        $context['price_basis_minor'] = $priceBasisMinor;
+
         $rule = $this->resolveRule($context, $at);
 
         if ($rule === null) {
@@ -400,12 +410,36 @@ class PricingEngine
      * provider product beats a product rule, which beats a provider rule, which
      * beats a category rule, which beats the global default.
      *
+     * ## A FACE_VALUE rule is only eligible for a product that has a face value
+     *
+     * `price_basis_minor` in the context is the value the customer asked for —
+     * ₦1,000 of airtime. A caller that supplies one is pricing a product whose
+     * price *is* a denomination, and a `FACE_VALUE` rule is the strategy for
+     * those.
+     *
+     * A caller that passes nothing (a data bundle, an SMM order) has no face
+     * value, and a `FACE_VALUE` rule cannot price it: with no basis the strategy
+     * falls back to the base cost, so the bundle would be sold at exactly what
+     * the provider charges, at zero margin.
+     *
+     * **That is not hypothetical, and it was silent.** The seeder creates one
+     * `FACE_VALUE` rule per network for airtime, and every data quote carries a
+     * network, so the network-scoped lookup below matched the *airtime* rule on
+     * every bundle. Every data price in the storefront was therefore the provider
+     * cost — no markup, no profit, and nothing failed. Skipping ineligible
+     * strategies lets the lookup continue to the rule that can actually price the
+     * product (the global data markup) instead of stopping on one that cannot.
+     *
      * @param  array<string,mixed>  $context  provider_product_id, service_product_id,
-     *                                        provider_id, network, category_id
+     *                                        provider_id, network, category_id,
+     *                                        price_basis_minor
      */
     public function resolveRule(array $context, ?Carbon $at = null, ?PricingRule $skip = null): ?PricingRule
     {
         $at = $at ?? now();
+
+        $priceBasisMinor = $context['price_basis_minor'] ?? null;
+        $hasFaceValue = is_int($priceBasisMinor) && $priceBasisMinor > 0;
 
         $lookup = [
             PricingRule::SCOPE_PROVIDER_PRODUCT => ['provider_product_id', $context['provider_product_id'] ?? null],
@@ -434,6 +468,10 @@ class PricingEngine
                 })
                 ->orderBy('priority')
                 ->orderByDesc('updated_at');
+
+            if (! $hasFaceValue) {
+                $query->where('markup_type', '!=', PricingRule::MARKUP_FACE_VALUE);
+            }
 
             if ($scope !== PricingRule::SCOPE_GLOBAL) {
                 $query->where($column, $value);

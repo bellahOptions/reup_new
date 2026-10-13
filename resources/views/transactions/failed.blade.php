@@ -86,7 +86,12 @@
 
                     <div class="flex items-start justify-between gap-6 px-5 py-3.5">
                         <dt class="text-sm text-muted-foreground">Network</dt>
-                        <dd class="text-right text-sm font-medium">{{ $transaction->network_display }}</dd>
+                        <dd class="text-right">
+                            <x-network-logo :network="$transaction->network_code ?? $transaction->network_display"
+                                            :size="'h-5 w-5'"
+                                            withLabel
+                                            class="justify-end" />
+                        </dd>
                     </div>
 
                     @if($transaction->plan_name)

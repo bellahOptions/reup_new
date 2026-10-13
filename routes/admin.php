@@ -12,6 +12,7 @@ use App\Http\Controllers\Admin\PricingController;
 use App\Http\Controllers\Admin\ProfitController;
 use App\Http\Controllers\Admin\ProviderController;
 use App\Http\Controllers\Admin\SettingsController;
+use App\Http\Controllers\Admin\SocialBoostController;
 use App\Http\Controllers\Admin\TransactionController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\PaystackController;
@@ -264,6 +265,48 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'admin'])->group(fun
         Route::get('/', [ProfitController::class, 'index'])->name('index');
         Route::get('/data', [ProfitController::class, 'data'])->middleware('throttle:60,1')->name('data');
         Route::get('/watchlist', [ProfitController::class, 'marginWatchlist'])->name('watchlist');
+    });
+
+    /* ---- Social Boost (SMM) -------------------------------------------
+     | The Super Admin console for social-boost orders, catalogue, pricing and
+     | the Nitro integration's health.
+     |
+     | ## Why the gates are the permissions that already exist
+     |
+     | One permission opens the module — `view_social_boost` — because every
+     | screen in it exposes a commercial figure: provider rates, provider cost,
+     | gross margin, or the customer's order amount. It is a permission of its own
+     | rather than a reuse of `view_profit`, because "is the boost module healthy"
+     | and "what did we earn" are different questions.
+     |
+     | The *write* actions keep their own existing gates, so holding
+     | `view_social_boost` opens the screens and not the money:
+     |
+     |   * `manage_catalogue` to publish or pause a service;
+     |   * `manage_transactions` to reconcile an order or refund a customer.
+     |
+     | Every write action re-checks its permission inside the controller, so a
+     | route registered without its middleware cannot become a financial endpoint.
+     */
+    Route::prefix('social-boost')->name('social-boost.')->middleware('admin:view_social_boost')->group(function () {
+        Route::get('/', [SocialBoostController::class, 'index'])->name('index');
+
+        Route::get('/catalogue', [SocialBoostController::class, 'catalogue'])->name('catalogue');
+        Route::put('/catalogue/{offering}', [SocialBoostController::class, 'updateService'])
+            ->middleware('admin:manage_catalogue')->name('catalogue.update');
+
+        /* Read-only, so no write permission; it reveals cost and margin. */
+        Route::get('/pricing/{offering}', [SocialBoostController::class, 'pricingPreview'])
+            ->middleware('throttle:60,1')->name('pricing.preview');
+
+        Route::get('/orders', [SocialBoostController::class, 'orders'])->name('orders');
+        Route::get('/orders/{reference}', [SocialBoostController::class, 'showOrder'])->name('orders.show');
+        Route::post('/orders/{reference}/reconcile', [SocialBoostController::class, 'reconcileOrder'])
+            ->middleware(['admin:manage_transactions', 'throttle:30,1'])->name('orders.reconcile');
+        Route::post('/orders/{reference}/refund', [SocialBoostController::class, 'refundOrder'])
+            ->middleware(['admin:manage_transactions', 'throttle:10,1'])->name('orders.refund');
+
+        Route::get('/provider', [SocialBoostController::class, 'provider'])->name('provider');
     });
 
     /* ---- Customer lifecycle messaging --------------------------------

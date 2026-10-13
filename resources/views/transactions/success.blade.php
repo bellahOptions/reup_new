@@ -66,16 +66,25 @@
                     {{--
                         The network, never the provider.
                         `$transaction->network_display` resolves the mobile operator
-                        the customer actually bought (MTN, Airtel, Glo, 9mobile) and
+                        the customer actually bought (MTN, Airtel, Glo, T2mobile) and
                         falls back to a neutral label when it cannot be established.
                         It deliberately does not read `$transaction->provider`, which
                         is the upstream API (ClubKonnect) and was previously printed
                         here under this heading, telling the customer nothing true
                         about their purchase.
+
+                        The mark is resolved from the stored *key*, so a receipt
+                        re-opened after a rebrand still shows the right brand beside
+                        the name that was recorded.
                     --}}
                     <div class="flex items-start justify-between gap-6 px-5 py-3.5">
                         <dt class="text-sm text-muted-foreground">Network</dt>
-                        <dd class="text-right text-sm font-medium">{{ $transaction->network_display }}</dd>
+                        <dd class="text-right">
+                            <x-network-logo :network="$transaction->network_code ?? $transaction->network_display"
+                                            :size="'h-5 w-5'"
+                                            withLabel
+                                            class="justify-end" />
+                        </dd>
                     </div>
 
                     @if($transaction->plan_name)

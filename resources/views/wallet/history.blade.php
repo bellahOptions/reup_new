@@ -238,10 +238,18 @@
                                                         &#8358;{{ number_format((float) $transaction->amount - (float) $fundingFees[$transaction->id]['fee'], 2) }}
                                                     </span>
                                                 @elseif($transaction->recipient)
-                                                    <span class="mt-0.5 block text-xs text-muted-foreground">
+                                                    <span class="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                                                         {{-- The network the customer bought, never the
-                                                             upstream provider's name. --}}
-                                                        To {{ $transaction->recipient }}@if($transaction->hasResolvedNetwork()) &middot; {{ $transaction->network_display }}@endif
+                                                             upstream provider's name. The mark is
+                                                             resolved from the stored key, so a row
+                                                             written before a rebrand still shows the
+                                                             right brand. --}}
+                                                        <span>To {{ $transaction->recipient }}</span>
+                                                        @if($transaction->hasResolvedNetwork())
+                                                            <x-network-logo :network="$transaction->network_code ?? $transaction->network_display"
+                                                                            :size="'h-3.5 w-3.5'" />
+                                                            <span>{{ $transaction->network_display }}</span>
+                                                        @endif
                                                     </span>
                                                 @endif
                                             </span>

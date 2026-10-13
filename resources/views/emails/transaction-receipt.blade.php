@@ -66,7 +66,7 @@
         $valueStyle = $rowStyle . 'text-align:right;font-weight:600;color:#1b1f1b;word-break:break-word;';
 
         /*
-         * The customer's mobile network — MTN, Airtel, Glo or 9mobile — never the
+         * The customer's mobile network — MTN, Airtel, Glo or T2mobile — never the
          * upstream provider.
          *
          * This row previously read "Network / provider" and printed
@@ -81,10 +81,27 @@
         $lineItems = array_filter([
             'Service' => ucfirst(str_replace('-', ' ', (string) $transaction->service_type)),
             'Recipient' => $transaction->recipient,
-            'Network' => $transaction->hasResolvedNetwork() ? $transaction->network_display : null,
+            /*
+             * The brand mark travels in the HTML rather than as a link for a
+             * different reason from the site: a mail client will not load a remote
+             * image by default, and `alt` is what the reader actually sees. The
+             * mark is an `alt`-carried extra, and the network's *name* is still the
+             * row's value — so a client that blocks images loses nothing.
+             */
+            'Network' => $transaction->hasResolvedNetwork()
+                ? $transaction->network_display
+                : null,
             'Plan' => $transaction->plan_name,
             'Plan type' => $transaction->plan_type,
         ], fn ($value) => filled($value));
+
+        // The canonical key behind the stored label, for the brand mark. Null when
+        // the network could not be resolved at all.
+        $networkKey = $transaction->hasResolvedNetwork()
+            ? \App\Services\NetworkBrand::key($transaction->network_code ?? $transaction->network_display)
+            : null;
+
+        $networkLogo = \App\Services\NetworkBrand::logoUrl($networkKey);
 
         $auditRows = array_filter([
             'Date' => optional($transaction->created_at)->format('D, j M Y'),
@@ -131,7 +148,19 @@
         @foreach($lineItems as $label => $value)
             <tr>
                 <td style="{{ $labelStyle }}">{{ $label }}</td>
-                <td style="{{ $valueStyle }}">{{ $value }}</td>
+                <td style="{{ $valueStyle }}">
+                    @if($label === 'Network' && $networkLogo)
+                        {{-- Decorative: `alt=""` because the network's name is
+                             already the value beside it, and a mail client that
+                             blocks the image must not read the brand twice. --}}
+                        <img src="{{ $networkLogo }}"
+                             alt=""
+                             width="18"
+                             height="18"
+                             style="display:inline-block;vertical-align:-3px;margin-right:6px;border-radius:50%;object-fit:contain;">
+                    @endif
+                    {{ $value }}
+                </td>
             </tr>
         @endforeach
         <tr>

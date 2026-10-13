@@ -292,9 +292,17 @@ class ServiceOrderService
         $lastMessage = 'The service provider could not be reached.';
 
         foreach ($adapters as $index => $adapter) {
+            /*
+             * `provider()` and `providerId()` rather than the `$provider`
+             * property: it is `protected` on `AbstractProviderAdapter`, so
+             * reaching for it directly is a fatal error — and one that only
+             * happens *after* the wallet has been debited, which is the worst
+             * possible moment for a crash. Two accessors exist precisely so this
+             * cannot be done by accident.
+             */
             $order->forceFill([
-                'provider_id' => $adapter->provider->getKey(),
-                'provider_name' => $adapter->provider->slug,
+                'provider_id' => $adapter->providerId(),
+                'provider_name' => $adapter->provider()->slug,
             ])->save();
 
             try {
@@ -319,7 +327,7 @@ class ServiceOrderService
                 );
             }
 
-            $this->recordProviderTransaction($order, $adapter->provider->getKey(), $result);
+            $this->recordProviderTransaction($order, $adapter->providerId(), $result);
 
             $this->applyOutcome($order, $result);
 
@@ -380,7 +388,25 @@ class ServiceOrderService
 
             case ProviderStatus::PENDING:
             case ProviderStatus::PROCESSING:
+                /*
+                 * The provider's own order id is written **before** the status
+                 * changes, and it is the whole reason reconciliation can work: it
+                 * is the only handle a later process has on the provider's side of
+                 * the transaction.
+                 *
+                 * `markProcessing()` does not take it, so without this the reference
+                 * stayed null on every asynchronous order — and `SmmOrders::
+                 * reconcile()` refuses to ask about an order with no reference,
+                 * which meant a PENDING order could never be resolved: it held the
+                 * customer's money forever while the sweep reported "nothing to
+                 * poll". Silent, and the exact state this module exists to avoid.
+                 */
+                if ($result->providerReference !== null) {
+                    $order->forceFill(['provider_reference' => $result->providerReference])->save();
+                }
+
                 $order->markProcessing($result->providerStatus);
+
                 break;
 
             case ProviderStatus::FAILED:
@@ -563,6 +589,19 @@ class ServiceOrderService
      *
      * Refuses anything whose outcome is unresolved, and refuses `PARTIAL`, which
      * needs a human decision about how much is owed.
+     *
+     * ## `REFUNDED` is included, and it is not a contradiction
+     *
+     * An SMM provider refunds to *our* wallet and reports the order as refunded.
+     * That is the provider settling with ReUp; it is not the customer being made
+     * whole, and the two are different money movements. Until this is called the
+     * customer's debit stands against an order that was never delivered — which
+     * is the worst state a commerce system can leave somebody in.
+     *
+     * Repeating the call is safe by construction rather than by a check here:
+     * `BillPaymentService::refund()` refuses a transaction whose `payment_status`
+     * is already `refunded` or `reversed`, inside the row lock. So a reconciliation
+     * sweep that runs this on every pass credits once.
      */
     public function refundUnfulfilled(ServiceOrder $order, string $reason, ?int $actorId = null): bool
     {
@@ -583,7 +622,26 @@ class ServiceOrderService
             return false;
         }
 
-        if (! in_array($order->status, [ServiceOrder::STATUS_FAILED, ServiceOrder::STATUS_CANCELLED, ServiceOrder::STATUS_RETRYABLE], true)) {
+        if (! in_array($order->status, [
+            ServiceOrder::STATUS_FAILED,
+            ServiceOrder::STATUS_CANCELLED,
+            ServiceOrder::STATUS_RETRYABLE,
+            ServiceOrder::STATUS_REFUNDED,
+        ], true)) {
+            return false;
+        }
+
+        /*
+         * A provider-side refund is not evidence that the customer was credited.
+         * Anything that reaches here has a known outcome and was not delivered, so
+         * the customer is owed the money; the transaction's own `payment_status`
+         * is what makes a second pass a no-op.
+         */
+        $alreadyCredited = $order->status === ServiceOrder::STATUS_REFUNDED
+            && $order->transaction
+            && in_array($order->transaction->payment_status, ['refunded', 'reversed'], true);
+
+        if ($alreadyCredited) {
             return false;
         }
 
@@ -597,7 +655,7 @@ class ServiceOrderService
         if ($refunded) {
             $order->forceFill([
                 'status' => ServiceOrder::STATUS_REFUNDED,
-                'refunded_at' => now(),
+                'refunded_at' => $order->refunded_at ?? now(),
                 'next_reconcile_at' => null,
             ])->save();
 

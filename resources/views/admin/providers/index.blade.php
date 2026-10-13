@@ -223,6 +223,86 @@
         </div>
     </div>
 
+    {{-- ================= Data-bundle catalogue freshness =================
+         Separate from the provider health table above, and deliberately so: every
+         provider can be healthy, answering and funded while the price list that
+         every data bundle is priced from has not been read for hours. Health
+         checks cannot see that, and it is the state that lets a cost the provider
+         has already changed reach a customer. --}}
+    <div class="card mt-6">
+        <div class="card-header flex flex-wrap items-center justify-between gap-3">
+            <div>
+                <h2 class="card-title">Data-bundle catalogue</h2>
+                <p class="card-description">
+                    The provider price list every data bundle is priced from. Refreshed on a schedule;
+                    prices are always derived from the last catalogue that completed successfully.
+                </p>
+            </div>
+            <span class="badge {{ $catalogueSync['stale'] ? 'badge-destructive' : 'badge-success' }}">
+                {{ $catalogueSync['stale'] ? 'Stale' : 'Current' }}
+            </span>
+        </div>
+
+        <div class="card-body">
+            <dl class="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
+                <div>
+                    <dt class="text-muted-foreground">Last successful update</dt>
+                    <dd class="mt-1 font-medium">
+                        {{ $catalogueSync['last_success_at'] ?? 'Never' }}
+                        @if($catalogueSync['age_seconds'] !== null)
+                            <span class="block text-xs text-muted-foreground">
+                                {{ gmdate('H:i:s', (int) $catalogueSync['age_seconds']) }} ago
+                            </span>
+                        @endif
+                    </dd>
+                </div>
+                <div>
+                    <dt class="text-muted-foreground">Bundles priced</dt>
+                    <dd class="mt-1 font-medium tabular-nums">{{ number_format((int) $catalogueSync['plan_count']) }}</dd>
+                </div>
+                <div>
+                    <dt class="text-muted-foreground">Last attempt</dt>
+                    <dd class="mt-1 font-medium">
+                        {{ $catalogueSync['last_attempt_at'] ?? 'Never' }}
+                        @if($catalogueSync['last_duration_ms'] !== null)
+                            <span class="block text-xs text-muted-foreground">{{ $catalogueSync['last_duration_ms'] }} ms</span>
+                        @endif
+                    </dd>
+                </div>
+                <div>
+                    <dt class="text-muted-foreground">Consecutive failures</dt>
+                    <dd class="mt-1 font-medium tabular-nums">{{ (int) $catalogueSync['consecutive_failures'] }}</dd>
+                </div>
+            </dl>
+
+            @if($catalogueSync['error_type'])
+                <div class="mt-4 rounded-lg border border-red-200 bg-red-50 p-3">
+                    <p class="text-sm font-semibold text-red-800">
+                        Last failure: {{ $catalogueSync['error_type'] }}
+                        @if($catalogueSync['http_status'])
+                            (HTTP {{ $catalogueSync['http_status'] }})
+                        @endif
+                    </p>
+                    @if($catalogueSync['error_message'])
+                        <p class="mt-1 text-sm text-red-700">{{ $catalogueSync['error_message'] }}</p>
+                    @endif
+                    <p class="mt-1 text-xs text-red-700">
+                        The previous catalogue was left in place and no prices were changed. A failure never
+                        replaces a working price list.
+                    </p>
+                </div>
+            @endif
+
+            <p class="mt-4 text-xs text-muted-foreground">
+                Runs every {{ gmdate('i:s', $catalogueIntervals['sync_seconds']) }}; reported stale after
+                {{ gmdate('i:s', $catalogueIntervals['stale_after_seconds']) }}; an alert is raised after
+                {{ $catalogueIntervals['failures_before_alert'] }} consecutive failures.
+                Run <code>php artisan data:sync-catalogue --status</code> to check, or
+                <code>--force</code> to refresh now.
+            </p>
+        </div>
+    </div>
+
     @if($staged > 0)
         <div class="alert">
             <p class="text-sm font-medium">{{ $staged }} provider variant(s) are awaiting a mapping.</p>

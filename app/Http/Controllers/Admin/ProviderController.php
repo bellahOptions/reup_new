@@ -41,6 +41,7 @@ class ProviderController extends Controller
     public function __construct(
         private readonly ProviderMonitor $monitor,
         private readonly ProviderRegistry $registry,
+        private readonly \App\Providers\CatalogueSyncStatus $catalogueStatus,
     ) {
     }
 
@@ -60,6 +61,22 @@ class ProviderController extends Controller
                 'failures_before_down' => (int) config('providers.alerts.failures_before_down', 3),
             ],
             'staged' => \App\Models\ProviderCatalogueItem::awaitingMapping()->present()->count(),
+            /*
+             * The data-bundle catalogue's own freshness.
+             *
+             * Shown beside the provider health above because it answers a
+             * question that card cannot: the providers can all be healthy and
+             * answering while the price list every data bundle is derived from
+             * has not been read for hours. That state is invisible from health
+             * checks alone, and it is the one that lets a stale cost reach a
+             * customer.
+             */
+            'catalogueSync' => $this->catalogueStatus->current(),
+            'catalogueIntervals' => [
+                'sync_seconds' => $this->catalogueStatus->minIntervalSeconds(),
+                'stale_after_seconds' => $this->catalogueStatus->staleAfterSeconds(),
+                'failures_before_alert' => $this->catalogueStatus->failuresBeforeAlert(),
+            ],
         ]);
     }
 

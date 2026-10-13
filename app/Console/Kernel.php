@@ -259,6 +259,102 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping();
 
         /*
+         * The data-bundle catalogue — the one customers actually buy from.
+         *
+         * `providers:sync-catalogues` above walks the Wave-1 adapter catalogues
+         * (Sogo, VTpass, VTUGate, Nitro) into `provider_products`. The bundles the
+         * data purchase flow prices come from a different endpoint, and nothing
+         * refreshed it on a schedule: the cache was re-filled by whichever
+         * customer request happened to arrive after it expired, which made the
+         * provider's rate limit a function of traffic and left a quiet hour with
+         * no refresh at all.
+         *
+         * ## Why every minute, when the provider is read every ten
+         *
+         * The *interval that matters* is the one between provider fetches, and
+         * that is enforced by the command rather than by the cron expression:
+         * `data:sync-catalogue` checks the last successful synchronisation and
+         * exits immediately when the configured interval has not elapsed. So a
+         * per-minute entry costs one indexed cache read and makes the refresh
+         * land within a minute of becoming due — instead of up to ten minutes
+         * late, which is what an `everyTenMinutes()` entry would give on a
+         * scheduler whose ticks do not align with the last run.
+         *
+         * It also means the interval is configuration (`CATALOGUE_SYNC_INTERVAL_SECONDS`)
+         * rather than a cron expression that has to be edited to change it.
+         *
+         * `withoutOverlapping` AND the command's own cache lock, deliberately
+         * both: the schedule entry protects the scheduled run from itself, and
+         * the lock also protects it from a manual run an operator triggers while
+         * it is in flight. Two concurrent full-catalogue fetches would spend
+         * twice the provider's rate limit to learn the same prices.
+         *
+         * Not `runInBackground`: a run is one HTTP request and a cache write, and
+         * a failure has to be visible to the scheduler rather than swallowed by a
+         * background process.
+         */
+        $schedule->command('data:sync-catalogue')
+            ->everyMinute()
+            ->withoutOverlapping();
+
+        /*
+         * Social Boost order reconciliation.
+         *
+         * ## Why this is not optional
+         *
+         * Nitro's `add` returns an order id and nothing else. The outcome exists
+         * only in its `status` action, so without this sweep every social-boost
+         * order would sit in PENDING forever holding the customer's money — and an
+         * order Nitro refunded would never be refunded to the customer's wallet.
+         * The provider settles with *us*; crediting the customer is our movement
+         * to make.
+         *
+         * ## Every five minutes, and bounded
+         *
+         * Nitro documents 300 requests per minute and this makes one request per
+         * order — bulk polling is deliberately not used, because the provider does
+         * not document that its batch response is index-aligned with the ids sent
+         * and mapping the wrong entry onto the wrong order would apply one
+         * customer's outcome to another's. `--limit` (default 50) is therefore the
+         * only thing between a backlog and the allowance live purchases need, and
+         * five minutes is frequent enough that a customer watching their order
+         * sees it progress without the sweep competing with checkout traffic.
+         *
+         * `--grace=1` leaves the inline path its chance first: `ServiceOrderService`
+         * schedules its own first reconciliation a minute after submission, so a
+         * fresh order is not polled twice in its first minute.
+         *
+         * `withoutOverlapping` plus the command's own lock, for the same reason as
+         * everywhere else: two sweeps would poll the same orders twice and spend
+         * twice the rate limit to learn the same statuses.
+         *
+         * Not `runInBackground`: the sweep is bounded and a failure has to be
+         * visible to the scheduler rather than swallowed by a background process.
+         */
+        $schedule->command('smm:reconcile-orders')
+            ->everyFiveMinutes()
+            ->withoutOverlapping();
+
+        /*
+         * Social Boost catalogue.
+         *
+         * Hourly, matching `providers:sync-catalogues`, and it is the same read:
+         * that command already handles Nitro as one of its drivers, so this entry
+         * does not fetch the catalogue twice. What it adds is the two things an
+         * operator needs and the generic command cannot know to report — how many
+         * Nitro services are staged and awaiting a mapping, and whether Social
+         * Boost has anything sellable at all — plus a working refresh on a
+         * deployment whose `BILL_PROVIDER_ORDER` predates this module and does not
+         * name Nitro.
+         *
+         * The command is idempotent and holds its own lock, so a manual run
+         * alongside this entry fetches once between them.
+         */
+        $schedule->command('smm:sync-catalogue')
+            ->hourly()
+            ->withoutOverlapping();
+
+        /*
          * International catalogue.
          *
          * Every six hours rather than hourly, because it is the expensive one — a

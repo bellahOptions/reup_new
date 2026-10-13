@@ -5,9 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\PromotionNotification;
 use App\Models\Transactions;
 use App\Models\User;
+use App\Pricing\PriceChangeQuote;
 use App\Pricing\PricingEngine;
 use App\Services\BillPaymentService;
 use App\Services\ClubKonnectCatalogue;
+use App\Services\DataPriceService;
 use App\Services\NetworkResolver;
 use App\Services\ProviderCostResolver;
 use App\Services\SecurityService;
@@ -52,6 +54,7 @@ class AirtimeDataController extends Controller
         private readonly ProviderCostResolver $costs,
         private readonly \App\Services\PaystackService $paystack,
         private readonly \App\Orders\FundedPurchase $fundedPurchases,
+        private readonly DataPriceService $dataPrices,
     ) {
     }
 
@@ -274,76 +277,337 @@ class AirtimeDataController extends Controller
      * A price that has moved since the page was rendered is refused rather than
      * charged silently: the customer must see the new amount before paying it.
      */
+    /**
+     * Buy a data bundle.
+     *
+     * ## The price-mismatch dead end, and what replaces it
+     *
+     * This used to refuse a purchase whose posted price no longer matched and
+     * tell the customer to submit again — leaving them to retype a figure the
+     * page still showed as the old one, with nothing recording that they had
+     * seen and accepted the new amount. A customer who did submit again was
+     * simply re-checked against the same moving target.
+     *
+     * The refusal is still correct — the money must not move without agreement —
+     * but the answer is now a *decision*: a structured price-change response
+     * carrying the previous price, the new price, the bundle's identity and a
+     * short-lived server-side confirmation token, which the page renders as a
+     * modal. `confirmDataPrice()` is where that decision is validated and acted
+     * on.
+     *
+     * ## Nothing the client sends is trusted
+     *
+     * `plan_price` is read only to decide whether the customer's view is stale.
+     * The amount charged comes from the quote this method builds and hands to
+     * `BillPaymentService`, which debits `$quote->price()` — never the posted
+     * figure. A tampered price therefore cannot buy a bundle for ₦1; it can only
+     * make the server believe the page was stale, which produces a confirmation
+     * prompt for the real price.
+     *
+     * @return \Illuminate\Http\RedirectResponse|\Illuminate\Http\JsonResponse
+     */
     public function purchaseData(Request $request)
     {
-        $range = (array) config('bills.ranges.data', ['min' => 50, 'max' => 200000]);
-
         $validated = $request->validate([
             'data_network' => 'required|string|in:' . implode(',', array_keys(self::NETWORKS)),
             'data_plan' => 'required|string|max:120',
             'phone' => ['required', 'string', 'regex:/^0[7-9][0-9]{9}$/'],
             'plan_name' => 'required|string|max:120',
-            'plan_price' => 'required|numeric|min:' . $range['min'] . '|max:' . $range['max'],
+            /*
+             * Kept as a cross-check only, so it is deliberately not allowed to
+             * fail the request: a client that omits it, or sends something
+             * unparseable, gets the ordinary flow rather than a validation error.
+             * Treating a missing price as invalid would break the page for
+             * anybody whose JavaScript had not run.
+             */
+            'plan_price' => 'nullable|numeric|min:0|max:1000000',
             'plan_type' => 'nullable|string|max:60',
             'payment_method' => 'nullable|string|in:wallet,paystack',
             'pin' => ['required_unless:payment_method,' . self::PAY_WITH_PAYSTACK, 'nullable', 'string', 'size:4'],
             'idempotency_key' => 'nullable|string|min:8|max:64',
+            /*
+             * The confirmation token from a previous price-change prompt, when the
+             * customer is accepting a changed price without re-submitting the form.
+             */
+            'price_confirmation' => 'nullable|string|max:120',
         ]);
 
         $paysByCard = $request->input('payment_method') === self::PAY_WITH_PAYSTACK;
 
-        $plan = $this->catalogue->plan($validated['data_plan']);
+        $priced = $this->dataPrices->quote(
+            (string) $validated['data_plan'],
+            NetworkResolver::key((string) $validated['data_network'], 'clubkonnect'),
+        );
 
-        if (! $plan) {
-            return back()->withInput()->with(
-                'error',
-                'That data bundle is no longer available. Please refresh the page and choose it again — no money has left your wallet.'
+        if (! $priced['found']) {
+            return $this->purchaseRefusal($request, $priced['refusal'], 404);
+        }
+
+        if ($priced['price_minor'] === null) {
+            return $this->purchaseRefusal($request, $priced['refusal'], 409);
+        }
+
+        $presented = $this->dataPrices->presentedMinor($validated['plan_price'] ?? null);
+
+        /*
+         * A confirmation token means the customer has already been shown this
+         * price and accepted it. It is validated against the *current* quote — not
+         * against whatever the token said — so a price that moved again while the
+         * modal was open produces a fresh prompt rather than a purchase at a
+         * figure nobody agreed to.
+         */
+        if (! empty($validated['price_confirmation'])) {
+            return $this->confirmDataPrice($request, $validated, $priced, $paysByCard, $presented);
+        }
+
+        if ($this->dataPrices->priceHasMoved($presented, $priced['price_minor'])) {
+            return $this->priceChangedResponse($request, $validated, $priced, $presented);
+        }
+
+        return $this->dispatchDataPurchase($request, $validated, $priced, $paysByCard);
+    }
+
+    /**
+     * Continue a purchase at a price the customer has explicitly accepted.
+     *
+     * The five things checked here are the whole security argument for the modal:
+     *
+     *   1. the token was issued by us and has not expired (the cache entry is the
+     *      expiry, so an evicted token is indistinguishable from a forged one);
+     *   2. it belongs to this user — a token issued to another account cannot be
+     *      presented by this one;
+     *   3. it names this exact bundle;
+     *   4. the price it recorded is still the price now;
+     *   5. the pricing rule that produced it is still the rule producing it.
+     *
+     * Only then is the token consumed and the purchase made, from a *fresh* quote
+     * rather than from the figures the token carries. The token proves the
+     * customer agreed to this bundle at this price; it never supplies the amount.
+     *
+     * @param  array<string,mixed>  $validated
+     * @param  array<string,mixed>  $priced
+     * @return \Illuminate\Http\RedirectResponse|\Illuminate\Http\JsonResponse
+     */
+    private function confirmDataPrice(
+        Request $request,
+        array $validated,
+        array $priced,
+        bool $paysByCard,
+        ?int $presented = null
+    ) {
+        $user = Auth::user();
+
+        $token = (string) $validated['price_confirmation'];
+        $consumed = $this->dataPrices->quotes()->consume($token, $user, PriceChangeQuote::NAMESPACE_DATA);
+
+        if (! $consumed['ok']) {
+            /*
+             * An unknown or expired token is not an error the customer has to
+             * understand: they are shown the current price and asked again. That
+             * is the same response a moved price produces, deliberately — the
+             * remedy is identical and a second kind of message would only invite
+             * a second kind of dead end.
+             */
+            return $this->priceChangedResponse($request, $validated, $priced, $presented, $consumed['reason']);
+        }
+
+        $drift = $this->dataPrices->quotes()->stillValid(
+            $consumed['payload'],
+            PriceChangeQuote::descriptorForPlan($priced['plan']),
+            $priced['quote'],
+        );
+
+        if ($drift !== null) {
+            /*
+             * The price or the rule moved while the modal was open. The customer
+             * is asked again, for the latest figure — never silently charged.
+             *
+             * The "previous price" shown is the one the customer was actually
+             * looking at, taken from the quote rather than from the page: the
+             * page's figure is a claim, the quote's is what we issued.
+             */
+            return $this->priceChangedResponse(
+                $request,
+                $validated,
+                $priced,
+                (int) ($consumed['payload']['price_minor'] ?? $presented ?? 0),
+                $drift,
             );
         }
 
-        $amount = round((float) ($plan['your_price'] ?? 0), 2);
-
-        if ($amount <= 0) {
-            return back()->withInput()->with(
-                'error',
-                'That data bundle has no price right now. Please choose another bundle or contact support.'
-            );
+        /*
+         * The confirmation carries the idempotency key the original submission
+         * used, so the accepted attempt and the refused one share a key: if the
+         * first request had actually reached the debit before failing, the replay
+         * protection answers from that row instead of charging a second time.
+         *
+         * A submission that arrived without a key is not left unprotected. The
+         * confirmation token is single-use — it was consumed a few lines above, so
+         * a replayed confirmation cannot reach this point twice — and the
+         * `assertNotDuplicate` cache window covers the immediate double-submit.
+         */
+        if (! empty($consumed['payload']['idempotency_key'])) {
+            $validated['idempotency_key'] = $consumed['payload']['idempotency_key'];
         }
 
-        if (abs($amount - round((float) $validated['plan_price'], 2)) > 0.01) {
-            return back()->withInput()->with(
-                'error',
-                'The price of that bundle is now ₦' . number_format($amount, 2)
-                . '. Please confirm the new price and submit again — no money has left your wallet.'
-            );
+        return $this->dispatchDataPurchase($request, $validated, $priced, $paysByCard);
+    }
+
+    /**
+     * Tell the customer the price moved, and give them a way to accept it.
+     *
+     * The response is structured rather than a flash message, because a modal
+     * needs the two figures and the bundle's identity to state what changed, and
+     * because the confirmation has to carry something the server can verify when
+     * it comes back.
+     *
+     * Nothing has been charged at this point, and nothing will be until the
+     * customer accepts: this method runs before `BillPaymentService` is reached,
+     * so the wallet is untouched and no provider is called.
+     *
+     * @param  array<string,mixed>  $validated
+     * @param  array<string,mixed>  $priced
+     * @return \Illuminate\Http\JsonResponse|\Illuminate\Http\RedirectResponse
+     */
+    private function priceChangedResponse(
+        Request $request,
+        array $validated,
+        array $priced,
+        ?int $previousMinor,
+        ?string $reason = null
+    ) {
+        $quote = $priced['quote'];
+        $plan = $priced['plan'];
+
+        $confirmation = $this->dataPrices->issueConfirmation(
+            Auth::user(),
+            $plan,
+            $quote,
+            $validated['idempotency_key'] ?? null,
+        );
+
+        $previousMinor = $previousMinor ?? $quote->customerPriceMinor;
+
+        /*
+         * The confirming customer's own balance, computed once. The modal shows it
+         * so affordability is answered *before* they accept rather than after —
+         * discovering that a new price is unaffordable at the moment of purchase
+         * is the same dead end in a different place.
+         */
+        $balance = $this->wallets->balanceFor(Auth::user());
+
+        $payload = [
+            'status' => 'price_changed',
+            'reason' => $reason,
+            'product' => [
+                'plan_code' => ClubKonnectCatalogue::planIdentifier($plan),
+                'plan_name' => $plan['plan_name'] ?? $validated['plan_name'],
+                'network' => $priced['network_name'],
+                'network_key' => $priced['network_key'],
+                'data_volume' => $plan['data_volume'] ?? null,
+                'validity' => $plan['validity'] ?? null,
+            ],
+            /*
+             * Actual backend values. The example amounts in the brief are
+             * illustrations and appear nowhere in this code.
+             */
+            'previous_price' => Money::fromMinor($previousMinor)->toDecimalString(),
+            'previous_price_formatted' => Money::fromMinor($previousMinor)->format(),
+            'new_price' => Money::fromMinor($quote->customerPriceMinor)->toDecimalString(),
+            'new_price_formatted' => Money::fromMinor($quote->customerPriceMinor)->format(),
+            // The confirming customer's own wallet, so the modal can be honest
+            // about affordability before they accept rather than after.
+            'wallet_balance_formatted' => $balance->format(),
+            'affordable' => $balance->greaterThanOrEqual($quote->price()),
+            'direction' => $quote->customerPriceMinor > $previousMinor ? 'increase' : 'decrease',
+            'pricing_rule_id' => $quote->pricingRuleId,
+            'pricing_rule_version' => $quote->pricingRuleVersion,
+            'quote' => [
+                'identifier' => $confirmation['token'],
+                'issued_at' => $confirmation['issued_at'],
+                'expires_at' => $confirmation['expires_at'],
+                'expires_at_unix' => $confirmation['expires_at_unix'],
+                'ttl_seconds' => $confirmation['ttl_seconds'],
+            ],
+            'catalogue_stale' => (bool) $priced['catalogue_stale'],
+            'message' => 'The price for your selected data bundle has changed from '
+                . Money::fromMinor($previousMinor)->format()
+                . ' to ' . Money::fromMinor($quote->customerPriceMinor)->format()
+                . '. Would you like to continue at the updated price?',
+        ];
+
+        if ($request->wantsJson()) {
+            // 409 Conflict: the request was well-formed and the state was not.
+            return response()->json($payload, 409);
         }
+
+        /*
+         * Without JavaScript the modal cannot render, so the same decision is
+         * presented as a page state: the bundle and both figures are carried back
+         * with the form, and the confirm button posts the token. A customer on a
+         * degraded connection is not locked out of their own purchase.
+         */
+        return back()->withInput()->with('price_change', $payload);
+    }
+
+    /**
+     * The refusal path, in whichever shape the caller can render.
+     *
+     * Nothing has been charged on any of these, and every message says so where
+     * it matters — a customer deciding whether to try again needs to know whether
+     * money moved.
+     *
+     * @return \Illuminate\Http\JsonResponse|\Illuminate\Http\RedirectResponse
+     */
+    private function purchaseRefusal(Request $request, ?string $message, int $status)
+    {
+        $message = $message ?: 'That data bundle is temporarily unavailable. No money has left your wallet.';
+
+        if ($request->wantsJson()) {
+            return response()->json(['status' => 'refused', 'message' => $message], $status);
+        }
+
+        return back()->withInput()->with('error', $message);
+    }
+
+    /**
+     * Hand an accepted, validated data quote to the payment pipeline.
+     *
+     * Extracted so the ordinary path and the price-change confirmation path run
+     * *the same code* from here on. Two dispatch sites would be two places for
+     * the provider payload, the network attribution or the pricing context to
+     * drift, and the confirmation path is the one that would be forgotten.
+     *
+     * @param  array<string,mixed>  $validated
+     * @param  array<string,mixed>  $priced
+     * @return \Illuminate\Http\RedirectResponse|\Illuminate\Http\JsonResponse
+     */
+    private function dispatchDataPurchase(Request $request, array $validated, array $priced, bool $paysByCard)
+    {
+        $plan = $priced['plan'];
+        $quote = $priced['quote'];
 
         // Everything downstream reads the catalogue's values, not the form's.
         $networkCode = (string) ($plan['network_code'] ?? $validated['data_network']);
         $planName = (string) ($plan['plan_name'] ?? $validated['plan_name']);
 
         /*
-         * The network comes from the catalogue row that priced the bundle, not from
-         * the posted field, so a tampered form cannot label an MTN bundle as Airtel
-         * and cannot influence the network-scoped pricing rule that applies.
+         * The network comes from the catalogue row that priced the bundle, not
+         * from the posted field, so a tampered form cannot label an MTN bundle as
+         * Airtel and cannot influence the network-scoped pricing rule that
+         * applies.
          */
-        $networkKey = NetworkResolver::key($networkCode, 'clubkonnect');
-        $networkName = NetworkResolver::displayName($networkCode, 'clubkonnect');
-
-        $quote = $this->quoteData($plan, $networkKey, $validated['plan_price']);
-
-        if (! $quote['ok']) {
-            return back()->withInput()->with('error', $quote['message']);
-        }
+        $networkKey = $priced['network_key'] ?? NetworkResolver::key($networkCode, 'clubkonnect');
+        $networkName = $priced['network_name'] ?? NetworkResolver::displayName($networkCode, 'clubkonnect');
 
         return $this->dispatchPurchase(
             $request,
             product: 'data',
-            amount: $amount,
+            amount: Money::fromMinor($quote->customerPriceMinor)->toFloat(),
             recipient: $validated['phone'],
             providerLabel: $networkName,
             description: 'Data — ' . $planName,
-            quote: $quote['quote'],
+            quote: $quote,
             networkKey: $networkKey,
             networkName: $networkName,
             meta: [
@@ -354,6 +618,9 @@ class AirtimeDataController extends Controller
                 'plan_code' => $plan['plan_code'] ?? null,
                 'plan_name' => $planName,
                 'plan_type' => $plan['plan_type'] ?? null,
+                // Recorded so support can see that a changed price was shown and
+                // accepted, rather than inferring it from a mismatch.
+                'price_confirmed_at' => filled($validated['price_confirmation'] ?? null) ? now()->toDateTimeString() : null,
             ],
             providerParams: [
                 'network' => $networkCode,
@@ -369,76 +636,6 @@ class AirtimeDataController extends Controller
                 'capability' => ProviderCostResolver::CAPABILITY_DATA,
             ],
         );
-    }
-
-    /**
-     * Price a data bundle through the central pricing engine.
-     *
-     * The catalogue's `clubkonnect_price` is what the provider charges **us** and
-     * is the effective cost. The price the customer pays comes from the engine's
-     * rule for this network — no longer a hard-coded 1.5% baked into the cached
-     * catalogue, which meant every bundle on every network carried the same margin
-     * and no operator could change one without a code deploy.
-     *
-     * @param  array<string,mixed>  $plan  the resolved catalogue row
-     * @return array{ok:bool,quote:?\App\Pricing\PriceQuote,message:string}
-     */
-    private function quoteData(array $plan, ?string $networkKey, $requestedPrice): array
-    {
-        $cost = $this->costs->forDataBundle($plan);
-
-        if (! $cost) {
-            return [
-                'ok' => false,
-                'quote' => null,
-                'message' => $this->costs->unavailableMessage(),
-            ];
-        }
-
-        $quote = $this->pricing->quote(
-            providerCost: $cost->costMinor,
-            quantity: 1,
-            context: [
-                'network' => $networkKey,
-                'capability' => ProviderCostResolver::CAPABILITY_DATA,
-            ],
-            /*
-             * No price basis for a bundle: the customer buys a *bundle*, not a face
-             * value, so the engine prices it cost-plus from the verified cost. A
-             * FACE_VALUE rule on data therefore prices at cost — which is exactly
-             * what face value means for a bundle, and why data is normally given a
-             * markup rule.
-             */
-            costMeta: $cost->toEngineMetadata(),
-        );
-
-        if (! $quote->isSellable()) {
-            return [
-                'ok' => false,
-                'quote' => $quote,
-                'message' => $quote->refusalReason ?? $this->costs->unavailableMessage(),
-            ];
-        }
-
-        /*
-         * The price moved between the page rendering and the submit. Refused rather
-         * than silently charged: the customer must agree to the new amount, which is
-         * the behaviour this check has always had and is now measured against the
-         * engine's figure instead of the catalogue's.
-         */
-        $quoted = Money::fromMinor($quote->customerPriceMinor);
-        $presented = Money::fromNaira($requestedPrice);
-
-        if (! $quoted->equals($presented)) {
-            return [
-                'ok' => false,
-                'quote' => $quote,
-                'message' => 'The price of that bundle is now ' . $quoted->format()
-                    . '. Please confirm the new price and submit again — no money has left your wallet.',
-            ];
-        }
-
-        return ['ok' => true, 'quote' => $quote, 'message' => ''];
     }
 
     /**

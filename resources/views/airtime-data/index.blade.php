@@ -10,15 +10,28 @@
      */
     $announcementItems = $announcements ?? collect();
 
-    // Network marks, shared by the airtime and data forms. Logos are served
-    // from our own domain; the catalogue lives in config/bills.php so the
-    // picker and the server-side validation cannot drift apart.
-    $networkOptions = collect(config('bills.networks', []))
-        ->map(fn ($network, $code) => [
-            'code' => (string) $code,
-            'name' => $network['name'],
-            'logo' => asset($network['logo']),
-        ])
+    /*
+     * Network marks, shared by the airtime and data forms.
+     *
+     * Built from `NetworkBrand`, which owns the label, the asset and the alias
+     * table. This view previously read `config('bills.networks')` itself and
+     * keyed it by ClubKonnect's numeric code, so it resolved codes one way and
+     * the pricelist resolved them another — the duplication that let the real
+     * brand images sit unused while placeholder monograms were rendered.
+     */
+    $networkOptions = collect(config('networks.networks', []))
+        ->map(function ($network, $code) {
+            // The provider code for this canonical key, so the radio a customer
+            // selects still posts the code the server validates against.
+            $providerCode = array_search($code, (array) config('networks.provider_codes.clubkonnect', []), true);
+
+            return [
+                'code' => $providerCode === false ? null : (string) $providerCode,
+                'key' => $code,
+                'name' => \App\Services\NetworkBrand::label($code) ?? $code,
+            ];
+        })
+        ->filter(fn ($network) => $network['code'] !== null)
         ->values()
         ->all();
 
@@ -104,7 +117,7 @@
                                             <input type="radio" name="network" value="{{ $network['code'] }}"
                                                    class="network-radio sr-only" required>
                                             <span class="network-option flex flex-col items-center gap-2 rounded-xl border border-border bg-surface p-4 text-center transition-colors hover:border-brand-300">
-                                                <img src="{{ $network['logo'] }}" alt="" class="h-6 w-6 rounded-full object-contain">
+                                                <x-network-logo :network="$network['key']" />
                                                 <span class="text-sm font-semibold">{{ $network['name'] }}</span>
                                             </span>
                                         </label>
@@ -185,7 +198,7 @@
                                             <input type="radio" name="data_network" value="{{ $network['code'] }}"
                                                    class="network-radio-data sr-only" required>
                                             <span class="network-option flex flex-col items-center gap-2 rounded-xl border border-border bg-surface p-4 text-center transition-colors hover:border-brand-300">
-                                                <img src="{{ $network['logo'] }}" alt="" class="h-6 w-6 rounded-full object-contain">
+                                                <x-network-logo :network="$network['key']" />
                                                 <span class="text-sm font-semibold">{{ $network['name'] }}</span>
                                             </span>
                                         </label>
@@ -219,10 +232,22 @@
                                 {{-- The price is deliberately not posted as a
                                      source of truth: the server re-resolves
                                      what this bundle costs from the catalogue
-                                     when the form arrives. --}}
+                                     when the form arrives.
+
+                                     `plan_price` is carried so the server can
+                                     tell that the customer's page is stale and
+                                     answer with a price-change confirmation
+                                     rather than charging a figure nobody agreed
+                                     to. It is never the amount charged. --}}
                                 <input type="hidden" id="plan_name" name="plan_name">
                                 <input type="hidden" id="plan_price" name="plan_price">
                                 <input type="hidden" id="plan_type" name="plan_type">
+                                <input type="hidden" id="price_confirmation" name="price_confirmation" value="">
+
+                                <p id="planStaleNotice" class="mt-2 hidden items-center gap-1.5 text-xs text-amber-700">
+                                    <x-icon name="exclamation-triangle" class="h-3.5 w-3.5" />
+                                    <span>These prices may be out of date. They refresh automatically.</span>
+                                </p>
                             </div>
 
                             <div>
@@ -342,6 +367,153 @@
                 </div>
             </aside>
         </div>
+        {{-- ================= Price-change confirmation =================
+             Shown when the backend answers a data submission with a changed
+             price. The figures, the bundle's identity and the confirmation token
+             all come from that response — nothing here is hardcoded, and nothing
+             here is submitted as a price.
+
+             `x-cloak` so an unfired modal cannot flash on load, and the panel is
+             a real focus target with `role="dialog"` and `aria-modal` so a screen
+             reader announces it as the decision it is. --}}
+        <div x-data="priceChange()"
+             x-cloak
+             x-show="open"
+             x-effect="document.body.classList.toggle('overflow-hidden', open)"
+             @keydown.escape.window="cancel()"
+             class="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center">
+            <div class="absolute inset-0 bg-ink-900/50" @click="cancel()" aria-hidden="true"></div>
+
+            <div role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="priceChangeTitle"
+                 x-ref="panel"
+                 tabindex="-1"
+                 class="relative w-full max-w-md rounded-xl border border-border bg-surface p-5 shadow-lg sm:p-6">
+                <div class="flex items-start gap-3">
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+                        <x-icon name="receipt-percent" class="h-5 w-5" />
+                    </span>
+                    <div class="min-w-0">
+                        <h2 id="priceChangeTitle" class="text-base font-semibold">Data bundle price updated</h2>
+                        <p class="mt-1 text-sm text-muted-foreground" x-text="message"></p>
+                    </div>
+                </div>
+
+                <dl class="mt-4 space-y-2 rounded-lg border border-border bg-ink-50 p-3 text-sm">
+                    <div class="flex items-center justify-between gap-3">
+                        <dt class="text-muted-foreground">Bundle</dt>
+                        <dd class="truncate font-medium" x-text="product.plan_name || '—'"></dd>
+                    </div>
+                    <div class="flex items-center justify-between gap-3">
+                        <dt class="text-muted-foreground">Network</dt>
+                        <dd class="font-medium" x-text="product.network || '—'"></dd>
+                    </div>
+                    <div class="flex items-center justify-between gap-3">
+                        <dt class="text-muted-foreground">Previous price</dt>
+                        <dd class="tabular-nums line-through" x-text="previousPrice"></dd>
+                    </div>
+                    <div class="flex items-center justify-between gap-3">
+                        <dt class="font-medium">New price</dt>
+                        <dd class="text-base font-semibold tabular-nums" x-text="newPrice"></dd>
+                    </div>
+                </dl>
+
+                {{-- A price that has gone up may no longer be affordable, and the
+                     customer should learn that here rather than after accepting. --}}
+                <p class="mt-3 text-xs text-muted-foreground" x-show="balance" x-cloak>
+                    Wallet balance: <span class="font-medium tabular-nums" x-text="balance"></span>
+                    <template x-if="!affordable">
+                        <span class="text-red-700"> — not enough for the new price.</span>
+                    </template>
+                </p>
+
+                <p class="mt-3 text-xs text-muted-foreground">
+                    Nothing has been charged. This price is held for
+                    <span x-text="expiresIn"></span>.
+                </p>
+
+                <p class="field-error mt-3" x-show="error" x-cloak x-text="error"></p>
+
+                <div class="mt-5 flex flex-col gap-2 sm:flex-row-reverse">
+                    <button type="button"
+                            class="btn btn-primary w-full sm:w-auto"
+                            :disabled="busy"
+                            :class="busy ? 'opacity-60 cursor-not-allowed' : ''"
+                            @click="confirm()">
+                        <span x-show="!busy">Continue at new price</span>
+                        <span x-show="busy" x-cloak class="inline-flex items-center gap-2">
+                            <span class="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent"></span>
+                            Confirming…
+                        </span>
+                    </button>
+                    <button type="button"
+                            class="btn btn-outline w-full sm:w-auto"
+                            :disabled="busy"
+                            @click="cancel()">
+                        Cancel transaction
+                    </button>
+                </div>
+            </div>
+        </div>
+        {{-- ================= No-JavaScript price confirmation =================
+             The modal below needs JavaScript. This is the same decision in a
+             plain form, so a customer on a degraded connection is not locked out
+             of their own purchase.
+
+             The token is the only thing this posts. The figures come from the
+             server's own flash payload — the browser is told what to display,
+             never what to charge. --}}
+        @if(session('price_change'))
+            @php $change = session('price_change'); @endphp
+            <div class="container-page pb-6">
+                <div class="rounded-xl border border-amber-300 bg-amber-50 p-4" role="status">
+                    <h2 class="text-sm font-semibold text-amber-900">Data bundle price updated</h2>
+                    <p class="mt-1 text-sm text-amber-900">{{ $change['message'] }}</p>
+
+                    <dl class="mt-3 space-y-1 text-sm text-amber-900">
+                        <div class="flex justify-between gap-4">
+                            <dt>Bundle</dt>
+                            <dd class="font-medium">{{ $change['product']['plan_name'] ?? '—' }}</dd>
+                        </div>
+                        <div class="flex justify-between gap-4">
+                            <dt>Previous price</dt>
+                            <dd class="line-through">{{ $change['previous_price_formatted'] }}</dd>
+                        </div>
+                        <div class="flex justify-between gap-4">
+                            <dt class="font-medium">New price</dt>
+                            <dd class="font-semibold">{{ $change['new_price_formatted'] }}</dd>
+                        </div>
+                    </dl>
+
+                    <p class="mt-2 text-xs text-amber-800">Nothing has been charged. Your selection is kept.</p>
+
+                    {{-- A real form, so the decision is takeable without any
+                         JavaScript. The form fields the customer already filled in
+                         are restored by `withInput()`, so this posts the same
+                         purchase they submitted with the confirmation attached. --}}
+                    <form method="POST"
+                          action="{{ route('data.purchase', [], false) }}"
+                          class="mt-3 flex flex-col gap-2 sm:flex-row">
+                        @csrf
+                        <input type="hidden" name="data_network" value="{{ old('data_network') }}">
+                        <input type="hidden" name="data_plan" value="{{ old('data_plan') }}">
+                        <input type="hidden" name="phone" value="{{ old('phone') }}">
+                        <input type="hidden" name="plan_name" value="{{ old('plan_name') }}">
+                        <input type="hidden" name="plan_price" value="{{ old('plan_price') }}">
+                        <input type="hidden" name="plan_type" value="{{ old('plan_type') }}">
+                        <input type="hidden" name="payment_method" value="{{ old('payment_method', 'wallet') }}">
+                        <input type="hidden" name="pin" value="{{ old('pin') }}">
+                        <input type="hidden" name="idempotency_key" value="{{ old('idempotency_key') }}">
+                        <input type="hidden" name="price_confirmation" value="{{ $change['quote']['identifier'] }}">
+
+                        <button type="submit" class="btn btn-primary btn-sm">Continue at {{ $change['new_price_formatted'] }}</button>
+                        <a href="{{ route('airtime-data.index') }}" class="btn btn-outline btn-sm">Cancel transaction</a>
+                    </form>
+                </div>
+            </div>
+        @endif
+
     </div>
 </main>
 
@@ -357,7 +529,19 @@ document.addEventListener('DOMContentLoaded', function() {
     const planNameInput = document.getElementById('plan_name');
     const planPriceInput = document.getElementById('plan_price');
     const planTypeInput = document.getElementById('plan_type');
+    const priceConfirmationInput = document.getElementById('price_confirmation');
+    const staleNotice = document.getElementById('planStaleNotice');
     const dataTypeFilters = document.querySelectorAll('.data-type-filter');
+
+    /*
+     * The frontend refresh interval, from configuration.
+     *
+     * Inlined from `config('pricing.catalogue.frontend_refresh_seconds')` rather
+     * than hardcoded, and refreshed from the API each time the plans are reloaded,
+     * so one setting controls it. It defaults to the same value the API reports,
+     * for the case where the very first load happens before any API response.
+     */
+    let planRefreshSeconds = {{ max(30, (int) config('pricing.catalogue.frontend_refresh_seconds', 300)) }};
 
     // Get user's wallet balance
     const walletBalance = {{ (float) ($wallet->balance ?? 0) }};
@@ -525,8 +709,17 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Function to filter and display plans
-    function displayFilteredPlans() {
+    /**
+     * Rebuild the plan select from the catalogue.
+     *
+     * `previousPlan` is the `plan_id` that was selected before this rebuild. It is
+     * restored when it still exists, and the bundle's *new* price is written into
+     * the summary and the hidden input — so a refresh updates the figure the
+     * customer is looking at without losing which bundle they were looking at.
+     * That is the whole point: a price change is information, not a reason to make
+     * somebody start again.
+     */
+    function displayFilteredPlans(previousPlan) {
         dataPlanSelect.innerHTML = '<option value="">Select a data plan</option>';
 
         let filteredPlans = fetchedDataPlans;
@@ -579,9 +772,70 @@ document.addEventListener('DOMContentLoaded', function() {
             dataPlanSelect.appendChild(option);
         }
 
-        planNameInput.value = '';
-        planPriceInput.value = '';
-        planTypeInput.value = '';
+        /*
+         * Restore the selection, or clear the summary.
+         *
+         * `applySelectedPlan()` is what keeps the displayed price, the hidden
+         * cross-check field and the balance gate in step — reading the option's
+         * own dataset rather than a captured value, so a re-price cannot leave a
+         * stale figure on screen.
+         */
+        const restorable = previousPlan
+            && Array.from(dataPlanSelect.options).some(option => option.value === previousPlan);
+
+        if (restorable) {
+            dataPlanSelect.value = previousPlan;
+            applySelectedPlan(false);
+        } else {
+            planNameInput.value = '';
+            planPriceInput.value = '';
+            planTypeInput.value = '';
+            priceConfirmationInput.value = '';
+        }
+    }
+
+    /**
+     * Apply the currently selected option to the summary, the hidden fields and
+     * the balance gate.
+     *
+     * `resetConfirmation` clears any price-change token from a previous attempt,
+     * because a token belongs to one bundle at one price. Choosing a different
+     * bundle must not carry the previous bundle's confirmation with it.
+     */
+    function applySelectedPlan(resetConfirmation) {
+        const selectedOption = dataPlanSelect.options[dataPlanSelect.selectedIndex];
+
+        if (!selectedOption || !selectedOption.value) {
+            return;
+        }
+
+        const planName = selectedOption.dataset.planName || '';
+        const planPrice = parseFloat(selectedOption.dataset.planPrice || 0);
+        const planType = selectedOption.dataset.planType || '';
+
+        // Posted for display and for a price cross-check on the server; it is
+        // not what the server charges from.
+        planNameInput.value = planName;
+        planPriceInput.value = planPrice;
+        planTypeInput.value = planType;
+
+        if (resetConfirmation !== false) {
+            priceConfirmationInput.value = '';
+        }
+
+        const planSummary = document.getElementById('planSummary');
+        const selectedPlanName = document.getElementById('selectedPlanName');
+        const selectedPlanType = document.getElementById('selectedPlanType');
+        const selectedPlanPrice = document.getElementById('selectedPlanPrice');
+
+        if (selectedPlanName && selectedPlanType && selectedPlanPrice && planSummary) {
+            selectedPlanName.textContent = planName;
+            selectedPlanType.textContent = `Type: ${planType}`;
+            selectedPlanPrice.textContent = `₦${planPrice.toFixed(2)}`;
+            planSummary.classList.remove('hidden');
+        }
+
+        checkDataBalance(planPrice);
     }
 
     // Data type filter buttons
@@ -593,117 +847,169 @@ document.addEventListener('DOMContentLoaded', function() {
             currentFilter = this.dataset.type;
 
             if (fetchedDataPlans.length > 0) {
-                displayFilteredPlans();
+                // The bundle the customer had chosen is kept if the new filter
+                // still lists it — filtering is a view of the list, not a reset.
+                displayFilteredPlans(dataPlanSelect.value || null);
             }
         });
     });
 
     /*
-     * Load data plans when a network is selected.
+     * Load the priced catalogue from this application.
      *
-     * The catalogue comes from this application, not from the provider. It was
-     * previously fetched straight from NelloBytes with the account id in the
-     * query string — which published the credential to every visitor — and the
-     * markup was applied in the browser, so the price the form posted could be
-     * edited with devtools. The server now returns the price it will actually
-     * charge, and re-resolves it again when the purchase arrives.
+     * The catalogue comes from ReUp, not from the provider. It was previously
+     * fetched straight from NelloBytes with the account id in the query string —
+     * which published the credential to every visitor — and the markup was
+     * applied in the browser, so the price the form posted could be edited with
+     * devtools. The server returns the price it will actually charge, and
+     * re-resolves it again when the purchase arrives.
+     *
+     * `preserveSelection` is what makes a *refresh* different from a network
+     * change. A refresh must not throw away the network, the bundle, the phone
+     * number or the filter the customer has chosen: a price updating underneath
+     * them is a reason to update the figure on screen, never a reason to reset
+     * the form. Unticking it is the deliberate act of choosing a new network.
      */
-    dataNetworkRadios.forEach(radio => {
-        radio.addEventListener('change', async function() {
-            currentNetworkId = this.value;
+    async function loadDataPlans(preserveSelection) {
+        const previousPlan = preserveSelection && dataPlanSelect.value ? dataPlanSelect.value : null;
 
-            dataPlanSelect.disabled = true;
+        dataPlanSelect.disabled = true;
+
+        if (!preserveSelection) {
             dataPlanSelect.innerHTML = '<option value="">Loading plans...</option>';
-            dataPlanLoader.classList.remove('hidden');
-            dataPlanLoader.classList.add('flex');
             planNameInput.value = '';
             planPriceInput.value = '';
             planTypeInput.value = '';
+            priceConfirmationInput.value = '';
+        }
+
+        dataPlanLoader.classList.remove('hidden');
+        dataPlanLoader.classList.add('flex');
+
+        try {
+            const response = await fetch('{{ route('pricelist.api') }}', {
+                headers: { 'Accept': 'application/json' },
+            });
+
+            if (!response.ok) {
+                throw new Error('Plan catalogue responded with ' + response.status);
+            }
+
+            const payload = await response.json();
+
+            /*
+             * The catalogue's own freshness, so the page can say that a price is
+             * old instead of presenting it as current. The server is still the
+             * authority on whether a price may be charged — this is disclosure,
+             * not a decision.
+             */
+            staleNotice.classList.toggle('hidden', !(payload.catalogue && payload.catalogue.stale));
+            staleNotice.classList.toggle('flex', !!(payload.catalogue && payload.catalogue.stale));
+
+            fetchedDataPlans = (payload.data_plans || [])
+                .filter(plan => String(plan.network_code) === String(currentNetworkId))
+                .map(plan => ({
+                    product_id: String(plan.plan_id ?? ''),
+                    name: plan.plan_name || 'Data bundle',
+                    price: Number(plan.your_price || 0).toFixed(2),
+                    product_code: plan.plan_code || '',
+                    network_id: currentNetworkId,
+                    type: plan.plan_type || 'Direct Data',
+                }))
+                .filter(plan => plan.product_id && parseFloat(plan.price) > 0);
+
+            if (!fetchedDataPlans.length) {
+                dataPlanSelect.innerHTML = '<option value="">No plans are priced for this network right now</option>';
+                return;
+            }
+
+            displayFilteredPlans(previousPlan);
+
+        } catch (error) {
+            console.error('Error loading data plans:', error);
+
+            /*
+             * A failed *refresh* keeps the plans that are already on screen. They
+             * are the last prices the server gave us and are still the best
+             * information available; emptying the list would turn a transient
+             * network blip into "we do not sell this network".
+             */
+            if (!preserveSelection || !fetchedDataPlans.length) {
+                fetchedDataPlans = [];
+                dataPlanSelect.innerHTML = '<option value="">We could not load the plans. Please try again.</option>';
+            }
+
+            if (window.ReUpFeedback) {
+                window.ReUpFeedback.error('We could not refresh the data plans. The prices shown may be slightly out of date.');
+            }
+        } finally {
+            dataPlanLoader.classList.add('hidden');
+            dataPlanLoader.classList.remove('flex');
+        }
+    }
+
+    // Choosing a network is a new context, so nothing is preserved.
+    dataNetworkRadios.forEach(radio => {
+        radio.addEventListener('change', function() {
+            currentNetworkId = this.value;
 
             dataTypeFilters.forEach(btn => btn.classList.remove('active'));
             document.querySelector('[data-type="all"]').classList.add('active');
             currentFilter = 'all';
 
-            try {
-                const response = await fetch('{{ route('pricelist.api') }}', {
-                    headers: { 'Accept': 'application/json' },
-                });
-
-                if (!response.ok) {
-                    throw new Error('Plan catalogue responded with ' + response.status);
-                }
-
-                const payload = await response.json();
-
-                fetchedDataPlans = (payload.data_plans || [])
-                    .filter(plan => String(plan.network_code) === String(currentNetworkId))
-                    .map(plan => ({
-                        product_id: String(plan.plan_id ?? ''),
-                        name: plan.plan_name || 'Data bundle',
-                        price: Number(plan.your_price || 0).toFixed(2),
-                        product_code: plan.plan_code || '',
-                        network_id: currentNetworkId,
-                        type: plan.plan_type || 'Direct Data',
-                    }))
-                    .filter(plan => plan.product_id && parseFloat(plan.price) > 0);
-
-                if (!fetchedDataPlans.length) {
-                    dataPlanSelect.innerHTML = '<option value="">No plans are priced for this network right now</option>';
-                    return;
-                }
-
-                displayFilteredPlans();
-
-            } catch (error) {
-                console.error('Error loading data plans:', error);
-
-                fetchedDataPlans = [];
-                dataPlanSelect.innerHTML = '<option value="">We could not load the plans. Please try again.</option>';
-
-                if (window.ReUpFeedback) {
-                    window.ReUpFeedback.error('We could not load the data plans. Please try again in a moment.');
-                }
-            } finally {
-                dataPlanLoader.classList.add('hidden');
-                dataPlanLoader.classList.remove('flex');
-            }
+            loadDataPlans(false);
         });
     });
 
-    // When user selects a data plan, update hidden inputs and check balance
-    dataPlanSelect.addEventListener('change', function() {
-        const selectedOption = this.options[this.selectedIndex];
+    /*
+     * Re-read the prices periodically while the page is open.
+     *
+     * The interval is the *backend's* configured frontend refresh interval, handed
+     * to the page by the API, so it is one setting rather than a number in a
+     * template. The request goes to this application and never to the provider:
+     * the catalogue is refreshed by the scheduled synchronisation, and a browser
+     * polling NelloBytes would spend the rate limit that purchases need.
+     *
+     * It is deliberately a poll rather than a push: there is no websocket
+     * infrastructure here, and a price list that is at most one interval old is
+     * exactly what the confirmation flow exists to handle.
+     */
+    let planRefreshTimer = null;
 
-        if (selectedOption.value) {
-            const planName = selectedOption.dataset.planName || '';
-            const planPrice = parseFloat(selectedOption.dataset.planPrice || 0); // We charge this
-            const planType = selectedOption.dataset.planType || '';
+    function scheduleDataPlanRefresh() {
+        if (planRefreshTimer) {
+            clearInterval(planRefreshTimer);
+        }
 
-            // Posted for display and for a price cross-check on the server; it is
-            // not what the server charges from.
-            planNameInput.value = planName;
-            planPriceInput.value = planPrice;
-            planTypeInput.value = planType;
-
-            // Show plan summary
-            const planSummary = document.getElementById('planSummary');
-            const selectedPlanName = document.getElementById('selectedPlanName');
-            const selectedPlanType = document.getElementById('selectedPlanType');
-            const selectedPlanPrice = document.getElementById('selectedPlanPrice');
-
-            if (selectedPlanName && selectedPlanType && selectedPlanPrice && planSummary) {
-                selectedPlanName.textContent = planName;
-                selectedPlanType.textContent = `Type: ${planType}`;
-                selectedPlanPrice.textContent = `₦${planPrice.toFixed(2)}`;
-                planSummary.classList.remove('hidden');
+        planRefreshTimer = setInterval(function() {
+            // Nothing to refresh, or the customer is mid-decision.
+            if (!currentNetworkId || document.hidden) {
+                return;
             }
 
-            // Check balance for data
-            checkDataBalance(planPrice);
+            loadDataPlans(true);
+        }, Math.max(30, planRefreshSeconds) * 1000);
+    }
+
+    document.addEventListener('visibilitychange', function() {
+        // Coming back to the tab is a good moment to be current, and it is a
+        // moment the customer is not waiting on anything.
+        if (!document.hidden && currentNetworkId) {
+            loadDataPlans(true);
+        }
+    });
+
+    // When the customer selects a data plan, apply it to the summary and the
+    // hidden fields. A new bundle voided any earlier confirmation, so the token
+    // is cleared.
+    dataPlanSelect.addEventListener('change', function() {
+        if (this.value) {
+            applySelectedPlan(true);
         } else {
             planNameInput.value = '';
             planPriceInput.value = '';
             planTypeInput.value = '';
+            priceConfirmationInput.value = '';
 
             const planSummary = document.getElementById('planSummary');
             if (planSummary) {
@@ -786,21 +1092,122 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Data form submission - validation
-    dataForm.addEventListener('submit', function(e) {
+    /*
+     * Data form submission.
+     *
+     * Posted with `fetch()` rather than as a plain form post, because the answer
+     * is sometimes a *decision* rather than an outcome: a changed price comes
+     * back as a structured 409 carrying both figures and a confirmation token,
+     * and a full-page post would replace the page — losing the customer's
+     * selected bundle, phone number and position — to show them a modal.
+     *
+     * ## What is deliberately still native
+     *
+     * The browser's own validation runs first (the button is `type="submit"` and
+     * nothing is `preventDefault`ed until it has passed), so a wallet purchase
+     * with no PIN is stopped in place rather than by a round trip. The rail's PIN
+     * field is statically `required` for the same reason.
+     *
+     * ## What is not repeated here
+     *
+     * No price arithmetic. The client cannot know the price the server will
+     * charge, so it does not try: it sends the identifier and the figure it was
+     * *shown*, and the server decides.
+     */
+    dataForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+
         if (!dataPlanSelect.value || dataPlanSelect.disabled) {
-            e.preventDefault();
-            alert('Please select a data plan');
+            window.ReUpFeedback
+                ? window.ReUpFeedback.error('Please select a data plan.')
+                : alert('Please select a data plan');
             return;
         }
 
         const phoneInput = document.getElementById('data_phone');
-        const phoneRegex = /^[0-9]{11}$/;
-        if (!phoneRegex.test(phoneInput.value)) {
-            e.preventDefault();
-            alert('Please enter a valid 11-digit phone number');
+
+        if (!/^0[7-9][0-9]{9}$/.test(String(phoneInput.value || '').trim())) {
+            window.ReUpFeedback
+                ? window.ReUpFeedback.error('Enter a valid Nigerian phone number, for example 08012345678.')
+                : alert('Please enter a valid 11-digit phone number');
             phoneInput.focus();
             return;
+        }
+
+        const submitBtn = dataForm.querySelector('button[type="submit"]');
+        const originalLabel = submitBtn ? submitBtn.querySelector('span:first-child') : null;
+        const originalText = originalLabel ? originalLabel.textContent : null;
+
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.classList.add('opacity-60', 'cursor-not-allowed');
+            if (originalLabel) {
+                originalLabel.textContent = 'Sending…';
+            }
+        }
+
+        try {
+            const response = await fetch(dataForm.action, {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: new FormData(dataForm),
+                credentials: 'same-origin',
+            });
+
+            /*
+             * A validation failure, or a refusal the server chose to answer as a
+             * page. Follow it: a redirect to the success page is an outcome the
+             * customer wants to see, and a redirect back is the server's own
+             * rendering of the refusal — which is where a flash message and the
+             * repopulated form live.
+             */
+            if (response.redirected) {
+                window.location.assign(response.url);
+                return;
+            }
+
+            const contentType = response.headers.get('content-type') || '';
+
+            if (!contentType.includes('application/json')) {
+                dataForm.submit();
+                return;
+            }
+
+            const payload = await response.json();
+
+            if (payload.status === 'price_changed') {
+                // The modal owns the decision from here. The form is left exactly
+                // as it is, so cancelling keeps every input the customer entered.
+                window.dispatchEvent(new CustomEvent('reup:price-changed', { detail: payload }));
+                return;
+            }
+
+            if (payload.status === 'refused' || !response.ok) {
+                const message = payload.message || 'We could not complete that purchase. No money has left your wallet.';
+
+                window.ReUpFeedback ? window.ReUpFeedback.error(message) : alert(message);
+                return;
+            }
+
+            if (payload.redirect) {
+                window.location.assign(payload.redirect);
+            }
+        } catch (error) {
+            console.error('Data purchase failed:', error);
+
+            const message = 'We could not reach ReUp. Nothing has been charged — please check your connection and try again.';
+            window.ReUpFeedback ? window.ReUpFeedback.error(message) : alert(message);
+        } finally {
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.classList.remove('opacity-60', 'cursor-not-allowed');
+                if (originalLabel && originalText !== null) {
+                    originalLabel.textContent = originalText;
+                }
+            }
         }
     });
 
@@ -826,6 +1233,154 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
+
+    // Start the periodic price refresh. The API may report a different interval
+    // on its first response; `scheduleDataPlanRefresh()` is re-run with it below.
+    scheduleDataPlanRefresh();
+});
+
+/*
+ * The price-change confirmation.
+ *
+ * Receives the structured 409 the purchase endpoint returns, shows both figures
+ * and the bundle, and — on acceptance — re-submits the *same form* with the
+ * server-issued confirmation token attached. The token is the only thing that
+ * changes: the price is never posted by this code, because the client has no
+ * authority over it.
+ *
+ * Cancelling closes the modal and nothing else. The form's values are untouched,
+ * so the customer keeps their bundle, phone number and rail, and the wallet was
+ * never debited — the confirmation exists precisely because the purchase had not
+ * been made.
+ */
+document.addEventListener('alpine:init', () => {
+    Alpine.data('priceChange', () => ({
+        open: false,
+        busy: false,
+        error: '',
+        message: '',
+        product: {},
+        previousPrice: '',
+        newPrice: '',
+        balance: '',
+        affordable: true,
+        expiresAt: 0,
+        expiresIn: '',
+        token: '',
+        countdown: null,
+
+        init() {
+            window.addEventListener('reup:price-changed', (event) => this.show(event.detail));
+        },
+
+        show(payload) {
+            this.error = '';
+            this.busy = false;
+            this.message = payload.message || 'The price for your selected data bundle has changed. Would you like to continue at the updated price?';
+            this.product = payload.product || {};
+            this.previousPrice = payload.previous_price_formatted || '';
+            this.newPrice = payload.new_price_formatted || '';
+            this.balance = payload.wallet_balance_formatted || '';
+            this.affordable = payload.affordable !== false;
+            this.token = (payload.quote && payload.quote.identifier) || '';
+            this.expiresAt = Number((payload.quote && payload.quote.expires_at_unix) || 0);
+
+            this.open = true;
+            this.startCountdown();
+
+            // Move focus into the dialog so a keyboard user is placed at the
+            // decision rather than left behind it.
+            this.$nextTick(() => this.$refs.panel && this.$refs.panel.focus());
+        },
+
+        startCountdown() {
+            if (this.countdown) {
+                clearInterval(this.countdown);
+            }
+
+            const tick = () => {
+                const remaining = Math.max(0, this.expiresAt - Math.floor(Date.now() / 1000));
+
+                if (remaining <= 0) {
+                    this.expiresIn = 'a moment';
+                    clearInterval(this.countdown);
+                    return;
+                }
+
+                const minutes = Math.floor(remaining / 60);
+                const seconds = remaining % 60;
+                this.expiresIn = minutes > 0
+                    ? `${minutes}m ${String(seconds).padStart(2, '0')}s`
+                    : `${seconds}s`;
+            };
+
+            tick();
+            this.countdown = setInterval(tick, 1000);
+        },
+
+        confirm() {
+            if (this.busy) {
+                return;
+            }
+
+            this.busy = true;
+            this.error = '';
+
+            const form = document.getElementById('dataForm');
+            const field = document.getElementById('price_confirmation');
+
+            if (!form || !field || !this.token) {
+                this.busy = false;
+                this.error = 'That confirmation has expired. Please submit the purchase again to see the current price.';
+                return;
+            }
+
+            field.value = this.token;
+
+            /*
+             * Re-submit the form. The submit handler sends it with the token, and
+             * the server re-validates the price, the rule and the expiry — so if
+             * the price moved again while the modal was open, a *new* modal opens
+             * with the latest figures instead of a purchase at an unagreed price.
+             *
+             * The modal is closed here rather than left spinning. Every outcome
+             * replaces it: a success navigates to the receipt, a renewed price
+             * change re-opens it with the new figures, and a failure raises a
+             * message through the feedback channel. Leaving a spinner behind an
+             * error is how a customer concludes their money is in limbo.
+             */
+            this.open = false;
+            this.busy = false;
+
+            if (typeof form.requestSubmit === 'function') {
+                form.requestSubmit();
+            } else {
+                form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+            }
+        },
+
+        cancel() {
+            // No request, no debit, no change to the form. Clearing the token is
+            // the only state this touches, so the next submission is treated as a
+            // fresh one and the customer is asked again if the price moved.
+            const field = document.getElementById('price_confirmation');
+            if (field) {
+                field.value = '';
+            }
+
+            if (this.countdown) {
+                clearInterval(this.countdown);
+            }
+
+            this.open = false;
+            this.busy = false;
+            this.error = '';
+
+            if (window.ReUpFeedback) {
+                window.ReUpFeedback.info('Purchase cancelled. Nothing has been charged.', { timeout: 6000 });
+            }
+        },
+    }));
 });
 </script>
 @endsection

@@ -76,29 +76,90 @@ class NetworkDisplayTest extends TestCase
 
     public function test_every_network_maps_to_its_canonical_name(): void
     {
+        /*
+         * The expected labels are asserted both explicitly and against
+         * configuration, because a label is branding and branding changes without
+         * the identifier changing: 9mobile trades as **T2mobile** now.
+         *
+         * The *keys* are the part that must not move. They are what a transaction
+         * stores and what a pricing rule is scoped to, so a rebrand that changed
+         * one would orphan historical rows and per-network rules.
+         */
         $expected = [
-            '01' => 'MTN',
-            '02' => 'Glo',
-            '03' => '9mobile',
-            '04' => 'Airtel',
+            '01' => ['key' => 'mtn', 'label' => 'MTN'],
+            '02' => ['key' => 'glo', 'label' => 'Glo'],
+            '03' => ['key' => '9mobile', 'label' => 'T2mobile'],
+            '04' => ['key' => 'airtel', 'label' => 'Airtel'],
         ];
 
-        foreach ($expected as $code => $name) {
+        foreach ($expected as $code => $expectation) {
             $this->assertSame(
-                $name,
-                NetworkResolver::displayName($code, 'clubkonnect'),
-                "ClubKonnect code {$code} should resolve to {$name}"
+                $expectation['key'],
+                NetworkResolver::key($code, 'clubkonnect'),
+                "ClubKonnect code {$code} should resolve to the canonical key {$expectation['key']}"
             );
+
+            // The configured label is what the site shows, whatever it says.
+            $this->assertSame(
+                config("networks.networks.{$expectation['key']}.name"),
+                NetworkResolver::displayName($code, 'clubkonnect'),
+                "ClubKonnect code {$code} should resolve to its configured label"
+            );
+
+            $this->assertSame($expectation['label'], NetworkResolver::displayName($code, 'clubkonnect'));
 
             // And the transaction-level display agrees.
             $transaction = $this->transaction([
                 'network_code' => NetworkResolver::key($code, 'clubkonnect'),
-                'network_name' => $name,
+                'network_name' => $expectation['label'],
                 'provider' => 'ClubKonnect',
             ]);
 
-            $this->assertSame($name, $transaction->network_display);
+            $this->assertSame($expectation['label'], $transaction->network_display);
         }
+    }
+
+    /**
+     * The rebrand is a label, not a re-identification.
+     *
+     * Every spelling that has ever referred to this network must still resolve,
+     * so a provider that says `9MOBILE`, a receipt written before the rebrand and
+     * a customer who types `T2` all land on one entry rather than on "Network
+     * unavailable".
+     */
+    public function test_the_9mobile_rebrand_keeps_every_alias_resolving(): void
+    {
+        $this->assertSame('T2mobile', NetworkResolver::displayName('03', 'clubkonnect'));
+
+        foreach (['9mobile', '9 Mobile', '9MOBILE', 'T2', 'T2mobile', 't2 mobile', 'etisalat', 'EMTS'] as $alias) {
+            $this->assertSame(
+                '9mobile',
+                NetworkResolver::key($alias),
+                "[{$alias}] must resolve to the canonical key, which the rebrand does not change"
+            );
+        }
+
+        // The key is what a rule is scoped to and what a row stores.
+        $this->assertSame('9mobile', NetworkResolver::key('03', 'clubkonnect'));
+    }
+
+    /**
+     * The rebrand cannot rewrite history.
+     *
+     * A transaction completed before the rebrand stored "9mobile" and must keep
+     * saying that. Resolving the stored key against today's configuration instead
+     * would silently change a receipt the customer already has.
+     */
+    public function test_a_pre_rebrand_receipt_keeps_its_original_label(): void
+    {
+        $transaction = $this->transaction([
+            'network_code' => '9mobile',
+            'network_name' => '9mobile',
+            'provider' => 'ClubKonnect',
+        ]);
+
+        $this->assertSame('9mobile', $transaction->network_display);
+        $this->assertSame('9mobile', $transaction->fresh()->network_display);
     }
 
     public function test_provider_specific_codes_resolve_to_canonical_names(): void
@@ -288,17 +349,22 @@ class NetworkDisplayTest extends TestCase
     {
         $user = User::factory()->create();
 
+        /*
+         * The current label. A row written today stores `T2mobile` because that is
+         * what the site shows — and a row written before the rebrand keeps
+         * `9mobile`, which the previous test pins.
+         */
         $this->transaction([
             'user_id' => $user->getKey(),
             'network_code' => '9mobile',
-            'network_name' => '9mobile',
+            'network_name' => 'T2mobile',
             'provider' => 'ClubKonnect',
         ]);
 
         $response = $this->actingAs($user)->get(route('airtime-data.history'));
 
         $response->assertOk();
-        $response->assertSee('9mobile');
+        $response->assertSee('T2mobile');
         $response->assertDontSee('ClubKonnect');
     }
 

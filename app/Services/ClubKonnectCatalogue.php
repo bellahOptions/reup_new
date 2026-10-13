@@ -4,9 +4,11 @@ namespace App\Services;
 
 use App\Pricing\PricingEngine;
 use App\Pricing\ProviderCost;
+use App\Providers\CatalogueSyncStatus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 /**
  * ClubKonnect's data-bundle catalogue, with prices.
@@ -18,7 +20,20 @@ use Illuminate\Support\Facades\Log;
  * controller — and the customer-facing price must keep coming from exactly one
  * place.
  *
- * Two read paths, deliberately:
+ * ## The provider's price fields, and which one is the cost
+ *
+ * The payload publishes `PRODUCT_AMOUNT` per bundle. That is what ClubKonnect
+ * charges ReUp for that bundle and it is the **only** figure the pricing engine
+ * is given, as `clubkonnect_price`. `your_price` is not a provider field at all:
+ * it is this application's selling price, computed from the cost by
+ * `PricingEngine` so that the page and the purchase cannot disagree.
+ *
+ * Nothing else in the payload is a cost. There is no discount rate, no
+ * commission and no separate list-versus-net pair on this endpoint, so there is
+ * no second candidate for "the real cost" and markup must be applied to
+ * `PRODUCT_AMOUNT` and nothing else.
+ *
+ * ## Three read paths, deliberately
  *
  *   * `plans()` fetches, processes and caches (ten minutes, plus a day-long
  *     fallback copy) — what the pricelist page and the purchase resolver use;
@@ -26,13 +41,25 @@ use Illuminate\Support\Facades\Log;
  *     customer waits for checkout, so it must never add an upstream round trip:
  *     when the cache is cold the price is unknown and routing simply stays on
  *     the configured order.
+ *   * `forceRefresh()` is the scheduled synchronisation. It is the only path
+ *     that treats a provider failure as an error rather than as "serve the last
+ *     good copy", because a scheduled run that silently degraded to a cache read
+ *     would report success for a provider that never answered.
+ *
+ * ## A failure never replaces a good catalogue
+ *
+ * `fetchOrFail()` returns a processed catalogue or throws. It never returns an
+ * empty array to mean "no products", because a malformed response and a provider
+ * with nothing to sell look identical from here — and writing the first over the
+ * second empties the storefront. Every write to the cache happens after a
+ * response has been proven non-empty.
  */
 class ClubKonnectCatalogue
 {
     /** The pricelist's refresh endpoint clears both of these. */
-    public const CACHE_KEY = 'clubkonnect_data_plans';
+    public const CACHE_KEY = CatalogueSyncStatus::DATA_KEY;
 
-    public const FALLBACK_KEY = 'clubkonnect_data_plans_fallback';
+    public const FALLBACK_KEY = CatalogueSyncStatus::FALLBACK_KEY;
 
     /** Seconds a fetched catalogue stays usable. */
     public const TTL = 600;
@@ -40,6 +67,12 @@ class ClubKonnectCatalogue
     /** Seconds the last good copy survives so an outage cannot empty the list. */
     private const FALLBACK_TTL = 86400;
 
+    /**
+     * The provider's catalogue endpoint, as documented by NelloBytes/ClubKonnect.
+     *
+     * Named once. The `UserID` credential travels in the query string, which is
+     * why every log line below scrubs it.
+     */
     private const ENDPOINT = 'https://www.nellobytesystems.com/APIDatabundlePlansV2.asp';
 
     /**
@@ -61,8 +94,19 @@ class ClubKonnectCatalogue
 
     private ?string $clientId;
 
+    /**
+     * The pricing rule behind the most recent `customerPriceFor()` call.
+     *
+     * Carried on the plan row so a price-change confirmation can prove that the
+     * rule which produced the shown price is still the rule producing the price
+     * now — a rule edited between the two is a different price for the same
+     * bundle, and the customer has to be asked again.
+     */
+    private ?int $lastQuoteRuleId = null;
+
     public function __construct(
         private readonly PricingEngine $pricing,
+        private readonly CatalogueSyncStatus $status,
     ) {
         $this->clientId = config('services.clubkonnect.client_id');
     }
@@ -87,6 +131,21 @@ class ClubKonnectCatalogue
         $payload = Cache::get(self::CACHE_KEY) ?? Cache::get(self::FALLBACK_KEY);
 
         return is_array($payload) ? $payload : null;
+    }
+
+    /**
+     * How fresh the catalogue is, and what went wrong last time.
+     *
+     * @return array<string,mixed>
+     */
+    public function status(): array
+    {
+        return $this->status->current();
+    }
+
+    public function isStale(): bool
+    {
+        return $this->status->isStale();
     }
 
     /**
@@ -138,75 +197,223 @@ class ClubKonnectCatalogue
         Cache::forget(self::FALLBACK_KEY);
     }
 
+    /* =====================================================================
+     | Synchronisation
+     |=================================================================== */
+
     /**
-     * @param  array<string,mixed>  $plan
+     * Fetch the catalogue from the provider unconditionally, or throw.
+     *
+     * This is the scheduled synchronisation, and it is deliberately not the same
+     * call as `plans()`. `plans()` is a cache read that degrades to the last good
+     * copy; a scheduled run that did that would report success for a provider
+     * that never answered, and the failure would surface only as prices quietly
+     * ageing. Here a failure is a failure.
+     *
+     * Nothing is written to either cache key until a complete, priced catalogue
+     * has been produced, so a timeout, a rate limit, an HTTP error or a malformed
+     * body leaves the previous catalogue exactly as it was.
+     *
+     * @return array{data_plans:array<int,array<string,mixed>>,last_updated:string,total_plans:int}
+     *
+     * @throws CatalogueSyncFailed
      */
-    private function matches(array $plan, string $code): bool
+    public function forceRefresh(): array
     {
-        return (string) ($plan['plan_code'] ?? '') === $code
-            || (string) ($plan['plan_id'] ?? '') === $code;
+        $started = microtime(true);
+
+        $this->status->recordAttempt();
+
+        try {
+            $payload = $this->fetchOrFail();
+        } catch (CatalogueSyncFailed $e) {
+            $this->status->recordFailure($e->reason, $e->getMessage(), $e->httpStatus);
+
+            throw $e;
+        }
+
+        $durationMs = (int) ((microtime(true) - $started) * 1000);
+
+        /*
+         * Written only now. The active key is *overwritten* rather than
+         * forgotten first, so a request arriving between the two writes reads the
+         * old catalogue rather than an empty one.
+         */
+        Cache::put(self::CACHE_KEY, $payload, self::TTL);
+        Cache::put(self::FALLBACK_KEY, $payload, self::FALLBACK_TTL);
+
+        $this->status->recordSuccess((int) $payload['total_plans'], $durationMs);
+
+        Log::info('ClubKonnect data catalogue synchronised', [
+            'plans' => $payload['total_plans'],
+            'duration_ms' => $durationMs,
+        ]);
+
+        return $payload;
     }
 
     /**
+     * Fetch, process and cache, falling back to the last good copy on failure.
+     *
+     * The behaviour `plans()` has always had, kept exactly: a customer must never
+     * see an empty price list because the provider is briefly unavailable.
+     *
      * @return array{data_plans:array<int,array<string,mixed>>,last_updated:?string,total_plans:int,error?:string}
      */
     private function fetch(): array
     {
+        $started = microtime(true);
+
+        $this->status->recordAttempt();
+
         try {
-            // The config key is `client_id`; this previously read `user_id`,
-            // which does not exist, so every catalogue fetch went upstream
-            // unauthenticated and returned nothing.
-            if (empty($this->clientId)) {
-                throw new \Exception('Airtime provider is not configured.');
-            }
-
-            $response = Http::timeout(30)->get(self::ENDPOINT, [
-                'UserID' => $this->clientId,
-            ]);
-
-            if (! $response->successful()) {
-                throw new \Exception('Catalogue request failed with status ' . $response->status());
-            }
-
-            $processedPlans = $this->processPlans($response->json());
-
-            $payload = [
-                'data_plans' => $processedPlans,
-                'last_updated' => now()->toDateTimeString(),
-                'total_plans' => count($processedPlans),
-            ];
-
-            // Keep a fallback copy so a transient upstream outage does not
-            // empty the price list.
-            Cache::put(self::FALLBACK_KEY, $payload, self::FALLBACK_TTL);
-
-            return $payload;
-        } catch (\Throwable $e) {
-            // The transport message embeds the request URL, and `UserID` sits
-            // in the query string — scrub it before it reaches the log.
-            $message = $e->getMessage();
-
-            if (! empty($this->clientId)) {
-                $message = str_replace((string) $this->clientId, '[redacted]', $message);
-            }
-
-            $message = preg_replace('~\?[^\s\'"]+~', '?[redacted]', $message) ?? $message;
-
-            Log::error('Data plan catalogue fetch failed', [
-                'exception' => get_class($e),
-                'message' => $message,
-            ]);
+            $payload = $this->fetchOrFail();
+        } catch (CatalogueSyncFailed $e) {
+            $this->status->recordFailure($e->reason, $e->getMessage(), $e->httpStatus);
 
             $fallback = Cache::get(self::FALLBACK_KEY);
 
-            return is_array($fallback) ? $fallback : [
+            if (is_array($fallback) && ($fallback['data_plans'] ?? []) !== []) {
+                return $fallback + ['error' => $e->customerMessage()];
+            }
+
+            return [
                 'data_plans' => [],
                 'last_updated' => null,
                 'total_plans' => 0,
-                'error' => 'Live rates are temporarily unavailable. Please try again shortly.',
+                'error' => $e->customerMessage(),
             ];
         }
+
+        Cache::put(self::FALLBACK_KEY, $payload, self::FALLBACK_TTL);
+
+        $this->status->recordSuccess(
+            (int) $payload['total_plans'],
+            (int) ((microtime(true) - $started) * 1000),
+        );
+
+        return $payload;
     }
+
+    /**
+     * One complete, priced catalogue, or an exception naming what went wrong.
+     *
+     * @return array{data_plans:array<int,array<string,mixed>>,last_updated:string,total_plans:int}
+     *
+     * @throws CatalogueSyncFailed
+     */
+    private function fetchOrFail(): array
+    {
+        if (empty($this->clientId)) {
+            throw new CatalogueSyncFailed(
+                CatalogueSyncStatus::ERROR_NOT_CONFIGURED,
+                'Airtime provider is not configured.',
+            );
+        }
+
+        $response = $this->request();
+
+        if ($response === null) {
+            throw new CatalogueSyncFailed(
+                CatalogueSyncStatus::ERROR_TIMEOUT,
+                'The catalogue request timed out or could not be sent.',
+            );
+        }
+
+        if ($response->status() === 429) {
+            throw new CatalogueSyncFailed(
+                CatalogueSyncStatus::ERROR_RATE_LIMITED,
+                'The provider rate-limited the catalogue request.',
+                429,
+            );
+        }
+
+        if (! $response->successful()) {
+            throw new CatalogueSyncFailed(
+                CatalogueSyncStatus::ERROR_HTTP,
+                'The catalogue request failed with status ' . $response->status() . '.',
+                $response->status(),
+            );
+        }
+
+        $processedPlans = $this->processPlans($response->json());
+
+        /*
+         * An empty result is a failure, never an empty catalogue.
+         *
+         * This is the guard that stops a malformed or half-answered response from
+         * overwriting a working price list. `processPlans()` already refuses a
+         * payload that does not carry the documented shape; this catches the case
+         * where the shape is right and every row was unusable, which is what a
+         * truncated response looks like.
+         */
+        if ($processedPlans === []) {
+            throw new CatalogueSyncFailed(
+                CatalogueSyncStatus::ERROR_EMPTY,
+                'The provider returned a catalogue with no usable, priced bundles.',
+            );
+        }
+
+        return [
+            'data_plans' => $processedPlans,
+            'last_updated' => now()->toDateTimeString(),
+            'total_plans' => count($processedPlans),
+        ];
+    }
+
+    /**
+     * The provider call, with its failures already classified.
+     *
+     * `Http::get()` throws on a connection failure rather than returning a
+     * status, so the transport exception is caught here and reported as a
+     * timeout — which is what it is from the caller's point of view, and what the
+     * status record must say.
+     */
+    private function request(): ?\Illuminate\Http\Client\Response
+    {
+        try {
+            return Http::timeout($this->timeoutSeconds())->get(self::ENDPOINT, [
+                'UserID' => $this->clientId,
+            ]);
+        } catch (\Throwable $e) {
+            throw new CatalogueSyncFailed(
+                CatalogueSyncStatus::ERROR_TIMEOUT,
+                $this->scrub($e->getMessage()),
+            );
+        }
+    }
+
+    /**
+     * How long to wait for the provider.
+     *
+     * Configurable, because a scheduled sync and a page render want different
+     * answers: the scheduler can afford to wait, and a customer waiting for a
+     * price cannot.
+     */
+    private function timeoutSeconds(): int
+    {
+        return max(1, (int) config('pricing.catalogue.timeout_seconds', 30));
+    }
+
+    /**
+     * Remove the credential from a message before it is logged or stored.
+     *
+     * The client id travels in the query string, and a transport exception quotes
+     * the URL. Removing it here rather than at each log site means a new log
+     * statement cannot reintroduce the leak.
+     */
+    private function scrub(string $message): string
+    {
+        if (! empty($this->clientId)) {
+            $message = str_replace((string) $this->clientId, '[redacted]', $message);
+        }
+
+        return preg_replace('~\?[^\s\'"]+~', '?[redacted]', $message) ?? $message;
+    }
+
+    /* =====================================================================
+     | Parsing
+     | =================================================================== */
 
     /**
      * @param  mixed  $apiData
@@ -227,6 +434,13 @@ class ClubKonnectCatalogue
 
             return $processedPlans;
         }
+
+        /*
+         * Read once, outside the loop. Every row carries the time its provider
+         * cost was read, and asking the cache per bundle would be one cache read
+         * per plan for a value that cannot change mid-parse.
+         */
+        $costSyncedAt = $this->status->current()['last_success_at'];
 
         foreach ($apiData['MOBILE_NETWORK'] as $networkKey => $networkDataArray) {
             if (! is_array($networkDataArray) || empty($networkDataArray)) {
@@ -270,10 +484,11 @@ class ClubKonnectCatalogue
                     'validity' => $planDetails['validity'],
                     'plan_type' => $this->determinePlanType($productName),
                     /*
-                     * What the provider charges ReUp. This is provider-confidential:
-                     * the pricelist view must not render it, and it is present here
-                     * because `ProviderManager` compares it across providers to route
-                     * the sale to the cheaper upstream.
+                     * What the provider charges ReUp, from `PRODUCT_AMOUNT`. This
+                     * is provider-confidential: the pricelist view must not render
+                     * it, and it is present here because `ProviderManager` compares
+                     * it across providers to route the sale to the cheaper
+                     * upstream.
                      */
                     'clubkonnect_price' => $basePrice,
                     /*
@@ -284,6 +499,15 @@ class ClubKonnectCatalogue
                      */
                     'your_price' => $yourPrice,
                     'price_available' => $yourPrice !== null,
+                    /*
+                     * The id of the rule that produced this price, and the moment
+                     * the provider cost behind it was read. Both travel to the
+                     * browser so a price-change confirmation can prove that the
+                     * figure it is confirming is the figure it was shown — see
+                     * `App\Pricing\PriceChangeQuote`.
+                     */
+                    'pricing_rule_id' => $this->lastQuoteRuleId,
+                    'cost_synced_at' => $costSyncedAt,
                     'sort_key' => $this->createSortKey($basePrice, $networkName),
                 ];
             }
@@ -386,6 +610,8 @@ class ClubKonnectCatalogue
      */
     private function customerPriceFor(float $providerCost, string $networkCode, string $planCode): ?float
     {
+        $this->lastQuoteRuleId = null;
+
         if ($providerCost <= 0) {
             return null;
         }
@@ -397,7 +623,7 @@ class ClubKonnectCatalogue
             quantity: 1,
             context: [
                 'network' => NetworkResolver::key($networkCode, 'clubkonnect'),
-                'capability' => 'data',
+                'capability' => ProviderCostResolver::CAPABILITY_DATA,
             ],
             costMeta: [
                 'source' => ProviderCost::SOURCE_CATALOGUE,
@@ -416,6 +642,39 @@ class ClubKonnectCatalogue
             return null;
         }
 
+        $this->lastQuoteRuleId = $quote->pricingRuleId;
+
         return round($quote->customerPriceMinor / 100, 2);
+    }
+
+    /**
+     * A stable identifier for a plan, for quoting and confirming a price.
+     *
+     * `plan_code` when the provider supplies one, `plan_id` otherwise — the same
+     * pair `matches()` resolves on, so a quote and the purchase it confirms can
+     * never address different rows.
+     *
+     * @param  array<string,mixed>  $plan
+     */
+    public static function planIdentifier(array $plan): ?string
+    {
+        foreach (['plan_code', 'plan_id'] as $field) {
+            $value = $plan[$field] ?? null;
+
+            if (is_scalar($value) && (string) $value !== '') {
+                return (string) $value;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string,mixed>  $plan
+     */
+    private function matches(array $plan, string $code): bool
+    {
+        return (string) ($plan['plan_code'] ?? '') === $code
+            || (string) ($plan['plan_id'] ?? '') === $code;
     }
 }
