@@ -110,6 +110,50 @@ class ProviderNetworkCost extends Model
         return Money::fromMinor($faceValueMinor - $discountMinor + (int) $this->provider_fee_minor);
     }
 
+    /**
+     * The effective cost of a **list price**, where `discount_bps` is a multiplier.
+     *
+     * ## Why this is a second method rather than a use of `costFor()`
+     *
+     * The two express the same trade in opposite arithmetic, and mixing them is how
+     * a cost gets discounted twice — which happened on the first attempt at this and
+     * produced ₦15.00 for a ₦500 bundle.
+     *
+     *   * `costFor($faceValue)` treats `discount_bps` as the **percentage off**: airtime
+     *     is bought at face value less 3%, so 300 bps off ₦1,000 costs ₦970.
+     *   * `costOfList($listMinor)` treats `discount_bps` as the **multiplier paid**:
+     *     the supplied schedule states data as `provider amount x 0.970`, which is
+     *     9700 bps *of* the list price, so ₦500 costs ₦485.
+     *
+     * For 3% the two differ only in which side of the subtraction the rate sits on,
+     * which is exactly why the mistake is easy to make and why each has its own
+     * named method rather than one method with a flag.
+     *
+     * `discount_bps` above 10000 would mean paying more than list, which is not a
+     * discount; it is clamped so a typo cannot multiply a cost upward silently.
+     */
+    public function costOfList(int $listMinor): Money
+    {
+        $bps = (int) $this->discount_bps;
+
+        if ($bps <= 0) {
+            return Money::fromMinor($listMinor + (int) $this->provider_fee_minor);
+        }
+
+        $bps = min($bps, 10000);
+
+        $product = $listMinor * $bps;
+        $quotient = intdiv($product, 10000);
+        $remainder = $product % 10000;
+
+        // Half-up, the rounding convention every other money calculation here uses.
+        if ($remainder * 2 >= 10000) {
+            $quotient++;
+        }
+
+        return Money::fromMinor($quotient + (int) $this->provider_fee_minor);
+    }
+
     /** The discount this term takes off a face value, in kobo. */
     public function discountMinorFor(int $faceValueMinor): int
     {

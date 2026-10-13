@@ -160,10 +160,59 @@ return [
     */
     'allow_prefix_inference' => (bool) env('NETWORK_ALLOW_PREFIX_INFERENCE', true),
 
+    /*
+    | ---------------------------------------------------------------------
+    | Prefix hints
+    | ---------------------------------------------------------------------
+    | The complete set of Nigerian mobile prefixes allocated to the four networks
+    | ReUp sells, from the NCC national numbering plan as reproduced in
+    | https://en.wikipedia.org/wiki/Telephone_numbers_in_Nigeria.
+    |
+    | ## Why this list has to be complete, and what happens when it is not
+    |
+    | A prefix that is **absent** produces "we could not tell which network this
+    | number uses" and sends the customer to pick by hand. That is safe but it is a
+    | bad answer to give about an ordinary MTN number, and it was the reported
+    | fault: `0704`, `0707`, `0904` and `0911` are all common, and all four were
+    | missing. Completeness is therefore the fix — a short list reads as a broken
+    | feature even though nothing incorrect is ever selected.
+    |
+    | ## What is deliberately not here
+    |
+    |   * `0800` and `0700` — NCC toll-free and toll numbers. They are ten digits,
+    |     not eleven, so `PhoneNumber` rejects them by length before this list is
+    |     consulted.
+    |   * `0819`, `0709`, `07027`, `07028`, `07029` — Starcomms and Multi-Links,
+    |     which are not networks ReUp sells and are generally no longer operating.
+    |     A customer on one of these gets "we could not tell" and chooses; there is
+    |     no bundle to sell them either way.
+    |   * `07020` (Smile) — a data-only operator, likewise not sold here.
+    |   * `07025`, `07026` (formerly Visafone) — five-digit prefixes on the MTN
+    |     network. Deliberately omitted rather than mapped by truncation: their first
+    |     four digits are `0702`, which is also the start of a five-digit Smile
+    |     prefix and of five-digit Multi-Links prefixes, so a four-digit match would
+    |     be guessing between three operators. The customer is asked to choose, and
+    |     MTN is what they will pick.
+    |
+    | ## The cost of a wrong entry is asymmetric
+    |
+    | An absent prefix costs a manual selection. A prefix mapped to the **wrong**
+    | network mislabels a purchase and sends a bundle to a network the customer is
+    | not on — which spends their money on nothing. Additions therefore need to be
+    | checked against the numbering plan, not inferred from the shape of the number.
+    */
     'prefix_hints' => [
-        'mtn' => ['0803', '0806', '0703', '0706', '0813', '0816', '0810', '0814', '0903', '0906', '0913', '0916'],
-        'airtel' => ['0802', '0808', '0708', '0812', '0701', '0902', '0901', '0907', '0912'],
-        'glo' => ['0805', '0807', '0705', '0815', '0811', '0905', '0915'],
+        'mtn' => [
+            '0703', '0704', '0706', '0707',
+            '0803', '0806', '0810', '0813', '0814', '0816',
+            '0903', '0906', '0913', '0916',
+        ],
+        'airtel' => [
+            '0701', '0708',
+            '0802', '0808', '0812',
+            '0901', '0902', '0904', '0907', '0911', '0912',
+        ],
+        'glo' => ['0705', '0805', '0807', '0811', '0815', '0905', '0915'],
         '9mobile' => ['0809', '0817', '0818', '0908', '0909'],
     ],
 ];

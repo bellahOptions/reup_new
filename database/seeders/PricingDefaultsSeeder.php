@@ -3,9 +3,12 @@
 namespace Database\Seeders;
 
 use App\Models\PricingRule;
+use App\Models\Provider;
+use App\Models\ProviderNetworkCost;
 use App\Models\User;
 use App\Pricing\PricingRuleService;
 use App\Services\NetworkResolver;
+use App\Services\ProviderCostResolver;
 use Illuminate\Database\Seeder;
 
 /**
@@ -50,6 +53,74 @@ class PricingDefaultsSeeder extends Seeder
 
         $this->seedAirtimeFaceValueRules($actor);
         $this->seedDataMarkupRule($actor);
+        $this->seedDataNetworkDiscounts($actor);
+    }
+
+    /**
+     * The per-network data discount schedule.
+     *
+     * ## Seeded unverified, on purpose
+     *
+     * The supplied table is a discount *schedule*, not a measured cost, so each row
+     * is written with `verified_at` null. That makes the recorded gross profit for
+     * any bundle priced through it carry `estimated: true`, which is the honest
+     * state: nobody has confirmed the rate against a provider invoice yet. An
+     * operator confirming one sets `verified_at` and the profit stops being an
+     * assumption.
+     *
+     * Existing rows are left alone. A discount an operator has since corrected must
+     * not be overwritten by a re-seed — that is the difference between a default and
+     * a silent rollback of somebody's decision.
+     */
+    private function seedDataNetworkDiscounts(User $actor): void
+    {
+        $providerId = Provider::where('slug', 'clubkonnect')->value('id');
+
+        /*
+         * `provider_network_costs.provider_id` is NOT NULL, so there is nothing to
+         * attach a discount to until a provider row exists. Skipping with a warning
+         * rather than inserting a null: a constraint violation here would abort the
+         * whole seed, which on a fresh deploy is how the data markup rule never gets
+         * created either.
+         */
+        if ($providerId === null) {
+            $this->command?->warn(
+                'No ClubKonnect provider row exists, so data network discounts were not seeded. Run ProviderSeeder first.'
+            );
+
+            return;
+        }
+
+        foreach ((array) config('pricing.data_discount_bps_by_network', []) as $network => $bps) {
+            $network = NetworkResolver::key((string) $network);
+
+            if ($network === null || (int) $bps <= 0) {
+                continue;
+            }
+
+            $exists = ProviderNetworkCost::where('capability', ProviderCostResolver::CAPABILITY_DATA)
+                ->where('network', $network)
+                ->exists();
+
+            if ($exists) {
+                continue;
+            }
+
+            ProviderNetworkCost::create([
+                'provider_id' => $providerId,
+                'capability' => ProviderCostResolver::CAPABILITY_DATA,
+                'network' => $network,
+                'discount_bps' => (int) $bps,
+                'provider_fee_minor' => 0,
+                'currency' => 'NGN',
+                /*
+                 * Null, deliberately: the schedule is an assumption until somebody
+                 * checks it, and the profit figures derived from it say so.
+                 */
+                'verified_at' => null,
+                'is_active' => true,
+            ]);
+        }
     }
 
     /**

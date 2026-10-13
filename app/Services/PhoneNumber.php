@@ -120,6 +120,17 @@ final class PhoneNumber
         }
 
         /*
+         * `0800` and `0700` are eleven digits and pass the shape test below, but
+         * they are **not mobile numbers**: the NCC plan assigns 0800 to toll-free
+         * and 0700 to toll numbers, and both are documented as ten-digit services.
+         * A data bundle or a top-up cannot be delivered to one, so the number is
+         * refused here rather than sent to a network the customer does not have.
+         */
+        if (preg_match('/^0[78]00/', $digits)) {
+            return self::invalid('That is a toll-free or toll number, not a mobile number. Check it and try again.');
+        }
+
+        /*
          * Nigerian mobile numbers begin 070, 080, 081, 090 or 091. Anything else in
          * that position is a landline or a typo, and either way is not a number a
          * mobile bundle can be sent to.

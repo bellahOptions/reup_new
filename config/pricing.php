@@ -135,6 +135,63 @@ return [
 
     /*
     | ---------------------------------------------------------------------
+    | Data bundle provider discounts, per network
+    | ---------------------------------------------------------------------
+    | The rate actually paid for a data bundle as a fraction of the provider's
+    | published price. Expressed as a multiplier because that is how the supplied
+    | table states it:
+    |
+    |     MTN      x 0.970   (3.0% off)
+    |     Glo      x 0.955   (4.5% off)
+    |     T2mobile x 0.930   (7.0% off)
+    |     Airtel   x 0.970   (3.0% off)
+    |
+    | and converted to basis points here, because every other rate in this
+    | application is an integer in bps and a float multiplier is how a rounding
+    | error gets into money:
+    |
+    |     0.970 -> 9700 bps     0.955 -> 9550 bps     0.930 -> 9300 bps
+    |
+    | ## A discount is not profit
+    |
+    | `discount_bps` is what the *provider* takes off, so it sets the effective
+    | cost. ReUp's gross profit is the selling price minus that effective cost, and
+    | it is computed from both figures by `PricingEngine` rather than inferred from
+    | the discount. Treating 7% as the margin would overstate a T2mobile sale by
+    | whatever markup the rule then applies on top.
+    |
+    | ## These are assumptions, and they are treated as such
+    |
+    | The supplied table is a discount schedule, not a measured cost. Each entry
+    | therefore becomes a `ProviderNetworkCost` row seeded **unverified**, so the
+    | recorded profit is flagged estimated until somebody confirms the rate against
+    | a provider invoice — the same treatment airtime's configured discount already
+    | receives. `pricing.policy.allow_configured_assumptions` decides whether an
+    | unverified assumption may price a sale at all.
+    */
+    'data_discount_bps_by_network' => [
+        'mtn' => (int) env('DATA_DISCOUNT_BPS_MTN', 9700),
+        'glo' => (int) env('DATA_DISCOUNT_BPS_GLO', 9550),
+        '9mobile' => (int) env('DATA_DISCOUNT_BPS_9MOBILE', 9300),
+        'airtel' => (int) env('DATA_DISCOUNT_BPS_AIRTEL', 9700),
+    ],
+
+    /*
+    | Whether the provider's catalogue price for a bundle is the price *before* the
+    | per-network discount. ClubKonnect's data catalogue returns its published
+    | rate — the same figure a customer would see on its own price list — so the
+    | discount has not been applied and applying it once is correct.
+    |
+    | This flag exists because that is a fact about the integration rather than a
+    | law, and getting it wrong is expensive in one direction: applying a discount
+    | to an already-net price understates cost, overstates profit, and prices sales
+    | below what we actually pay. Set it to false if the provider ever starts
+    | returning net pricing, and the discount is skipped rather than double-counted.
+    */
+    'data_catalogue_price_is_gross' => (bool) env('DATA_CATALOGUE_PRICE_IS_GROSS', true),
+
+    /*
+    | ---------------------------------------------------------------------
     | Data-bundle catalogue synchronisation
     | ---------------------------------------------------------------------
     | The catalogue customers buy data from is the provider's price list: it

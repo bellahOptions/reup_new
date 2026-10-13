@@ -246,24 +246,14 @@ class NetworkDetectionTest extends TestCase
         $this->assertFalse(PhoneNumber::isValid('0123456789'));
 
         /*
-         * ## A known limitation, asserted rather than hidden
-         *
-         * The shape rule accepts any `0[789][01]` prefix. Two of those — 0700 and
-         * 0800 — are the ones this rule cannot distinguish from a mobile band
-         * without a prefix allocation list it does not have, so they pass shape
-         * validation and then detect **no network**, because `prefix_hints` does not
-         * list them.
-         *
-         * That is the safe direction: the customer is asked to choose, rather than
-         * being sent to a guessed network. Tightening the shape rule from memory
-         * would be worse — a wrongly rejected band refuses a real customer's real
-         * number, and there is no way to tell from here which prefixes that would be.
+         * `0800` and `0700` are the NCC's toll-free and toll ranges. Both are eleven
+         * digits, so a shape test alone would accept them — but they are not mobile
+         * numbers, and a bundle cannot be delivered to one. They are refused
+         * outright rather than accepted and then left without a network.
          */
-        $this->assertTrue(PhoneNumber::isValid('08001234567'), 'The shape passes...');
-        $this->assertNull(
-            PhoneNumber::detect('08001234567')['key'],
-            '...but no network is claimed for it, so the customer chooses'
-        );
+        foreach (['08001234567', '07001234567'] as $tollNumber) {
+            $this->assertFalse(PhoneNumber::isValid($tollNumber), "[{$tollNumber}] is not a mobile number");
+        }
     }
 
     /* =====================================================================
@@ -309,7 +299,7 @@ class NetworkDetectionTest extends TestCase
     {
         // A valid Nigerian mobile number on a prefix `prefix_hints` does not list —
         // which is also what a newly allocated range looks like.
-        $detection = PhoneNumber::detect('07041234567');
+        $detection = PhoneNumber::detect('07020123456');
 
         $this->assertNotNull($detection, 'The number is valid, so detection ran');
         $this->assertNull($detection['key'], 'An unlisted prefix must produce no candidate, not a default');
@@ -427,7 +417,7 @@ class NetworkDetectionTest extends TestCase
     public function test_the_detection_endpoint_returns_no_network_for_an_unlisted_prefix(): void
     {
         $response = $this->actingAs($this->customer())
-            ->getJson(route('airtime-data.detect-network', ['phone' => '07041234567']));
+            ->getJson(route('airtime-data.detect-network', ['phone' => '07020123456']));
 
         $response->assertOk();
         $this->assertTrue($response->json('valid'), 'The number is valid');
@@ -526,7 +516,7 @@ class NetworkDetectionTest extends TestCase
         $this->fakeVending();
 
         $this->actingAs($user)->post(route('data.purchase'), $this->dataPayload([
-            'phone' => '07041234567', // valid, unlisted prefix
+            'phone' => '07020123456', // valid, unlisted prefix
         ]))->assertRedirect();
 
         $this->assertSame(1, Transactions::where('user_id', $user->id)->count());

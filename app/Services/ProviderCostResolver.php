@@ -152,28 +152,145 @@ class ProviderCostResolver
         }
 
         $costMinor = (int) round(((float) $cost) * 100);
+        $listMinor = $costMinor;
+
+        /*
+         * The per-network data discount, applied at most once.
+         *
+         * ## Why the discount is applied here rather than in the pricing rule
+         *
+         * The figure ClubKonnect's catalogue returns is its **published** rate, not
+         * what ReUp is charged — which is why this method recorded `discountBps: 0`
+         * and `listMinor == costMinor`. The rate actually paid is that price less the
+         * per-network discount, and the *effective* cost is what a selling price must
+         * be built from. Applying it here means the pricing engine, the profit
+         * snapshot and the admin screens all see one cost rather than each deriving
+         * it — and it is the existing discount mechanism, not a second one.
+         *
+         * ## Guarded against being applied twice
+         *
+         * `pricing.data_catalogue_price_is_gross` is the guard. If the provider ever
+         * returns net pricing, that flag disables this, because discounting an
+         * already-discounted price understates cost, overstates profit, and prices
+         * sales below what we actually pay.
+         *
+         * ## An unconfigured network is not guessed
+         *
+         * With no term the bundle is costed at the catalogue price and a warning is
+         * logged. That differs from airtime, where a missing term is a refusal: a
+         * data bundle's cost is known from the catalogue, so it is priceable, and
+         * refusing every sale until an operator enters a discount would break a
+         * working product. The margin is narrower than the table expects and the log
+         * says so.
+         */
+        $networkKey = NetworkResolver::key(
+            (string) ($plan['network_key'] ?? $plan['network_code'] ?? ''),
+            $providerSlug,
+        );
+
+        $term = $this->dataDiscountTerm($networkKey, $providerSlug);
+        $discountBps = 0;
+
+        if ($term !== null) {
+            if (config('pricing.data_catalogue_price_is_gross', true)) {
+                $discountBps = (int) $term->discount_bps;
+
+                /*
+                 * `costOfList()`, not `costFor()`. The supplied schedule states data
+                 * as a **multiplier** on the provider's amount (`x 0.970`), while
+                 * `costFor()` treats the same column as a percentage *off* a face
+                 * value — the airtime convention. Using `costFor()` here discounted a
+                 * ₦500 bundle to ₦15.00, which is the discount rather than the cost.
+                 */
+                $costMinor = $term->costOfList($listMinor)->minor();
+            } else {
+                Log::info('Data catalogue price is configured as net; the network discount was not applied', [
+                    'plan_code' => $plan['plan_code'] ?? null,
+                    'network' => $networkKey,
+                ]);
+            }
+        } elseif ($networkKey !== null) {
+            Log::warning('No data discount configured for this network; costing at the catalogue price', [
+                'network' => $networkKey,
+                'provider' => $providerSlug,
+                'plan_code' => $plan['plan_code'] ?? null,
+            ]);
+        }
 
         return new ProviderCost(
             costMinor: $costMinor,
-            listMinor: $costMinor,
-            discountBps: 0,
+            /*
+             * The list price is the provider's published rate — what a customer would
+             * pay going direct — so the discount's effect is visible as the gap
+             * between the two rather than folded invisibly into one figure.
+             */
+            listMinor: $listMinor,
+            discountBps: $discountBps,
             source: ProviderCost::SOURCE_CATALOGUE,
             /*
              * The catalogue is re-fetched every ten minutes and a day-old copy is
              * served during an outage, so a non-null value is fresh. Staleness is
              * enforced by the catalogue's own TTL rather than a second timestamp
              * here; the fetch time is recorded below for the snapshot.
+             *
+             * When a discount was applied its own verification timestamp governs
+             * instead: the discount is the assumption, and it is the part that can be
+             * wrong. An unverified discount marks the profit estimated, so the
+             * recorded gross profit says so rather than presenting an assumption as a
+             * measurement.
              */
-            verifiedAt: $plan['_catalogue_fetched_at'] ?? null,
-            estimated: false,
+            verifiedAt: $discountBps > 0
+                ? $term?->verified_at?->toDateTimeString()
+                : ($plan['_catalogue_fetched_at'] ?? null),
+            estimated: $discountBps > 0 && ! $term?->isVerified(),
             context: [
                 'provider_slug' => $providerSlug,
                 'plan_code' => $plan['plan_code'] ?? null,
                 'plan_id' => $plan['plan_id'] ?? null,
                 'plan_name' => $plan['plan_name'] ?? null,
                 'network' => $plan['network'] ?? null,
+                'network_key' => $networkKey,
+                // Both figures, so a support question about a margin can be answered
+                // without reconstructing which discount was in force that day.
+                'catalogue_price_minor' => $listMinor,
+                'discount_bps' => $discountBps,
             ],
         );
+    }
+
+    /**
+     * The configured data discount for a network, if any.
+     *
+     * A `data`-capability `ProviderNetworkCost` row, so the figure is admin-editable
+     * and carries its own verification state rather than living in a constant.
+     * Provider-specific first, then any provider's row for that network — the
+     * discount is a commercial term with the network, and a deployment that has not
+     * yet recorded which provider granted it should still price correctly.
+     */
+    private function dataDiscountTerm(?string $networkKey, ?string $providerSlug): ?ProviderNetworkCost
+    {
+        if ($networkKey === null) {
+            return null;
+        }
+
+        $query = ProviderNetworkCost::query()
+            ->active()
+            ->forCapability(self::CAPABILITY_DATA)
+            ->where('network', $networkKey);
+
+        if ($providerSlug !== null) {
+            $providerId = Provider::where('slug', $providerSlug)->value('id');
+
+            if ($providerId !== null) {
+                $specific = (clone $query)->where('provider_id', $providerId)->first();
+
+                if ($specific) {
+                    return $specific;
+                }
+            }
+        }
+
+        return $query->first();
     }
 
     /**
