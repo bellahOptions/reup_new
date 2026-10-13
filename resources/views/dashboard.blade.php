@@ -423,5 +423,152 @@
             @endforelse
         </section>
     </div>
+
+    {{-- ===================== Dashboard prompts =====================
+         The PIN prompt and the promotional modal. Both are decided by
+         `DashboardPrompts`, which also decides that they never appear at the same
+         time — the PIN prompt is about the customer's money and takes the one dialog
+         they will actually read. --}}
+    @if($prompts['needs_pin'])
+        @include('partials.pin-prompt')
+    @elseif($prompts['show_promotion'])
+        @include('partials.promo-modal')
+    @endif
 </main>
 @endsection
+
+@push('scripts')
+<script>
+/*
+ * The PIN prompt.
+ *
+ * Only the code request needs JavaScript. The form itself is a real POST to the
+ * profile PIN endpoint, but the *dialog* cannot open without JavaScript — so the
+ * banner also carries a plain link to the profile page, where the same form is
+ * rendered as an ordinary page. The link is the accessible path and the dialog is
+ * the convenient one; a customer without JavaScript is inconvenienced, not locked
+ * out.
+ */
+Alpine.data('pinPrompt', () => ({
+    show: false,
+    sending: false,
+    sent: false,
+    error: '',
+    cooldown: 0,
+    timer: null,
+    codeUrl: '',
+
+    init() {
+        /*
+         * The endpoint comes from a data attribute rather than an `x-data` argument.
+         *
+         * `Js::from()` emits double quotes, and an HTML attribute opened with `"` ends
+         * at the first one — so the value would be truncated at the first key and Alpine
+         * would throw parsing it. A data attribute is escaped by Blade and cannot break
+         * the expression.
+         */
+        this.codeUrl = this.$el.dataset.codeUrl || '';
+
+        /*
+         * Open on load. This is the whole point of the prompt: an account with no
+         * transaction PIN is one purchase away from being stopped at the payment
+         * step, and a banner alone is a line of text people scroll past.
+         */
+        this.$nextTick(() => this.open());
+    },
+
+    open() {
+        this.show = true;
+        this.error = '';
+
+        this.$nextTick(() => this.$refs.panel && this.$refs.panel.focus());
+    },
+
+    dismiss() {
+        this.show = false;
+    },
+
+    async sendCode() {
+        if (this.sending || this.cooldown > 0) {
+            return;
+        }
+
+        this.sending = true;
+        this.error = '';
+
+        try {
+            const response = await fetch(this.codeUrl, {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                },
+                credentials: 'same-origin',
+            });
+
+            const payload = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                /*
+                 * The server's own message where it has one. Its rate limit answers
+                 * with "please wait a moment", which is exactly what the customer
+                 * needs to be told; inventing our own wording here would be a second
+                 * opinion about somebody else's throttle.
+                 */
+                this.error = payload.message
+                    || (payload.errors && Object.values(payload.errors).flat()[0])
+                    || 'We could not send the code just now. Please try again.';
+                return;
+            }
+
+            this.sent = true;
+            this.startCooldown(60);
+        } catch (e) {
+            this.error = 'We could not reach ReUp. Check your connection and try again.';
+        } finally {
+            this.sending = false;
+        }
+    },
+
+    startCooldown(seconds) {
+        this.cooldown = seconds;
+
+        if (this.timer) {
+            clearInterval(this.timer);
+        }
+
+        this.timer = setInterval(() => {
+            this.cooldown -= 1;
+
+            if (this.cooldown <= 0) {
+                clearInterval(this.timer);
+                this.timer = null;
+            }
+        }, 1000);
+    },
+}));
+
+/*
+ * The promotional modal.
+ *
+ * Shown once the request has settled rather than immediately, so it cannot compete
+ * with the first paint for the customer's attention — and so a page that is still
+ * loading its own content is not covered by an advertisement while it does.
+ */
+Alpine.data('promoModal', () => ({
+    show: false,
+
+    init() {
+        window.setTimeout(() => {
+            this.show = true;
+            this.$nextTick(() => this.$refs.panel && this.$refs.panel.focus());
+        }, 900);
+    },
+
+    close() {
+        this.show = false;
+    },
+}));
+</script>
+@endpush

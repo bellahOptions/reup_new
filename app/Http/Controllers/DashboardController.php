@@ -6,6 +6,8 @@ use App\Catalogue\ServiceCatalogue;
 use App\Models\ChatSession;
 use App\Models\PromotionNotification;
 use App\Models\Transactions;
+use App\Services\DashboardPrompts;
+use App\Services\SecurityService;
 use App\Support\Money;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -16,6 +18,8 @@ class DashboardController extends Controller
 {
     public function __construct(
         private readonly ServiceCatalogue $catalogue,
+        private readonly DashboardPrompts $prompts,
+        private readonly SecurityService $security,
     ) {
     }
 
@@ -171,7 +175,21 @@ class DashboardController extends Controller
         $greetingName = trim((string) $user->first_name) ?: trim((string) $user->name);
         $localNow = now()->setTimezone(config('app.timezone', 'UTC'));
 
-        return view('dashboard', compact(
+        /*
+         * The two dashboard prompts: the PIN reminder and the promotional modal.
+         *
+         * Resolved in one call because they compete for the same thing — the one
+         * dialog a customer will read. `DashboardPrompts` owns that decision so the
+         * template does not have to, and so it can be tested without rendering a
+         * page.
+         */
+        $prompts = $this->prompts->forDashboard($user, $request, $this->security);
+
+        // The affiliate link needs the customer's own code, which the modal cannot
+        // look up from a config file.
+        $referralCode = (string) $user->referral_code;
+
+        $response = response()->view('dashboard', compact(
             'user',
             'userStats',
             'recentTransactions',
@@ -184,7 +202,33 @@ class DashboardController extends Controller
             'catalogue',
             'greetingName',
             'localNow',
+            'prompts',
+            'referralCode',
         ));
+
+        /*
+         * The promotion is recorded as shown by the response, not by the request
+         * that renders it.
+         *
+         * A cookie can only be attached to a response, and recording it here means
+         * the window is consumed exactly when the markup carrying the dialog is
+         * actually sent — not when a page was merely considered. `show_promotion`
+         * is checked rather than `promotion`, because a deferred promotion (the
+         * account has no PIN) must not consume its own frequency window: it was
+         * chosen but never shown, and counting it would silently skip a customer's
+         * next opportunity.
+         */
+
+
+        if ($prompts['show_promotion']) {
+            $response->withCookie(cookie(
+                DashboardPrompts::PROMO_COOKIE,
+                $this->prompts->promotionCookie($user, $request),
+                (int) config('prompts.dismissal_minutes', 525600),
+            ));
+        }
+
+        return $response;
     }
 
     public function getRealtimeStats()

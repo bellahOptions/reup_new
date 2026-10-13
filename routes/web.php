@@ -188,7 +188,7 @@ Route::middleware(['auth', 'verified', 'customer'])->group(function () {
     | Route names keep the historical `airtime.*` / `data.*` keys that the
     | views already call; the URI is grouped under /airtime.
     */
-    Route::prefix('airtime')->group(function () {
+    Route::prefix('airtime')->middleware('service:data')->group(function () {
         Route::get('/', [AirtimeDataController::class, 'index'])->name('airtime-data.index');
         Route::post('/purchase', [AirtimeDataController::class, 'purchaseAirtime'])
             ->middleware('throttle:20,1')->name('airtime.purchase');
@@ -231,7 +231,7 @@ Route::middleware(['auth', 'verified', 'customer'])->group(function () {
     | quantity that should not end up in a URL, a browser history entry or a
     | referrer header.
     */
-    Route::prefix('social-boost')->name('social-boost.')->group(function () {
+    Route::prefix('social-boost')->name('social-boost.')->middleware('service:social_boost')->group(function () {
         Route::get('/', [SocialBoostController::class, 'index'])->name('index');
 
         Route::get('/services', [SocialBoostController::class, 'catalogue'])->name('catalogue');
@@ -296,7 +296,7 @@ Route::middleware(['auth', 'verified', 'customer'])->group(function () {
     | Cable TV
     |----------------------------------------------------------------------
     */
-    Route::prefix('cable-tv')->name('cable-tv.')->group(function () {
+    Route::prefix('cable-tv')->name('cable-tv.')->middleware('service:cable_tv')->group(function () {
         Route::get('/', [CableTvController::class, 'index'])->name('index');
         Route::get('/providers', [CableTvController::class, 'providers'])->name('providers');
         Route::get('/packages', [CableTvController::class, 'packages'])->name('packages');
@@ -312,7 +312,7 @@ Route::middleware(['auth', 'verified', 'customer'])->group(function () {
     | Exam PINs
     |----------------------------------------------------------------------
     */
-    Route::prefix('waec-pin')->name('waec-pin.')->group(function () {
+    Route::prefix('waec-pin')->name('waec-pin.')->middleware('service:waec_pin')->group(function () {
         Route::get('/', [WaecPinController::class, 'index'])->name('index');
         Route::post('/purchase', [WaecPinController::class, 'purchase'])
             ->middleware('throttle:20,1')->name('purchase');
@@ -320,7 +320,7 @@ Route::middleware(['auth', 'verified', 'customer'])->group(function () {
         Route::get('/quantity', [WaecPinController::class, 'quantity'])->name('quantity');
     });
 
-    Route::prefix('jamb-pin')->group(function () {
+    Route::prefix('jamb-pin')->middleware('service:jamb_pin')->group(function () {
         Route::get('/', [JambPinController::class, 'index'])->name('jamb-pin.index');
         Route::post('/verify-profile', [JambPinController::class, 'verifyProfile'])
             ->middleware('throttle:30,1')->name('jamb.verify-profile');
@@ -335,7 +335,7 @@ Route::middleware(['auth', 'verified', 'customer'])->group(function () {
     | Electricity
     |----------------------------------------------------------------------
     */
-    Route::prefix('electricity')->name('electricity.')->group(function () {
+    Route::prefix('electricity')->name('electricity.')->middleware('service:electricity')->group(function () {
         Route::get('/', [ElectricityController::class, 'index'])->name('index');
         Route::get('/discos', [ElectricityController::class, 'discos'])->name('discos');
         Route::post('/verify-meter', [ElectricityController::class, 'verifyMeter'])
@@ -350,7 +350,7 @@ Route::middleware(['auth', 'verified', 'customer'])->group(function () {
     | Betting wallet funding
     |----------------------------------------------------------------------
     */
-    Route::prefix('betting')->name('betting.')->group(function () {
+    Route::prefix('betting')->name('betting.')->middleware('service:betting')->group(function () {
         Route::get('/', [BettingController::class, 'index'])->name('index');
         Route::get('/providers', [BettingController::class, 'providers'])->name('providers');
         Route::post('/verify', [BettingController::class, 'verify'])

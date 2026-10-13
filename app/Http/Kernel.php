@@ -73,5 +73,14 @@ class Kernel extends HttpKernel
         // The inverse of `admin`: keeps an administrator out of the customer
         // application. See App\Http\Middleware\CustomerOnly.
         'customer' => \App\Http\Middleware\CustomerOnly::class,
+        /*
+         * Whether a customer-facing service is live. Applied to a route *group*, so
+         * every entry point to a service — its page, its history, its purchase
+         * endpoint, its AJAX helpers — is covered by one line, including routes added
+         * later. See App\Http\Middleware\EnsureServiceEnabled.
+         *
+         *     ->middleware('service:social_boost')
+         */
+        'service' => \App\Http\Middleware\EnsureServiceEnabled::class,
     ];
 }

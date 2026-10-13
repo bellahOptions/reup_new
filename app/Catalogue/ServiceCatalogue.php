@@ -5,6 +5,7 @@ namespace App\Catalogue;
 use App\Models\ProviderProduct;
 use App\Models\ServiceCategory;
 use App\Models\ServiceProduct;
+use App\Services\ServiceGate;
 use App\Support\UiCopy;
 use Illuminate\Support\Collection;
 
@@ -41,6 +42,19 @@ use Illuminate\Support\Collection;
  */
 class ServiceCatalogue
 {
+    /**
+     * Whether a service is switched on.
+     *
+     * Injected rather than read from config here: the route middleware, this
+     * catalogue and the coming-soon page must all answer the same question the same
+     * way, and three separate `config()` reads is three places for the resolution rule
+     * to drift.
+     */
+    public function __construct(
+        private readonly ServiceGate $gate,
+    ) {
+    }
+
     /**
      * The dashboard sections, in the approved order (§51.2 and §51.8).
      *
@@ -210,6 +224,20 @@ class ServiceCatalogue
     public function isAvailable(ServiceProduct $product): bool
     {
         if (! $product->isPurchasable()) {
+            return false;
+        }
+
+        /*
+         * The service gate, checked here as well as in the route middleware.
+         *
+         * Both are needed and neither is redundant. The middleware stops a *request*
+         * to a service that is not live; this stops the service being **offered** in
+         * the first place. Without it a switched-off service would still appear in
+         * the catalogue as buyable and fail at the last step — and the catalogue is
+         * also what the purchase paths consult, so this is the check that survives a
+         * route somebody adds outside the guarded group.
+         */
+        if (! $this->gate->isProductSellable($product)) {
             return false;
         }
 
