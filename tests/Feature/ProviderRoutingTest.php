@@ -75,7 +75,19 @@ class ProviderRoutingTest extends TestCase
     {
         Cache::put('clubkonnect_data_plans', [
             'data_plans' => [
-                ['plan_id' => 'CK-1', 'plan_code' => 'CK1', 'clubkonnect_price' => $price],
+                [
+                    'plan_id' => 'CK-1',
+                    'plan_code' => 'CK1',
+                    /*
+                     * `network_code` is part of a real catalogue row and is now read:
+                     * ClubKonnect reuses plan ids across networks, so a price lookup
+                     * scopes by network to avoid costing a sale from another network's
+                     * bundle. A fixture without it is not a catalogue row.
+                     */
+                    'network_code' => '01',
+                    'network_key' => 'mtn',
+                    'clubkonnect_price' => $price,
+                ],
             ],
         ], 600);
     }

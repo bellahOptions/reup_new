@@ -179,6 +179,34 @@ class NetworkResolver
     }
 
     /**
+     * A canonical key's code in a provider's own code space.
+     *
+     * The inverse of `key()`, and it exists because the catalogue lookup needs it:
+     * a plan identifier is ambiguous between networks, so resolving one requires the
+     * provider's code for the network the customer chose, not our canonical name.
+     *
+     * Returns null when the key is not one we hold or the provider does not map it,
+     * so a caller cannot accidentally look up products with a code the provider
+     * never issued.
+     */
+    public static function providerCode(?string $key, string $providerSlug): ?string
+    {
+        $key = self::key($key);
+
+        if ($key === null) {
+            return null;
+        }
+
+        foreach ((array) config("networks.provider_codes.{$providerSlug}", []) as $code => $mapped) {
+            if ($mapped === $key) {
+                return (string) $code;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * All canonical networks, for a picker or an admin filter.
      *
      * @return array<string,string> canonical key => customer-facing name

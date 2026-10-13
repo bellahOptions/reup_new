@@ -149,18 +149,41 @@ class ClubKonnectCatalogue
     }
 
     /**
-     * Resolve a plan by product code or id.
+     * Resolve a plan by product code or id, optionally scoped to one network.
      *
      * This is the only authoritative price. A request must never be able to tell
      * us what a plan costs — the pricelist markup previously carried
      * `plan_price` from a data attribute and posted it back, so editing the page
      * in devtools bought a ₦20,000 bundle for ₦1.
      *
+     * ## `$networkCode` is what makes the lookup unambiguous
+     *
+     * ClubKonnect reuses product ids across networks: `500`, `100.01`, `200.01` and
+     * eighteen others each exist on two or three networks at once. `plan_code` is
+     * worse — every one of its 41 values appears on more than one network. So a
+     * lookup by identifier alone returns whichever row the provider listed first,
+     * and a customer who selected an MTN bundle was handed Glo's or 9mobile's row
+     * with the same id.
+     *
+     * That is the whole of the reported fault: the row that came back belonged to a
+     * network the customer had not selected, the checkout compared them honestly,
+     * and refused with "that data bundle belongs to a different network from the one
+     * selected" — while the customer looked at a bundle that was, in fact, correct.
+     *
+     * The identifier is **not** trusted to be unique, and the network is not taken on
+     * faith either: `$networkCode` narrows the search, and the caller still compares
+     * canonical networks afterwards. Discovery here, verification there.
+     *
+     * @param  string|null  $networkCode  ClubKonnect's network code, e.g. `01`
      * @return array<string,mixed>|null
      */
-    public function plan(string $code): ?array
+    public function plan(string $code, ?string $networkCode = null): ?array
     {
         foreach ($this->plans()['data_plans'] ?? [] as $plan) {
+            if ($networkCode !== null && (string) ($plan['network_code'] ?? '') !== (string) $networkCode) {
+                continue;
+            }
+
             if ($this->matches($plan, $code)) {
                 return $plan;
             }
@@ -172,10 +195,25 @@ class ClubKonnectCatalogue
     /**
      * What ClubKonnect charges us for a plan, or null when it is not known
      * without asking upstream. Never fetches — see the class docblock.
+     *
+     * ## Scoped for the same reason `plan()` is
+     *
+     * Product ids are reused across networks, so an unscoped lookup can return a
+     * *different network's* bundle — with that network's price. For `plan()` that
+     * produced a spurious network refusal; here it would record the wrong provider
+     * cost against a sale, which is the input to the margin on the snapshot and to
+     * `ProfitRecorder`. A wrong figure there is worse than a refusal: it is a
+     * plausible number that nobody will question.
+     *
+     * @param  string|null  $networkCode  ClubKonnect's code, e.g. `01`
      */
-    public function planPrice(string $code): ?float
+    public function planPrice(string $code, ?string $networkCode = null): ?float
     {
         foreach ($this->cachedPlans()['data_plans'] ?? [] as $plan) {
+            if ($networkCode !== null && (string) ($plan['network_code'] ?? '') !== (string) $networkCode) {
+                continue;
+            }
+
             if ($this->matches($plan, $code)) {
                 $price = $plan['clubkonnect_price'] ?? null;
 

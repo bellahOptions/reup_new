@@ -101,7 +101,18 @@ class ClubKonnectProvider implements BillProvider
             // configured order decides.
             'electricity', 'betting' => isset($params['amount']) ? (float) $params['amount'] : null,
 
-            'data' => $this->catalogue->planPrice((string) ($params['plan'] ?? '')),
+            /*
+             * Scoped by network, because ClubKonnect reuses plan ids across networks
+             * — `500` exists on Glo, MTN and 9mobile — so an unscoped lookup can
+             * return another network's bundle *and its price*. `$params['network']`
+             * is the code the purchase carries, and `null` when a caller has no
+             * network to scope by, which keeps the previous behaviour rather than
+             * refusing a cost that used to resolve.
+             */
+            'data' => $this->catalogue->planPrice(
+                (string) ($params['plan'] ?? ''),
+                isset($params['network']) ? (string) $params['network'] : null,
+            ),
 
             default => null,
         };

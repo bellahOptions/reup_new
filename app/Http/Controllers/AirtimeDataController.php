@@ -528,7 +528,14 @@ class AirtimeDataController extends Controller
         $priced = $this->dataPrices->quote((string) $validated['data_plan'], $selectedNetworkKey);
 
         if (! $priced['found']) {
-            return $this->purchaseRefusal($request, $priced['refusal'], 404);
+            /*
+             * 409 rather than 404 in both cases, because neither is "no such
+             * endpoint": the bundle is either not on the network the customer
+             * selected — a conflict between what they chose and what exists — or it
+             * has gone from the catalogue, which is also a state conflict rather
+             * than a missing resource. Nothing is charged either way.
+             */
+            return $this->purchaseRefusal($request, $priced['refusal'], 409);
         }
 
         if ($priced['price_minor'] === null) {

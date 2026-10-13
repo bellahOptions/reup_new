@@ -117,20 +117,62 @@ class DataPriceService
      */
     public function quote(?string $planIdentifier, ?string $networkKey = null): array
     {
+        /*
+         * The plan is looked up **scoped to the claimed network**, and that scoping
+         * is what fixes the reported "belongs to a different network" refusal.
+         *
+         * ClubKonnect reuses product ids across networks — `500`, `100.01` and
+         * nineteen others each exist on two or three at once, and every one of the 41
+         * `plan_code` values is reused too. An unscoped lookup returned whichever row
+         * the provider listed first, so a customer who had correctly selected an MTN
+         * bundle was handed Glo's row with the same id. The comparison below then
+         * compared the customer's network against a network they had never chosen,
+         * and refused a purchase that was right.
+         *
+         * Scoping makes discovery correct. It does **not** replace verification: the
+         * returned row's own network is still resolved canonically and still compared
+         * against the claim, so a genuine mismatch is still refused.
+         */
+        $networkCode = NetworkResolver::providerCode($networkKey, 'clubkonnect');
+
         $plan = $planIdentifier === null || $planIdentifier === ''
             ? null
-            : $this->catalogue->plan($planIdentifier);
+            : $this->catalogue->plan($planIdentifier, $networkCode);
 
         $status = $this->catalogue->status();
 
         if ($plan === null) {
+            /*
+             * The bundle is not in this network's catalogue. Usually that means the
+             * selection is stale. It can also mean the bundle is real but belongs to
+             * another network, and since ids are reused across networks that is
+             * worth distinguishing — an unscoped identifier that resolves elsewhere
+             * is a mismatch, not a bundle that vanished, and saying "no longer
+             * available" about it would send the customer hunting for a problem with
+             * their page rather than with their selection.
+             *
+             * Only the message differs. Both refuse, and neither touches the wallet.
+             */
+            $elsewhere = $planIdentifier === null || $planIdentifier === ''
+                ? null
+                : $this->catalogue->plan($planIdentifier);
+
+            $belongs = $elsewhere === null
+                ? null
+                : NetworkResolver::key((string) ($elsewhere['network_code'] ?? ''), 'clubkonnect');
+
             return $this->outcome(
                 found: false,
-                plan: null,
+                plan: $elsewhere,
                 quote: null,
-                networkKey: $networkKey,
-                networkName: null,
-                refusal: 'That data bundle is no longer available. Please refresh the page and choose it again.',
+                networkKey: $belongs ?? $networkKey,
+                networkName: $elsewhere === null
+                    ? null
+                    : NetworkResolver::displayName((string) ($elsewhere['network_code'] ?? ''), 'clubkonnect'),
+                refusal: $belongs !== null && $networkKey !== null && $belongs !== $networkKey
+                    ? 'That data bundle belongs to a different network from the one selected. '
+                        . 'Please reselect the network and bundle.'
+                    : 'That data bundle is no longer available. Please refresh the page and choose it again.',
                 status: $status,
             );
         }
